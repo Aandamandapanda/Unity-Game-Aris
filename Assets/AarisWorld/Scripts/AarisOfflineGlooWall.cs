@@ -161,6 +161,10 @@ namespace Aaris.MapReview
             // Favor the first walkable surface under the aiming reticle.
             // The old fixed-distance approximation made the wall appear
             // disconnected from where the player actually pointed.
+            // Camera is behind the avatar: a steep downward look can hit
+            // ground behind the player. Keep a fixed forward hemisphere so
+            // unordered ray hits cannot reverse the intended deployment.
+            Vector3 lookAhead = ahead;
             float nearestGround = float.PositiveInfinity;
             RaycastHit[] cameraHitResults;
             int cameraHits = CompleteRayHits(motor.AimCamera.transform.position,
@@ -175,7 +179,8 @@ namespace Aaris.MapReview
                     Vector3 flat = hit.point - player;
                     flat.y = 0f;
                     float targetDistance = flat.magnitude;
-                    if (targetDistance >= minimumDistance * 0.7f &&
+                    if (Vector3.Dot(flat, lookAhead) > 0f &&
+                        targetDistance >= minimumDistance * 0.7f &&
                         targetDistance <= maximumDistance + 1f &&
                         hit.distance < nearestGround)
                     {
@@ -433,7 +438,17 @@ namespace Aaris.MapReview
                 Segment(visual.transform, "RightCurve", new Vector3(1.46f, 0f, -0.25f),
                     Quaternion.Euler(0f, -24f, 0f), new Vector3(1.26f, 2.24f, 0.36f), material);
             }
-            if (!ghost)
+            if (ghost)
+            {
+                // An uncommitted holographic preview is not physical cover.
+                // Do not submit its meshes to shadow passes on mobile.
+                foreach (var renderer in visual.GetComponentsInChildren<Renderer>(true))
+                {
+                    renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    renderer.receiveShadows = false;
+                }
+            }
+            else
             {
                 // Unlike the visual, this collider stays FULL HEIGHT from the first frame.
                 var col = root.AddComponent<BoxCollider>();
