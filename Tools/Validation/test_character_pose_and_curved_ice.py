@@ -389,9 +389,14 @@ assert '_BaseMap:\n        m_Texture: {fileID: 2800000, guid: '+guid+', type: 3}
 # probe, not assumed screenshot pixel distances.
 assert 'private const float CrouchRigLowering = 0.50f;' in visual
 assert 'private const float ProneRigLowering = 0.22f;' in visual
-assert 'float crouchRigWeight = effectiveCrouchBlend * (1f - effectiveProneBlend);' in visual
+assert 'float crouchRigWeight = authoredProne' in visual
+assert '? effectiveCrouchBlend * (1f - effectiveProneBlend)' in visual
+assert ': Mathf.Clamp01(effectiveCrouchBlend + effectiveProneBlend);' in visual
+# If true prone clips are missing, the fallback stance must still lower the
+# rig with a bounded crouch blend rather than leaving the player airborne.
 assert 'float proneLowering = primaryLoaded && proneClip != null &&' in visual
-assert visual.count('PlantCrouchLeg(') == 3
+# Two crouch + two prone IK applications, plus the solver definition.
+assert visual.count('PlantCrouchLeg(') == 5
 assert 'foot.rotation = footRotation;' in visual
 assert 'Quaternion.FromToRotation(oldUpper, newUpper)' in visual
 assert 'Quaternion.FromToRotation(oldLower, newLower)' in visual
