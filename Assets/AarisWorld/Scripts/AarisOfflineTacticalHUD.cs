@@ -193,7 +193,9 @@ namespace Aaris.MapReview
             Vector3 forward = aim.transform.forward.normalized;
             Vector3 flat = Vector3.ProjectOnPlane(forward, Vector3.up).normalized;
             if (flat.sqrMagnitude < 0.1f) flat = transform.forward;
-            Vector3 origin = transform.position + Vector3.up * 1.45f + flat * 0.85f;
+            // Use the actual stance capsule, not a standing-height spawn.
+            // A blocked release must never teleport the grenade beyond a wall.
+            if (!TryGetGrenadeRelease(flat, out Vector3 origin)) return;
             Vector3 velocity = forward * 16f + Vector3.up * 6f;
             AarisOfflineFragGrenade.Throw(origin, velocity, gameObject);
             // A stationary player could previously channel a medkit while
@@ -204,6 +206,28 @@ namespace Aaris.MapReview
             AarisAudioDirector.GrenadeThrow(origin);
             fragGrenades--;
             nextThrow = Time.time + grenadeCooldown;
+        }
+
+        private bool TryGetGrenadeRelease(Vector3 flat, out Vector3 origin)
+        {
+            const float radius = 0.15f; // 0.13m physical sphere plus clearance.
+            Bounds bounds = medicalController != null && medicalController.enabled
+                ? medicalController.bounds
+                : new Bounds(transform.position + Vector3.up, new Vector3(0.6f, 2f, 0.6f));
+            Vector3 hand = new Vector3(bounds.center.x,
+                bounds.min.y + bounds.size.y * 0.70f, bounds.center.z);
+            origin = hand + flat * 0.85f;
+
+            // Throwing is rate-limited, so complete queries here avoid unordered
+            // saturated buffers without adding a cost to the render hot path.
+            foreach (Collider hit in Physics.OverlapSphere(hand, radius, ~0, QueryTriggerInteraction.Ignore))
+                if (hit != null && !hit.transform.IsChildOf(transform)) return false;
+            foreach (RaycastHit hit in Physics.SphereCastAll(hand, radius, flat, 0.85f,
+                ~0, QueryTriggerInteraction.Ignore))
+                if (hit.collider != null && !hit.collider.transform.IsChildOf(transform)) return false;
+            foreach (Collider hit in Physics.OverlapSphere(origin, radius, ~0, QueryTriggerInteraction.Ignore))
+                if (hit != null && !hit.transform.IsChildOf(transform)) return false;
+            return true;
         }
 
         private void Build()
