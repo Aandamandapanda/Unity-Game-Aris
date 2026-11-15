@@ -307,6 +307,17 @@ def run():
     assert "state.Spec.presentationLengthMetres / length" in pickup_cs
     assert "equipped.Spec.presentationLengthMetres * 0.40f" in inventory
     assert "weaponRoot.TransformPoint(new Vector3(-0.045f, -0.035f, foregrip))" in inventory
+    # Textureless CC0 gun submeshes need physically distinct shared finishes.
+    # BattleRifle is catalogued as category AR, so its special finish must use
+    # the stable weapon id rather than an unreachable category=="BATTLE" check.
+    assert 'string weaponId = spec != null && spec.id != null' in inventory
+    assert 'if (weaponId.Contains("BATTLE"))' in inventory
+    assert 'if (category.Contains("BATTLE"))' not in inventory
+    assert 'label.Contains("brown")' in inventory
+    assert 'label.Contains("wood")' in inventory
+    assert 'label.Contains("bole")' in inventory
+    assert 'private static readonly Dictionary<Material, Material> weaponFinishCache' in inventory
+    assert 'weaponFinishCache[source] = result;' in inventory
     # Gun models do not all have the same length; a fixed long-barrel
     # support point is physically unreachable on shorter humanoid arms.
     # The bounded rail/sphere intersection must precede the left-arm IK.
