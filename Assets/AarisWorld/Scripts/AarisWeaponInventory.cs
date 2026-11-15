@@ -86,6 +86,8 @@ namespace Aaris.MapReview
         {
             string category = spec != null && spec.category != null
                 ? spec.category.ToUpperInvariant() : "";
+            string weaponId = spec != null && spec.id != null
+                ? spec.id.ToUpperInvariant() : "";
             if (category.Contains("SMG"))
                 return CreateWeaponFinish(ref smgFinish, "SMG",
                     new Color(.095f, .11f, .12f), .46f, .31f);
@@ -95,7 +97,7 @@ namespace Aaris.MapReview
             if (category.Contains("SHOT"))
                 return CreateWeaponFinish(ref shotgunFinish, "Shotgun",
                     new Color(.13f, .125f, .115f), .48f, .25f);
-            if (category.Contains("BATTLE"))
+            if (weaponId.Contains("BATTLE"))
                 return CreateWeaponFinish(ref battleFinish, "BattleRifle",
                     new Color(.12f, .125f, .12f), .58f, .27f);
             return CreateWeaponFinish(ref assaultFinish, "AssaultRifle",
@@ -132,7 +134,8 @@ namespace Aaris.MapReview
             string label = source.name.ToLowerInvariant();
             bool polymer = label.Contains("grip") || label.Contains("stock") ||
                 label.Contains("poly") || label.Contains("rubber") ||
-                label.Contains("plastic");
+                label.Contains("plastic") || label.Contains("brown") ||
+                label.Contains("wood") || label.Contains("bole");
             bool optic = label.Contains("scope") || label.Contains("glass") ||
                 label.Contains("lens");
             bool metal = label.Contains("metal") || label.Contains("barrel") ||
