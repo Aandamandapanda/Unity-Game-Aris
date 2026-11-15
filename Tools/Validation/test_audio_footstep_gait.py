@@ -16,9 +16,15 @@ visual = (ROOT / "Assets/AarisWorld/Scripts/AarisCharacterVisual.cs").read_text(
 # The actual visual uses distance-driven gait phases; audio should play at
 # alternating contacts (half the cycle), including crouch/prone movement.
 for part in (
-    "private static float FootfallSpacing(float metresPerSecond, bool armed,",
-    "Mathf.InverseLerp(2.0f, 3.4f, metresPerSecond)",
-    "armed ? 4.4f : 4.8f, metresPerSecond",
+    "private float FootfallSpacing(float metresPerSecond, bool armed,",
+    "float jogCeiling = player != null",
+    "player.JogSpeedMetresPerSecond",
+    "player.ArmedSprintSpeedMetresPerSecond",
+    "player.UnarmedSprintSpeedMetresPerSecond",
+    ": (armed ? 5.7f : 6.5f);",
+    "float runStart = Mathf.Max(1.8f, jogCeiling * 0.55f);",
+    "float sprintStart = Mathf.Max(jogCeiling * 0.95f,",
+    "sprintCeiling * 0.72f);",
     "Mathf.Lerp(2.55f, 3.65f, sprintBlend)",
     "return cycleDistance * 0.5f;",
     "PlayerStance.Prone) return 0.45f;",
@@ -51,10 +57,10 @@ assert "Mathf.DeltaAngle(lastFacingYaw, currentYaw) / motionDt" in visual
 # At normal refresh rates both integrations agree, but after a hitch the
 # old min(deltaTime, .15) foot phase would lag actual movement.
 for frame_dt in (1 / 120, 1 / 60, 1 / 30, 1 / 10, 0.20, 0.30):
-    actual_metres = 4.8 * frame_dt
+    actual_metres = 6.5 * frame_dt
     stride = 3.65
     new_phase = actual_metres / stride
-    old_phase = 4.8 * min(frame_dt, 0.15) / stride
+    old_phase = 6.5 * min(frame_dt, 0.15) / stride
     assert math.isclose(new_phase, actual_metres / stride)
     assert new_phase + 1e-12 >= old_phase
     if frame_dt > 0.15:
@@ -76,8 +82,12 @@ def footfall(speed: float, armed: bool, stance: str) -> float:
         return 0.45
     if stance == "crouch":
         return 0.70
-    run = inv(2.0, 3.4, speed)
-    sprint = inv(4.0, 4.4 if armed else 4.8, speed)
+    jog = 4.2
+    sprint_ceiling = 5.7 if armed else 6.5
+    run_start = max(1.8, jog * 0.55)
+    sprint_start = max(jog * 0.95, sprint_ceiling * 0.72)
+    run = inv(run_start, jog, speed)
+    sprint = inv(sprint_start, sprint_ceiling, speed)
     return 0.5 * lerp(1.25, lerp(2.55, 3.65, sprint), run)
 
 
@@ -85,11 +95,11 @@ def footfall(speed: float, armed: bool, stance: str) -> float:
 # contacts per visual loop. At 10 FPS no frame can produce fake extra steps.
 for speed, armed, stance in (
     (1.0, False, "stand"),
-    (3.4, False, "stand"),
-    (4.4, True, "stand"),
-    (4.8, False, "stand"),
-    (2.0, False, "crouch"),
-    (1.0, False, "prone"),
+    (4.2, False, "stand"),
+    (5.7, True, "stand"),
+    (6.5, False, "stand"),
+    (2.4, False, "crouch"),
+    (1.1, False, "prone"),
 ):
     contact_distance = footfall(speed, armed, stance)
     assert 0.44 <= contact_distance <= 1.83
@@ -110,8 +120,8 @@ for speed, armed, stance in (
             speed, armed, stance, fps, contacts, expected
         )
 
-assert math.isclose(footfall(3.4, False, "stand"), 1.275)
-assert math.isclose(footfall(4.4, True, "stand"), 1.825)
-assert math.isclose(footfall(4.8, False, "stand"), 1.825)
+assert math.isclose(footfall(4.2, False, "stand"), 1.275)
+assert math.isclose(footfall(5.7, True, "stand"), 1.825)
+assert math.isclose(footfall(6.5, False, "stand"), 1.825)
 print("PASS: sound contacts match two-foot gait cycle distance at 10–120 FPS")
 print("NOT TESTED: Unity playable retarget, ground contact pixels, or Android audio output")
