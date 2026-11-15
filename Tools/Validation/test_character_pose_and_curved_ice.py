@@ -336,6 +336,29 @@ assert '1f - Mathf.Clamp01(crouchBlend + proneBlend) : 0f' in visual
 assert 'Mathf.InverseLerp(0.8f, 3.4f, planar) * standingShare' in visual
 assert 'leaning + smoothedAccelerationPitch' in visual
 assert 'smoothedStrafeBank + smoothedTurnBank' in visual
+# Forward-only gait coverage is procedurally orientation-warped for combat
+# strafes. Drive from collision-resolved velocity, fade before full backpedal,
+# rotate the pelvis before foot IK, and counter-yaw the spine to preserve aim.
+assert 'private float smoothedOrientationWarpYaw;' in visual
+assert 'locomotionHipsBone = animator.GetBoneTransform(HumanBodyBones.Hips);' in visual
+assert 'float travelForward = Vector3.Dot(planarVelocity, transform.forward);' in visual
+assert 'float travelSide = Vector3.Dot(planarVelocity, transform.right);' in visual
+assert 'Mathf.InverseLerp(110f, 170f, absTravelAngle)' in visual
+assert 'travelAngle * 0.50f, -44f, 44f' in visual
+assert 'Quaternion.AngleAxis(smoothedOrientationWarpYaw, transform.up)' in visual
+assert '-smoothedOrientationWarpYaw * 0.78f' in visual
+assert 'smoothedOrientationWarpYaw = 0f;' in visual
+# Pure lateral travel reaches the bounded pelvis warp, while full backward
+# movement fades it away so the existing reversed backpedal gait stays stable.
+def orientation_warp(angle):
+    a = abs(angle)
+    x = max(0.0, min(1.0, (a - 110.0) / 60.0))
+    smooth = x * x * (3.0 - 2.0 * x)
+    fade = 1.0 - smooth
+    return max(-44.0, min(44.0, angle * 0.50)) * fade
+assert abs(orientation_warp(90.0) - 44.0) < 1e-9
+assert 20.0 < orientation_warp(135.0) < 35.0
+assert abs(orientation_warp(180.0)) < 1e-9
 assert 'controller.Move(' not in visual
 # A player respawn, teleport or vehicle hand-off must not turn a large
 # world-space discontinuity into a one-frame acceleration/bank animation.
