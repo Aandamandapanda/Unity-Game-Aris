@@ -8,13 +8,13 @@ namespace Aaris.MapReview
     {
         [SerializeField] private Camera followCamera;
         [SerializeField] private Transform leftArm, rightArm, leftLeg, rightLeg;
-        [SerializeField] private float walkSpeed = 3.4f, runSpeed = 4.8f;
+        [SerializeField] private float walkSpeed = 4.2f, runSpeed = 6.5f;
         [Header("Battle Royale locomotion — metres per second")]
-        [SerializeField, Min(0f)] private float unarmedSprintSpeed = 4.8f;
-        [SerializeField, Min(0f)] private float armedSprintSpeed = 4.4f;
-        [SerializeField, Min(0f)] private float crouchMoveSpeed = 2.0f;
-        [SerializeField, Min(0f)] private float proneMoveSpeed = 1.0f;
-        [SerializeField, Min(0f)] private float combatMoveSpeed = 1.8f;
+        [SerializeField, Min(0f)] private float unarmedSprintSpeed = 6.5f;
+        [SerializeField, Min(0f)] private float armedSprintSpeed = 5.7f;
+        [SerializeField, Min(0f)] private float crouchMoveSpeed = 2.4f;
+        [SerializeField, Min(0f)] private float proneMoveSpeed = 1.1f;
+        [SerializeField, Min(0f)] private float combatMoveSpeed = 2.0f;
         [SerializeField, Min(0f)] private float adsMoveSpeed = 2.2f;
         [SerializeField, Min(1f)] private float weaponTurnResponse = 17f;
         [SerializeField, Min(0.01f)] private float horizontalAcceleration = 13f;
@@ -92,6 +92,11 @@ namespace Aaris.MapReview
         public float LastLandingImpactSpeed => lastLandingImpactSpeed;
         public float LastJumpStartedTime => lastJumpStarted;
         public Camera AimCamera => followCamera;
+        // Presentation systems read the real motor ceilings instead of
+        // duplicating magic speed constants that can drift out of sync.
+        public float JogSpeedMetresPerSecond => walkSpeed;
+        public float UnarmedSprintSpeedMetresPerSecond => unarmedSprintSpeed;
+        public float ArmedSprintSpeedMetresPerSecond => armedSprintSpeed;
 
         // The original lightweight placeholder has articulated arm/leg pivots.
         // If an Android build cannot initialize the optional Humanoid rig,
@@ -160,19 +165,24 @@ namespace Aaris.MapReview
             if (held) RequestJump();
         }
 
-        // Old Unity scenes retain serialized 6.5 m/s values. Apply once on
-        // spawn: the lower Inspector settings survive, while old fast values
-        // cannot override the current human-scale movement profile.
+        // Old scenes may retain obsolete pace values. Clamp once to the
+        // reviewed BR locomotion profile so motor speed, animation cadence
+        // and traversal timing use one deterministic ceiling on every device.
         private void EnforceNaturalLocomotionPace()
         {
-            walkSpeed = Mathf.Min(walkSpeed, 3.4f);
-            runSpeed = Mathf.Min(runSpeed, 4.8f);
-            unarmedSprintSpeed = Mathf.Min(unarmedSprintSpeed, 4.8f);
-            armedSprintSpeed = Mathf.Min(armedSprintSpeed, 4.4f);
-            crouchMoveSpeed = Mathf.Min(crouchMoveSpeed, 2.0f);
-            proneMoveSpeed = Mathf.Min(proneMoveSpeed, 1.0f);
-            combatMoveSpeed = Mathf.Min(combatMoveSpeed, 1.8f);
-            adsMoveSpeed = Mathf.Min(adsMoveSpeed, 2.2f);
+            walkSpeed = Mathf.Min(walkSpeed <= 0f ? 4.2f : walkSpeed, 4.2f);
+            runSpeed = Mathf.Min(runSpeed <= 0f ? 6.5f : runSpeed, 6.5f);
+            unarmedSprintSpeed = Mathf.Min(
+                unarmedSprintSpeed <= 0f ? 6.5f : unarmedSprintSpeed, 6.5f);
+            armedSprintSpeed = Mathf.Min(
+                armedSprintSpeed <= 0f ? 5.7f : armedSprintSpeed, 5.7f);
+            crouchMoveSpeed = Mathf.Min(
+                crouchMoveSpeed <= 0f ? 2.4f : crouchMoveSpeed, 2.4f);
+            proneMoveSpeed = Mathf.Min(
+                proneMoveSpeed <= 0f ? 1.1f : proneMoveSpeed, 1.1f);
+            combatMoveSpeed = Mathf.Min(
+                combatMoveSpeed <= 0f ? 2.0f : combatMoveSpeed, 2.0f);
+            adsMoveSpeed = Mathf.Min(adsMoveSpeed <= 0f ? 2.2f : adsMoveSpeed, 2.2f);
         }
 
         private void Awake()
