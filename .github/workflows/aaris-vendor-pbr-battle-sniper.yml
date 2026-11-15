@@ -102,7 +102,13 @@ jobs:
           git reset --hard HEAD
           for attempt in 1 2 3 4 5; do
             git fetch origin main
-            if git rebase origin/main && git push origin HEAD:refs/heads/main; then
+            # This repository contains a few historical full blobs under
+            # paths now marked filter=lfs. Neutralize only the filter during
+            # rebase so Git compares the committed bytes as-is instead of
+            # reporting false dirty state. No LFS content is rewritten.
+            if git -c filter.lfs.process= -c filter.lfs.clean=cat \
+              -c filter.lfs.smudge=cat -c filter.lfs.required=false \
+              rebase origin/main && git push origin HEAD:refs/heads/main; then
               echo 'AARIS_PBR_BATTLE_SNIPER_PUSHED'
               exit 0
             fi
