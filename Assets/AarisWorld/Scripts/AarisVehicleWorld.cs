@@ -31,6 +31,10 @@ namespace Aaris.MapReview
         // Runtime-only: some higher-fidelity FBXs include four separate wheel
         // objects. They are detached and driven by the existing WheelColliders.
         [NonSerialized] public bool useEmbeddedAuthoredWheels;
+        // OBJ bodies with verified geometry can keep the existing dedicated
+        // WheelCollider visuals while their source materials are converted once
+        // to shared URP Lit materials. No per-instance/per-frame materials.
+        [NonSerialized] public bool convertAuthoredBodyMaterials;
     }
 
     [Serializable]
@@ -246,6 +250,15 @@ namespace Aaris.MapReview
                             Debug.LogWarning("Aaris vehicles: using legacy art for " +
                                 item.id);
                     }
+                    else if (authoredBody != null &&
+                        authoredBody.GetComponentInChildren<Renderer>(true) != null)
+                    {
+                        // Verified body-only CC0 OBJ: preserve its real silhouette
+                        // and semantic submeshes, but keep the established wheel
+                        // prefab/physics path. Source materials are converted once.
+                        prefabs[i] = authoredBody;
+                        item.convertAuthoredBodyMaterials = true;
+                    }
                 }
                 // A valid GameObject without a usable mesh is not a drivable
                 // 3D model. Remove both references so weighted selection
@@ -452,10 +465,19 @@ namespace Aaris.MapReview
 
             string label = source.name.ToLowerInvariant();
             bool glass = label.Contains("glass") || label.Contains("window");
+            bool darkTrim = label.Contains("dark") || label.Contains("black") ||
+                label.Contains("grey") || label.Contains("tire") ||
+                label.Contains("tyre") || label.Contains("rubber");
+            bool headlight = label.Contains("headlight");
+            bool taillight = label.Contains("taillight") ||
+                label.Contains("tail_light");
             if (glass)
             {
-                baseColor.a = Mathf.Min(baseColor.a, .42f);
-                result.SetColor("_BaseColor", baseColor);
+                baseColor.a = Mathf.Min(baseColor.a, .38f);
+                if (result.HasProperty("_BaseColor"))
+                    result.SetColor("_BaseColor", baseColor);
+                if (result.HasProperty("_Metallic")) result.SetFloat("_Metallic", .02f);
+                if (result.HasProperty("_Smoothness")) result.SetFloat("_Smoothness", .88f);
                 result.SetOverrideTag("RenderType", "Transparent");
                 if (result.HasProperty("_Surface")) result.SetFloat("_Surface", 1f);
                 if (result.HasProperty("_SrcBlend"))
@@ -468,6 +490,31 @@ namespace Aaris.MapReview
                 result.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
                 result.renderQueue =
                     (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            }
+            else if (headlight || taillight)
+            {
+                if (result.HasProperty("_Metallic")) result.SetFloat("_Metallic", .04f);
+                if (result.HasProperty("_Smoothness")) result.SetFloat("_Smoothness", .68f);
+                if (result.HasProperty("_EmissionColor"))
+                {
+                    Color glow = headlight
+                        ? new Color(1.1f, 1.05f, .82f, 1f)
+                        : new Color(.72f, .018f, .01f, 1f);
+                    result.SetColor("_EmissionColor", glow);
+                    result.EnableKeyword("_EMISSION");
+                }
+            }
+            else if (darkTrim)
+            {
+                if (result.HasProperty("_Metallic")) result.SetFloat("_Metallic", .06f);
+                if (result.HasProperty("_Smoothness")) result.SetFloat("_Smoothness", .20f);
+            }
+            else
+            {
+                // Painted steel: enough reflection to read body curvature but
+                // not the mirror-like toy finish produced by smoothness=1.
+                if (result.HasProperty("_Metallic")) result.SetFloat("_Metallic", .32f);
+                if (result.HasProperty("_Smoothness")) result.SetFloat("_Smoothness", .58f);
             }
             authoredMaterialCache[source] = result;
             return result;
@@ -723,7 +770,8 @@ namespace Aaris.MapReview
             root.transform.SetPositionAndRotation(pos, record.rotation);
             var mesh = Instantiate(source, root.transform, false);
             mesh.name = record.type.preserveAuthoredUrpMaterials ||
-                record.type.useEmbeddedAuthoredWheels
+                record.type.useEmbeddedAuthoredWheels ||
+                record.type.convertAuthoredBodyMaterials
                 ? "Authored Vehicle Body" : "Local CC0 Car Model";
             foreach (var collider in mesh.GetComponentsInChildren<Collider>(true))
                 collider.enabled = false;
@@ -732,7 +780,8 @@ namespace Aaris.MapReview
             // Kenney Car Kit uses one UV palette atlas. Share ONE URP Lit
             // material across streamed instances; never instantiate new
             // materials per car/per frame.
-            if (record.type.useEmbeddedAuthoredWheels)
+            if (record.type.useEmbeddedAuthoredWheels ||
+                record.type.convertAuthoredBodyMaterials)
             {
                 ApplyAuthoredMaterials(renderers);
             }
