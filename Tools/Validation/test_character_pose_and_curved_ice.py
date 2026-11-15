@@ -354,27 +354,34 @@ for acceleration, share in ((13.0, 1.0), (-13.0, 1.0),
     if share == 0.0:
         assert pitch_target == 0.0
 
-# A typical 3.4m/s forward jog must not play a tiny fast-walk cycle:
-# the previous 3.3-4.4m/s blend generated almost FIVE foot contacts/sec.
-# The audio and visual cycles must use the SAME walk-to-jog speed range.
+# Standing footstep audio and visual gait must share the same dynamic motor
+# thresholds. The current BR profile reaches full jog at 4.2 m/s and full
+# sprint at 5.7 armed / 6.5 unarmed; old 3.4/4.4/4.8 constants drifted.
 audio = (ROOT / 'Assets/AarisWorld/Scripts/AarisAudioDirector.cs').read_text()
-assert 'Mathf.InverseLerp(2.0f, 3.4f, horizontal)' in visual
-assert 'Mathf.InverseLerp(2.0f, 3.4f, metresPerSecond)' in audio
-assert 'Mathf.InverseLerp(3.3f, 4.4f, horizontal)' not in visual
-assert 'Mathf.InverseLerp(3.3f, 4.4f, metresPerSecond)' not in audio
-def jog_cycle(speed, armed):
-    run = max(0.0, min(1.0, (speed - 2.0) / 1.4))
-    sprint = max(0.0, min(1.0, (speed - 4.0) / (0.4 if armed else 0.8)))
+for src in (visual, audio):
+    assert 'float jogCeiling = player' in src
+    assert 'Mathf.Max(1.8f, jogCeiling * 0.55f)' in src
+    assert 'Mathf.Max(jogCeiling * 0.95f,' in src
+    assert 'sprintCeiling * 0.72f' in src
+    assert 'Mathf.Lerp(2.55f, 3.65f, sprintBlend)' in src
+def stand_cycle(speed, armed):
+    jog = 4.2
+    cap = 5.7 if armed else 6.5
+    run_start = max(1.8, jog * 0.55)
+    sprint_start = max(jog * 0.95, cap * 0.72)
+    run = max(0.0, min(1.0, (speed - run_start) / (jog - run_start)))
+    sprint = max(0.0, min(1.0, (speed - sprint_start) / (cap - sprint_start)))
     return (1.0 - run) * 1.25 + run * (2.55 + 1.10 * sprint)
-assert abs(jog_cycle(3.4, False) - 2.55) < 1e-12
-assert 2.5 < (2.0 * 3.4 / jog_cycle(3.4, False)) < 2.8
+assert abs(stand_cycle(4.2, False) - 2.55) < 1e-12
+assert abs(stand_cycle(5.7, True) - 3.65) < 1e-12
+assert abs(stand_cycle(6.5, False) - 3.65) < 1e-12
 for fps in (10, 15, 20, 30, 60, 120):
     elapsed = 2.0
-    distance = sum(3.4 / fps for _ in range(int(elapsed * fps)))
-    stride = jog_cycle(3.4, False)
+    distance = sum(4.2 / fps for _ in range(int(elapsed * fps)))
+    stride = stand_cycle(4.2, False)
     contacts = int(distance / (stride * 0.5) + 1e-9)
-    assert contacts == 5, (fps, contacts)
-    assert jog_cycle(4.4, True) > jog_cycle(3.4, True)
+    assert contacts == 6, (fps, contacts)
+    assert stand_cycle(5.7, True) > stand_cycle(4.2, True)
 
 print('PASS: grounded prone, jump impact, dynamic balance, jog-footfall sync, backward gait, airborne inertia, poses and curved Gloo Wall')
 
