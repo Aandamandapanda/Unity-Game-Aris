@@ -56,6 +56,13 @@ namespace Aaris.MapReview
         private float reloadUntil, nextFire;
         private uint spreadSeed;
         private bool reloading;
+        // One tiny shared-material quad per equipped weapon. It is created
+        // at equip/configuration time and only toggled on accepted shots;
+        // automatic fire never allocates particles, lights or GameObjects.
+        private Renderer muzzleFlashRenderer;
+        private Transform muzzleFlashTransform;
+        private float muzzleFlashUntil;
+        private static Material sharedMuzzleFlashMaterial;
         public bool Configured => spec != null;
         public bool Automatic => spec != null && spec.automatic;
         public float SecondsBetweenShots => spec != null ? spec.ShotInterval : 1f;
@@ -85,6 +92,7 @@ namespace Aaris.MapReview
             nextFire = state.NextShotAt;
             reloadUntil = state.ReloadUntil;
             reloading = state.Reloading;
+            EnsureMuzzleFlash();
             RefreshReload();
         }
 
@@ -96,7 +104,97 @@ namespace Aaris.MapReview
                 reloadUntil, nextFire, reloading, spreadSeed);
         }
 
-        private void Update() => RefreshReload();
+        private static Material MuzzleFlashMaterial()
+        {
+            if (sharedMuzzleFlashMaterial != null) return sharedMuzzleFlashMaterial;
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null) shader = Shader.Find("Unlit/Color");
+            if (shader == null) return null;
+            var material = new Material(shader)
+            {
+                name = "Aaris Shared Muzzle Flash",
+                enableInstancing = true
+            };
+            Color flash = new Color(4.2f, 1.45f, 0.22f, 0.88f);
+            if (material.HasProperty("_BaseColor"))
+                material.SetColor("_BaseColor", flash);
+            if (material.HasProperty("_Color"))
+                material.SetColor("_Color", flash);
+            material.SetOverrideTag("RenderType", "Transparent");
+            if (material.HasProperty("_Surface")) material.SetFloat("_Surface", 1f);
+            if (material.HasProperty("_Blend")) material.SetFloat("_Blend", 2f);
+            if (material.HasProperty("_SrcBlend"))
+                material.SetFloat("_SrcBlend",
+                    (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (material.HasProperty("_DstBlend"))
+                material.SetFloat("_DstBlend",
+                    (float)UnityEngine.Rendering.BlendMode.One);
+            if (material.HasProperty("_ZWrite")) material.SetFloat("_ZWrite", 0f);
+            if (material.HasProperty("_Cull")) material.SetFloat("_Cull", 0f);
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            sharedMuzzleFlashMaterial = material;
+            return material;
+        }
+
+        private void EnsureMuzzleFlash()
+        {
+            if (muzzleFlashRenderer != null || spec == null) return;
+            Material material = MuzzleFlashMaterial();
+            if (material == null) return;
+            GameObject flash = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            flash.name = "Aaris Pooled Muzzle Flash";
+            flash.transform.SetParent(transform, false);
+            flash.transform.localPosition =
+                new Vector3(0f, 0f, spec.presentationLengthMetres * 0.62f);
+            flash.transform.localRotation = Quaternion.identity;
+            Collider flashCollider = flash.GetComponent<Collider>();
+            if (flashCollider != null)
+            {
+                flashCollider.enabled = false;
+                Destroy(flashCollider);
+            }
+            muzzleFlashRenderer = flash.GetComponent<Renderer>();
+            muzzleFlashTransform = flash.transform;
+            muzzleFlashRenderer.sharedMaterial = material;
+            muzzleFlashRenderer.shadowCastingMode =
+                UnityEngine.Rendering.ShadowCastingMode.Off;
+            muzzleFlashRenderer.receiveShadows = false;
+            muzzleFlashRenderer.enabled = false;
+        }
+
+        private void TriggerMuzzleFlash()
+        {
+            if (muzzleFlashRenderer == null || muzzleFlashTransform == null ||
+                spec == null) return;
+            float size = spec.category == "Shotgun" ? 0.19f :
+                spec.category == "Sniper" ? 0.15f :
+                spec.category == "SMG" ? 0.09f : 0.115f;
+            // Slight size/roll variance avoids a frozen decal look. This uses
+            // Unity's scalar RNG only; no temporary meshes or particles.
+            float stretch = UnityEngine.Random.Range(0.80f, 1.22f);
+            muzzleFlashTransform.localScale =
+                new Vector3(size * stretch, size, 1f);
+            muzzleFlashTransform.localRotation =
+                Quaternion.Euler(0f, 0f, UnityEngine.Random.Range(0f, 360f));
+            muzzleFlashUntil = Time.time +
+                Mathf.Clamp(spec.ShotInterval * 0.42f, 0.022f, 0.045f);
+            muzzleFlashRenderer.enabled = true;
+        }
+
+        private void Update()
+        {
+            RefreshReload();
+            if (muzzleFlashRenderer != null && muzzleFlashRenderer.enabled &&
+                Time.time >= muzzleFlashUntil)
+                muzzleFlashRenderer.enabled = false;
+        }
+
+        private void OnDisable()
+        {
+            if (muzzleFlashRenderer != null)
+                muzzleFlashRenderer.enabled = false;
+        }
 
         // Even an unequipped weapon must complete its reload on schedule.
         // Unity stops calling Update on inactive inventory slot GameObjects.
@@ -172,6 +270,7 @@ namespace Aaris.MapReview
             // multi-pellet shotguns; reload and cooldown live in weapon state.
             magazine--;
             nextFire = Time.time + spec.ShotInterval;
+            TriggerMuzzleFlash();
             if (cachedOwner != owner)
             {
                 cachedOwner = owner;
