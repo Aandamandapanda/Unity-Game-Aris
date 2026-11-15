@@ -17,7 +17,7 @@
       "maxSpeedMetres": 23.5,
       "massKg": 1650,
       "wheelResource": "AarisVehicles/Models/wheel-default",
-      "authoredModelResource": "AarisVehicles/Authored/1990s-suv"
+      "authoredModelResource": "AarisVehicles/Authored/QuaterniusSUV"
     },
     {
       "id": "Sports",
@@ -26,7 +26,7 @@
       "maxSpeedMetres": 28,
       "massKg": 1140,
       "wheelResource": "AarisVehicles/Models/wheel-racing",
-      "authoredModelResource": "AarisVehicles/Authored/1990s-sports-car"
+      "authoredModelResource": "AarisVehicles/Authored/QuaterniusSports"
     },
     {
       "id": "Hatchback",
@@ -35,7 +35,7 @@
       "maxSpeedMetres": 24,
       "massKg": 1040,
       "wheelResource": "AarisVehicles/Models/wheel-racing",
-      "authoredModelResource": "AarisVehicles/Authored/1990s-hatchback"
+      "authoredModelResource": "AarisVehicles/Authored/QuaterniusCompact"
     },
     {
       "id": "Van",
