@@ -350,8 +350,16 @@ def export_weapon(source_root: Path, repo_root: Path, weapon_id: str,
     for node in doc.get("nodes", []):
         if node.get("name") == "LOD":
             continue
-        if any(key in node for key in ("matrix", "translation", "rotation", "scale")):
+        # The pinned source uses translation-only child nodes for bolt,
+        # magazine and optic placement. Bake that translation into OBJ
+        # positions; reject rotation/scale/matrix drift rather than silently
+        # changing orientation or physical proportions.
+        if any(key in node for key in ("matrix", "rotation", "scale")):
             raise ValueError(f"{source_name}: unexpected node transform")
+        translation = node.get("translation", [0.0, 0.0, 0.0])
+        if len(translation) != 3:
+            raise ValueError(f"{source_name}: invalid node translation")
+        tx, ty, tz = (float(value) for value in translation)
         mesh_index = node.get("mesh")
         if mesh_index is None:
             continue
@@ -383,7 +391,8 @@ def export_weapon(source_root: Path, repo_root: Path, weapon_id: str,
                 f"o {weapon_id}_{node.get('name', mesh.get('name', 'Mesh'))}_{primitive_index}")
             obj.append(f"usemtl {material}")
             for x, y, z in positions:
-                obj.append(f"v {x:.7f} {y:.7f} {z:.7f}")
+                obj.append(
+                    f"v {x + tx:.7f} {y + ty:.7f} {z + tz:.7f}")
             for u, v in uvs:
                 obj.append(f"vt {u:.7f} {1.0 - v:.7f}")
             for x, y, z in normals:
