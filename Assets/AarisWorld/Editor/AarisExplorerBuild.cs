@@ -14,9 +14,31 @@ namespace Aaris.MapReview.Editor
     {
         public const string ScenePath = "Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity";
         internal const AndroidArchitecture AndroidArchitectures = AndroidArchitecture.ARMv7 | AndroidArchitecture.ARM64;
+        private static bool buildSceneValidated;
+
         public int callbackOrder => 0;
 
-        public void OnPreprocessBuild(BuildReport report) { Configure(); ValidateSavedScene(); }
+        public void OnPreprocessBuild(BuildReport report)
+        {
+            if (buildSceneValidated) return;
+            Configure();
+            ValidateSavedScene();
+        }
+
+        internal static BuildReport BuildValidatedPlayer(BuildPlayerOptions options)
+        {
+            Configure();
+            ValidateSavedScene();
+            buildSceneValidated = true;
+            try
+            {
+                return BuildPipeline.BuildPlayer(options);
+            }
+            finally
+            {
+                buildSceneValidated = false;
+            }
+        }
 
         [MenuItem("Aaris/Build Android Aaris Game APK")]
         public static void BuildAndroid()
@@ -68,10 +90,11 @@ namespace Aaris.MapReview.Editor
         public static void ValidateSavedScene()
         {
             var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
-            var player = UnityEngine.Object.FindFirstObjectByType<AarisThirdPersonPlayer>();
+            var roots = scene.GetRootGameObjects();
+            var player = SceneComponents<AarisThirdPersonPlayer>(roots).FirstOrDefault();
             if (player == null || !player.enabled || player.GetComponent<CharacterController>() == null)
                 throw new BuildFailedException("The saved scene must contain the grounded third-person player.");
-            if (UnityEngine.Object.FindFirstObjectByType<AarisMobileRuntime>() == null || UnityEngine.Object.FindFirstObjectByType<AarisNearbyColliders>() == null)
+            if (!SceneComponents<AarisMobileRuntime>(roots).Any() || !SceneComponents<AarisNearbyColliders>(roots).Any())
                 throw new BuildFailedException("The saved scene must include mobile memory diagnostics and bounded building physics.");
             var binding = new SerializedObject(player).FindProperty("followCamera");
             if (binding == null || !(binding.objectReferenceValue is Camera camera))
@@ -99,7 +122,7 @@ namespace Aaris.MapReview.Editor
             string worldReport = "Docs/WORLD_REVIEW_REPORT.json";
             if (!File.Exists(worldReport) || !JsonUtility.FromJson<NativeReport>(File.ReadAllText(worldReport)).native_assets_materialized)
                 throw new BuildFailedException("Saved world proportion assets are missing. Check out the complete current project and its Git LFS assets.");
-            if (RenderSettings.sun == null || RenderSettings.sun.intensity < 1.3f || Camera.main == null || Camera.main.clearFlags != CameraClearFlags.Skybox)
+            if (RenderSettings.sun == null || RenderSettings.sun.intensity < 1.3f || !camera.CompareTag("MainCamera") || camera.clearFlags != CameraClearFlags.Skybox)
                 throw new BuildFailedException("The saved daylight sun and skybox camera must be present.");
             foreach (string asset in AssetDatabase.FindAssets("t:Prefab", new[] { "Assets/AarisWorld/Models" }))
             {
@@ -110,21 +133,28 @@ namespace Aaris.MapReview.Editor
             foreach (string texture in new[] { "Asphalt", "Concrete", "Sand", "RoadMark" })
                 if (!(AssetImporter.GetAtPath("Assets/AarisWorld/Surfaces/" + texture + ".png") is TextureImporter))
                     throw new BuildFailedException("A surface PNG has the wrong importer: " + texture);
-            foreach (LODGroup lod in UnityEngine.Object.FindObjectsByType<LODGroup>(FindObjectsSortMode.None))
+            foreach (LODGroup lod in SceneComponents<LODGroup>(roots))
                 if (!lod.name.StartsWith("AarisPlayer", StringComparison.Ordinal) && lod.GetLODs().Length < 3)
                     throw new BuildFailedException("Building is missing its saved near/middle/far LODs: " + lod.name);
-            var terrains = UnityEngine.Object.FindObjectsByType<Terrain>(FindObjectsSortMode.None);
+            var terrains = SceneComponents<Terrain>(roots).ToArray();
             if (terrains.Length != 4 || terrains.Any(t => t.terrainData == null))
                 throw new BuildFailedException("Expected the four saved 1km TerrainData tiles; check Git LFS downloads.");
-            var spawns = UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsSortMode.None)
+            var spawns = SceneComponents<Transform>(roots)
                 .Count(t => t.parent != null && t.parent.name == "VehicleSpawns"
                     && t.name.StartsWith("VehicleSpawnPoint_", StringComparison.Ordinal));
             if (spawns != 45) throw new BuildFailedException("Expected all 45 empty vehicle spawn markers.");
-            foreach (var root in scene.GetRootGameObjects())
+            foreach (var root in roots)
                 foreach (var transform in root.GetComponentsInChildren<Transform>(true))
                     if (GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(transform.gameObject) != 0)
                         throw new BuildFailedException("Missing script on " + transform.name);
             Debug.Log("Aaris ground review verified: human player, daylight, saved forest/LODs, four terrains, 45 markers.");
+        }
+
+        private static System.Collections.Generic.IEnumerable<T> SceneComponents<T>(GameObject[] roots)
+            where T : Component
+        {
+            return roots.SelectMany(root => root.GetComponentsInChildren<T>())
+                .Where(component => component.gameObject.activeInHierarchy);
         }
 
         [Serializable]
@@ -132,9 +162,8 @@ namespace Aaris.MapReview.Editor
 
         private static void Build(string path, BuildTarget target)
         {
-            ValidateSavedScene();
             Directory.CreateDirectory(target == BuildTarget.Android ? Path.GetDirectoryName(path) : path);
-            BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+            BuildReport report = BuildValidatedPlayer(new BuildPlayerOptions
             {
                 scenes = new[] { ScenePath }, locationPathName = path, target = target, options = BuildOptions.None
             });

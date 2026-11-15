@@ -191,7 +191,7 @@ namespace Aaris.MapReview.Editor
                     target = BuildTarget.Android,
                     options = BuildOptions.None
                 };
-                BuildReport report = BuildPipeline.BuildPlayer(request);
+                BuildReport report = AarisExplorerBuild.BuildValidatedPlayer(request);
                 if (report == null || report.summary.result != BuildResult.Succeeded)
                 {
                     evidence.errors = report != null ? report.summary.totalErrors : 1;
