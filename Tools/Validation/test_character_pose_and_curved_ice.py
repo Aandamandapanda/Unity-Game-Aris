@@ -438,7 +438,9 @@ assert ': Mathf.Clamp01(effectiveCrouchBlend + effectiveProneBlend);' in visual
 assert 'float proneLowering = primaryLoaded && proneClip != null &&' in visual
 # One two-bone solve per leg, irrespective of intermediate stance blends.
 assert visual.count('PlantCrouchLeg(') == 4  # definition + upright helper + low-stance left/right
-assert visual.count('SupportedAnkleY(') == 5  # definition + upright + standing recovery + two low-stance rays
+assert 'return SupportedAnkleY(foot, clearance, out _);' in visual
+assert 'out Vector3 supportNormal' in visual
+assert 'SupportedAnkleY(stanceFoot, UprightAnkleClearanceMetres)' in visual
 assert 'float totalRigWeight = crouchRigWeight + proneRigWeight;' in visual
 assert 'float ankleRigWeight = !visuallyAirborne && graphReady' in visual
 assert 'Mathf.Clamp01(totalRigWeight) : 0f;' in visual
