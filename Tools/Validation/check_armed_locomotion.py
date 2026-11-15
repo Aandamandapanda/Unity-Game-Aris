@@ -187,6 +187,23 @@ def audit():
 
     assert "bool IsArmed" in actions
     assert "ApplyWeaponRecoil" in gun
+    # Gun recoil is transient camera presentation, not a permanent rewrite
+    # of the player's base look angles. Continuous fire may accumulate kick;
+    # exponential recovery remains nearly frame-rate independent.
+    assert "private const float RecoilRecoveryPerSecond = 9.5f;" in motor
+    assert "recoilPitchOffset = Mathf.Clamp(recoilPitchOffset +" in motor
+    assert "float cameraPitch = Mathf.Clamp(pitch - recoilPitchOffset," in motor
+    assert "float cameraYaw = yaw + recoilYawOffset;" in motor
+    assert "pitch = Mathf.Clamp(pitch - Mathf.Clamp(pitchKick" not in motor
+    recovery_samples = []
+    for fps in (10, 20, 30, 60, 120):
+        value = 4.5
+        dt = 1.0 / fps
+        for _ in range(round(.5 * fps)):
+            alpha = 1.0 - math.exp(-9.5 * dt)
+            value += (0.0 - value) * alpha
+        recovery_samples.append(value)
+    assert max(recovery_samples) - min(recovery_samples) < 1e-5, recovery_samples
     assert "AarisWeaponState" in gun  # one carried gun, preserved drop state
 
     # Test camera-facing turn response over 10-120 FPS including discrete
