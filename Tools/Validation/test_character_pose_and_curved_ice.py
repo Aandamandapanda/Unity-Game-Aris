@@ -58,6 +58,13 @@ assert 'hit.collider.transform.IsChildOf(transform)' in visual
 assert 'PlantCrouchLeg(leftThigh, leftShin, leftFootBone,' in visual
 assert 'Vector3 currentKnee = knee - hip;' in visual
 assert 'axis * Vector3.Dot(currentKnee, axis)' in visual
+# Crouch/prone must reuse each existing foot support ray's normal so shoes
+# follow sloped roads/bridges without adding another pair of Physics queries.
+assert 'out Vector3 leftSupportNormal' in visual
+assert 'out Vector3 rightSupportNormal' in visual
+assert 'AlignFootToSupport(leftFootBone, leftSupportNormal,' in visual
+assert 'AlignFootToSupport(rightFootBone, rightSupportNormal,' in visual
+assert 'AlignFootToSupport(foot, supportNormal, finalWeight, 32f, 0.85f);' in visual
 assert 'ProneAnkleClearanceMetres' in visual
 # Upright walk/run contact uses the same bounded, allocation-free leg solve,
 # but only near the floor so an authored swing foot is never pinned.
