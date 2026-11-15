@@ -156,7 +156,10 @@ namespace Aaris.MapReview
                 Vector3 orbit = Quaternion.Euler(-pitch, yaw, 0f) * Vector3.back;
                 Vector3 initialPosition = plane.transform.position + orbit * 28f +
                     Vector3.up * 9f;
-                Vector3 focus = plane.transform.position + plane.transform.forward * 4f;
+                // Keep the chase camera on the authoritative route axis:
+                // visual gust/bank remains visible on the airframe without
+                // injecting micro-jitter into the camera's look direction.
+                Vector3 focus = plane.transform.position + planeFlightDirection * 4f;
                 view.transform.SetPositionAndRotation(initialPosition,
                     Quaternion.LookRotation(focus - initialPosition, Vector3.up));
             }
@@ -769,7 +772,7 @@ namespace Aaris.MapReview
                 // above, below and either side before ejecting.
                 Vector3 orbit = Quaternion.Euler(-pitch, yaw, 0f) * Vector3.back;
                 pos = plane.transform.position + orbit * 28f + Vector3.up * 9f;
-                focus = plane.transform.position + plane.transform.forward * 4f;
+                focus = plane.transform.position + planeFlightDirection * 4f;
             }
             else
             {
