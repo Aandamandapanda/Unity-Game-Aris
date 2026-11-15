@@ -869,6 +869,26 @@ namespace Aaris.MapReview
                     Mathf.Infinity, Mathf.Clamp(Time.deltaTime, 0f, 0.15f));
             }
             Vector3 pivot = transform.position + Vector3.up * smoothedEyeHeight;
+            // Give real landings a tiny sense of body weight without adding
+            // procedural shake, another physics probe or any aim-authority
+            // change. The camera follows the same impact event already used
+            // by animation/audio and recovers within a quarter second.
+            if (!instant)
+            {
+                float landingAge = Time.unscaledTime - lastLanding;
+                if (landingAge >= 0f && landingAge < 0.24f)
+                {
+                    float landingWeight = Mathf.InverseLerp(
+                        1.5f, 10f, lastLandingImpactSpeed);
+                    if (landingWeight > 0.001f)
+                    {
+                        float landingPhase = landingAge / 0.24f;
+                        float cameraDip = Mathf.Sin(Mathf.PI * landingPhase) *
+                            Mathf.Lerp(0.008f, 0.05f, landingWeight);
+                        pivot += Vector3.down * cameraDip;
+                    }
+                }
+            }
             // Frame-rate-independent recoil recovery. 9.5 / second gives a
             // quick SMG/AR settle while a sniper kick remains visibly heavy.
             float recoilDt = Mathf.Clamp(Time.deltaTime, 0f, 0.15f);
