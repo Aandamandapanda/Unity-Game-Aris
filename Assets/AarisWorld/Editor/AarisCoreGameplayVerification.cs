@@ -211,7 +211,8 @@ namespace Aaris.MapReview.Editor
                 motorType.GetField("lastLanding", Private).SetValue(player,
                     Mathf.Max(Time.unscaledTime, player.LastLandingTime + 0.01f));
                 TickAudio();
-                Check(Cue("land_thud"), "Ground landing uses the local feedback pool");
+                Check(Cue("impactSoft_heavy_000"),
+                    "Ground landing resolves to the CC0 soft-impact clip in the local feedback pool");
                 AarisAudioDirector.GunShot("SMG", "", player.transform.position);
                 AarisAudioDirector.BulletImpact(player.transform.position);
                 Check(Cue("smg_shot") && Cue("bullet_impact", 1f),
