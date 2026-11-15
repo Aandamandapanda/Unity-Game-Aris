@@ -301,7 +301,7 @@ def audit() -> None:
     assert "if (moveRing.sizeDelta != ringSize)" in ui
     assert "if (moveKnob.anchoredPosition != knobPosition)" in ui
     assert "if (moveKnob.sizeDelta != knobSize)" in ui
-    assert "if (captions[0].text != aimCaption)" in weapon_hud
+    assert "captions[0] != null && captions[0].text != aimCaption" in weapon_hud
     assert "if (driveCaption.text != desiredCaption)" in vehicle_hud
     assert "savedGroundStepOffset + 0.1f" in motor
     assert "public float GroundStepOffset" in state
