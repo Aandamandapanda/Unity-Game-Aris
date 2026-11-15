@@ -1,0 +1,52 @@
+name: Aaris Weapon Regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Assets/Resources/AarisWeapons/**'
+      - 'Assets/AarisWorld/Scripts/AarisWeaponInventory.cs'
+      - 'Assets/AarisWorld/Scripts/AarisWeaponPickup.cs'
+      - 'Assets/AarisWorld/Scripts/AarisWeaponCatalog.cs'
+      - 'Assets/AarisWorld/Scripts/AarisEquippedGun.cs'
+      - 'Tools/Validation/check_weapon_loot.py'
+      - 'Tools/Validation/check_single_weapon_transactions.py'
+      - 'Tools/Validation/check_armed_locomotion.py'
+      - 'Docs/WEAPON_ASSETS_LICENSE_AND_SOURCE.md'
+      - 'Docs/WEAPON_PBR_BATTLE_SNIPER_SOURCE.md'
+      - '.github/workflows/aaris-weapon-regression.yml'
+  pull_request:
+    paths:
+      - 'Assets/Resources/AarisWeapons/**'
+      - 'Assets/AarisWorld/Scripts/AarisWeaponInventory.cs'
+      - 'Assets/AarisWorld/Scripts/AarisWeaponPickup.cs'
+      - 'Assets/AarisWorld/Scripts/AarisWeaponCatalog.cs'
+      - 'Assets/AarisWorld/Scripts/AarisEquippedGun.cs'
+      - 'Tools/Validation/check_weapon_loot.py'
+      - 'Tools/Validation/check_single_weapon_transactions.py'
+      - 'Tools/Validation/check_armed_locomotion.py'
+      - 'Docs/WEAPON_ASSETS_LICENSE_AND_SOURCE.md'
+      - 'Docs/WEAPON_PBR_BATTLE_SNIPER_SOURCE.md'
+      - '.github/workflows/aaris-weapon-regression.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weapon-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  weapon-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          lfs: false
+      - name: Verify vendored PBR weapons, catalog, loot and renderer contracts
+        run: python3 Tools/Validation/check_weapon_loot.py
+      - name: Stress one-gun pickup, drop and exchange invariants
+        run: python3 Tools/Validation/check_single_weapon_transactions.py
+      - name: Verify armed locomotion and masked upper-body handling
+        run: python3 Tools/Validation/check_armed_locomotion.py
