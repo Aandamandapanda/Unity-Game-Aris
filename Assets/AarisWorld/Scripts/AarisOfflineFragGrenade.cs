@@ -17,7 +17,8 @@ namespace Aaris.MapReview
         private static PhysicsMaterial bounceMaterial;
         private readonly Collider[] overlaps = new Collider[96];
         private readonly RaycastHit[] rays = new RaycastHit[48];
-        private readonly HashSet<IAarisDamageable> damaged = new HashSet<IAarisDamageable>();
+        private readonly Dictionary<IAarisDamageable, (float amount, Collider collider)> blastTargets =
+            new Dictionary<IAarisDamageable, (float amount, Collider collider)>();
         private Rigidbody body;
         private GameObject owner;
         private float detonateAt, lastBounceAudio = -10f;
@@ -152,27 +153,38 @@ namespace Aaris.MapReview
                     damageMask, QueryTriggerInteraction.Ignore);
                 count = candidates.Length;
             }
-            damaged.Clear();
+            blastTargets.Clear();
             for (int i = 0; i < count; i++)
             {
                 var collider = candidates[i];
                 if (collider == null || collider.transform.IsChildOf(transform)) continue;
                 IAarisDamageable target = FindDamageable(collider);
-                if (target == null || damaged.Contains(target)) continue;
+                if (target == null) continue;
                 var targetComponent = target as Component;
                 if (targetComponent == null) continue;
                 Vector3 near = collider.ClosestPoint(blast);
                 Vector3 delta = near - blast;
                 float distance = delta.magnitude;
-                if (distance > blastRadius || !HasBlastLineOfSight(blast, near, targetComponent.transform))
-                    continue;
-                // At the rim, damage drops to zero. Direct hits carry a minimum fraction.
+                if (distance > blastRadius) continue;
                 float t = Mathf.Clamp01(distance / blastRadius);
                 float amount = centerDamage * (1f - t * t);
                 if (amount <= 0.05f) continue;
-                damaged.Add(target);
-                target.ApplyDamage(amount, owner);
-                var rb = collider.attachedRigidbody;
+                // Overlap order is not a gameplay rule. Use the strongest exposed
+                // collider per damageable, not whichever limb was returned first.
+                if (blastTargets.TryGetValue(target, out var previous) &&
+                    (amount < previous.amount || (amount == previous.amount &&
+                        collider.GetInstanceID() >= previous.collider.GetInstanceID()))) continue;
+                if (!HasBlastLineOfSight(blast, near, targetComponent.transform)) continue;
+                blastTargets[target] = (amount, collider);
+            }
+            // Snapshot exposure before applying any damage: destroying cover during
+            // notification must not change who was exposed to this same explosion.
+            foreach (var entry in blastTargets)
+            {
+                if ((entry.Key as Component) == null) continue;
+                Collider collider = entry.Value.collider;
+                var rb = collider != null ? collider.attachedRigidbody : null;
+                entry.Key.ApplyDamage(entry.Value.amount, owner);
                 if (rb != null && !rb.isKinematic)
                     rb.AddExplosionForce(340f, blast, blastRadius, 0.25f, ForceMode.Impulse);
             }
