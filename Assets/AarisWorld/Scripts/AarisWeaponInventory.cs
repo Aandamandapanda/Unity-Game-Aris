@@ -498,6 +498,17 @@ namespace Aaris.MapReview
             ReachArm(leftUpperArm, leftForearm, leftHand,
                 weaponRoot.TransformPoint(new Vector3(-0.045f, -0.035f, foregrip)),
                 -transform.right);
+
+            // Position-only IK can still leave the trigger palm visibly
+            // twisted around the receiver. The catalog's handRotation is the
+            // same canonical weapon-to-right-hand relation used by the legacy
+            // fallback above, so invert it to recover the desired wrist world
+            // rotation after the analytic arm solve. Keep a small amount of
+            // authored wrist motion while hip-firing; ADS tightens the grip.
+            Quaternion grip = Quaternion.Euler(equipped.Spec.handRotation);
+            Quaternion desiredWrist = weaponRoot.rotation * Quaternion.Inverse(grip);
+            hand.rotation = Quaternion.Slerp(hand.rotation, desiredWrist,
+                aiming ? 0.92f : 0.76f);
         }
 
         private void LateUpdate()
