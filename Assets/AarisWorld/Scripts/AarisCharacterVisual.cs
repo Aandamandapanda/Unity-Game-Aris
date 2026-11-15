@@ -23,7 +23,7 @@ namespace Aaris.MapReview
 
         [SerializeField, Range(-180f, 180f)] private float modelYawOffset;
         [SerializeField, Range(0.1f, 0.8f)] private float blendResponseSeconds = 0.2f;
-        [SerializeField] private float fullRunSpeed = 4.8f;
+        [SerializeField] private float fullRunSpeed = 6.5f;
         [SerializeField, Range(0f, 8f)] private float sprintForwardLeanDegrees = 4f;
         [SerializeField, Range(0f, 6f)] private float strafeBankDegrees = 3f;
         [SerializeField, Range(0f, 0.12f)] private float landingCompressionMetres = 0.055f;
@@ -135,10 +135,9 @@ namespace Aaris.MapReview
         private void Awake()
         {
             controller = GetComponent<CharacterController>();
-            // Saved scenes can retain the old 6.5 m/s Inspector value even
-            // after the motor's pace was corrected. Keep lean and foot timing
-            // calibrated to the actual 4.8 m/s unarmed sprint ceiling.
-            fullRunSpeed = Mathf.Min(fullRunSpeed, 4.8f);
+            // Keep a sane fallback for scenes whose motor is attached later.
+            // Start() replaces this with the motor's authoritative sprint cap.
+            fullRunSpeed = Mathf.Clamp(fullRunSpeed, 4.0f, 6.5f);
             lastReliableGroundContact = Time.unscaledTime;
         }
 
@@ -157,6 +156,8 @@ namespace Aaris.MapReview
             bodySkin = visual.GetComponentInChildren<SkinnedMeshRenderer>(true);
             actions = GetComponent<AarisBattleActions>();
             playerMotor = GetComponent<AarisThirdPersonPlayer>();
+            if (playerMotor != null)
+                fullRunSpeed = playerMotor.UnarmedSprintSpeedMetresPerSecond;
             weaponInventory = GetComponent<AarisWeaponInventory>();
             aerialDrop = GetComponent<AarisOfflineDrop>();
             restingLocalPosition = visual.transform.localPosition;
@@ -992,19 +993,26 @@ namespace Aaris.MapReview
                 float horizontal = planar;
                 // Hide the pistol-ready upper-body pose when the real rifle is
                 // sprint-holstered, so both arms retain their natural run cycle.
-                bool carrying = actions != null && actions.IsArmed &&
+                bool armed = actions != null && actions.IsArmed;
+                bool carrying = armed &&
                     (weaponInventory == null || !weaponInventory.IsSprintHolstered);
                 float movementTarget = Mathf.InverseLerp(0.08f, 1.2f, horizontal);
-                // Both arms and legs must reach their complete authored gait
-                // at the actual motor cap: 4.4 m/s armed, 4.8 m/s unarmed.
-                // Previous 4.8 m/s sprint threshold was unreachable with a gun
-                // and blended running feet against two different source cycles.
-                // Walking at jogging speed made the walk FBX cycle nearly five
-                // footfalls per second at 3.4 m/s. Blend into the real run
-                // clip earlier so cadence and stride length stay human-scale.
-                float runTarget = Mathf.InverseLerp(2.0f, 3.4f, horizontal);
-                float sprintTarget = Mathf.InverseLerp(4.0f,
-                    carrying ? 4.4f : 4.8f, horizontal);
+                // Read the real motor ceilings instead of inferring sprint speed
+                // from whether the gun is visually holstered. Holstering used to
+                // flip an armed runner to the unarmed animation threshold, so the
+                // sprint clip could never reach full weight at the armed speed cap.
+                float jogCeiling = playerMotor != null
+                    ? playerMotor.JogSpeedMetresPerSecond : 4.2f;
+                float sprintCeiling = playerMotor != null
+                    ? (armed ? playerMotor.ArmedSprintSpeedMetresPerSecond :
+                        playerMotor.UnarmedSprintSpeedMetresPerSecond)
+                    : (armed ? 5.7f : 6.5f);
+                float runStart = Mathf.Max(1.8f, jogCeiling * 0.55f);
+                float sprintStart = Mathf.Max(jogCeiling * 0.95f,
+                    sprintCeiling * 0.72f);
+                float runTarget = Mathf.InverseLerp(runStart, jogCeiling, horizontal);
+                float sprintTarget = Mathf.InverseLerp(
+                    sprintStart, sprintCeiling, horizontal);
                 float airTarget = visuallyAirborne ? 1f : 0f;
                 runBlend = Mathf.Lerp(runBlend, movementTarget, alpha);
                 walkRunBlend = Mathf.Lerp(walkRunBlend, runTarget, alpha);
@@ -1064,11 +1072,11 @@ namespace Aaris.MapReview
                 float shootUpper = shootWeight * (1f - primary);
                 float attackUpper = Mathf.Max(punchUpper, shootUpper);
                 bool aim = weaponInventory != null && weaponInventory.Aiming;
-                // The old >5 m/s sprint check was unreachable after the natural
-                // pace cap (4.4 m/s with a gun), locking the torso in a
-                // rigid weapon-ready pose throughout the running cycle.
+                // Release the ready pose progressively through the fast jog;
+                // sprint holstering still removes the layer entirely.
                 float releaseArms = Mathf.SmoothStep(0f, 1f,
-                    Mathf.InverseLerp(3.2f, 4.4f, horizontal));
+                    Mathf.InverseLerp(Mathf.Max(2.8f, jogCeiling * 0.75f),
+                        jogCeiling, horizontal));
                 float carryTarget = !carrying ? 0f : aim ? 0.63f :
                     Mathf.Lerp(0.36f, 0.15f, releaseArms);
                 if (prone) carryTarget *= 0.6f;
