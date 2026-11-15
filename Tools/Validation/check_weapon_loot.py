@@ -101,6 +101,20 @@ def run():
     assert "TryFirstOtherHit" not in gun_cs # renamed and rewritten, not a second weapon motor
     assert "FirstExternalHit" in gun_cs and "SameTarget" in gun_cs
     assert "magazine--;" in gun_cs and "nextFire = Time.time + spec.ShotInterval;" in gun_cs
+    # Accepted shots get a pooled visual flash. Construction happens at
+    # configuration/equip time, never inside the automatic-fire hot path.
+    assert "private Renderer muzzleFlashRenderer;" in gun_cs
+    assert "private static Material sharedMuzzleFlashMaterial;" in gun_cs
+    assert "GameObject.CreatePrimitive(PrimitiveType.Quad)" in gun_cs
+    assert "muzzleFlashRenderer.enabled = false;" in gun_cs
+    assert "muzzleFlashUntil = Time.time +" in gun_cs
+    assert "TriggerMuzzleFlash();" in gun_cs
+    fire_block = gun_cs.split("public bool TryFire(", 1)[1].split(
+        "internal static void ApplyDamage", 1)[0]
+    assert fire_block.index("magazine--;") < fire_block.index("TriggerMuzzleFlash();")
+    assert "CreatePrimitive" not in fire_block
+    assert "new GameObject" not in fire_block
+    assert "ParticleSystem" not in fire_block
     assert "BeginReload()" in gun_cs and "reloading" in gun_cs
     assert "semiShotQueued" in action and "equippedGun.Automatic" in action
     # One held weapon, one genuinely visible back-stowed weapon, no third slot.
