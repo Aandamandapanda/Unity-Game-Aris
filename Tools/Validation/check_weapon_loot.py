@@ -13,12 +13,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MODELS = ROOT / "Assets/Resources/AarisWeapons/Models"
+PBR_M4 = ROOT / "Assets/Resources/AarisWeapons/PBR/M4A1"
 EXPECTED = {
     "SMG": (70348, "2fadbba99ac6d3373b8f6b04786374c42c54394f"),
-    "AssaultRifle": (92204, "8f2109f415755ad0af8aaa1d911ddfea7c2064cd"),
+    "AssaultRifle": None,
     "BattleRifle": (91644, "24f2bfee4166e2208cb070b3de273f0989fafc9d"),
     "Sniper": (86636, "a743e79ea184966021aba937d30cb6876e2cbaba"),
     "Shotgun": (60604, "3590c4b06c378037190edd870ca0c24fdaf5ae8a"),
+}
+PBR_M4_FILES = {
+    "M4A1.fbx": (278384, "e3afbe0d4e42530fb0b5fb33445e8043eccd9941"),
+    "M4A1_Base_Color.png": (253551, "2f9a44b109d17244de072c238eccc007cd2d228d"),
+    "M4A1_Normal.png": (455779, "5a6ee12b1e8c3b194de256403652f1fd63a4e49c"),
+    "M4A1_MetallicSmoothness.png": (310787, "9109237e8c2928dd9a34ba969c2b24ea1655b169"),
 }
 SCRIPTS = ROOT / "Assets/AarisWorld/Scripts"
 
@@ -33,17 +40,41 @@ def run():
     assert lengths["SMG"] < lengths["AssaultRifle"] < lengths["Sniper"]
     for gun in catalog["weapons"]:
         name = gun["id"]
-        assert gun["modelResource"] == "AarisWeapons/Models/" + name
+        expected_resource = ("AarisWeapons/PBR/M4A1/M4A1"
+                             if name == "AssaultRifle"
+                             else "AarisWeapons/Models/" + name)
+        assert gun["modelResource"] == expected_resource
         assert 20 <= gun["rpm"] <= 1300 and gun["magazineSize"] > 0
         assert gun["reserveAmmo"] >= 0 and gun["reloadSeconds"] > 0
         assert gun["pellets"] >= 1 and gun["damage"] > 0 and gun["weight"] > 0
         assert gun["adsFov"] >= 8 and gun["adsFov"] <= 65
+        if name == "AssaultRifle":
+            continue
         path = MODELS / (name + ".fbx")
         assert path.exists(), "Real local mesh is missing: " + str(path)
         assert path.stat().st_size == EXPECTED[name][0], "Not fully hydrated or source changed: " + name
         assert path.read_bytes()[:18].startswith(b"Kaydara FBX Binary"), "Not an FBX binary: " + name
         assert subprocess.check_output(["git", "hash-object", str(path)]).decode().strip() == EXPECTED[name][1]
         assert (MODELS / (name + ".fbx.meta")).exists(), name + " GUID missing"
+
+    # Assault rifle is the first high-fidelity PBR replacement. Its source
+    # geometry and mobile textures are committed locally, never downloaded at
+    # runtime. Base/normal stay 1024; the packed metal/smoothness map is 512.
+    for filename, (size, blob_sha) in PBR_M4_FILES.items():
+        path = PBR_M4 / filename
+        assert path.exists(), "Missing PBR M4A1 asset: " + filename
+        assert path.stat().st_size == size, (filename, path.stat().st_size, size)
+        assert subprocess.check_output(["git", "hash-object", str(path)]).decode().strip() == blob_sha
+        assert (PBR_M4 / (filename + ".meta")).exists(), filename + " GUID missing"
+    assert (PBR_M4 / "M4A1.fbx").read_bytes()[:18].startswith(b"Kaydara FBX Binary")
+    base_meta = (PBR_M4 / "M4A1_Base_Color.png.meta").read_text()
+    normal_meta = (PBR_M4 / "M4A1_Normal.png.meta").read_text()
+    packed_meta = (PBR_M4 / "M4A1_MetallicSmoothness.png.meta").read_text()
+    assert "sRGBTexture: 1" in base_meta and "maxTextureSize: 1024" in base_meta
+    assert "sRGBTexture: 0" in normal_meta and "textureType: 1" in normal_meta
+    assert normal_meta.count("maxTextureSize: 1024") >= 2
+    assert "sRGBTexture: 0" in packed_meta
+    assert packed_meta.count("maxTextureSize: 512") >= 2
     assert catalog["weapons"][3]["automatic"] is False
     assert catalog["weapons"][4]["pellets"] > 1
     loot = json.loads((ROOT / "Assets/Resources/AarisWeapons/loot_candidates.json").read_text())
@@ -332,6 +363,16 @@ def run():
     assert 'label.Contains("bole")' in inventory
     assert 'private static readonly Dictionary<Material, Material> weaponFinishCache' in inventory
     assert 'weaponFinishCache[source] = result;' in inventory
+    assert 'private static Material CreateM4PbrFinish()' in inventory
+    assert '"AarisWeapons/PBR/M4A1/M4A1_Base_Color"' in inventory
+    assert '"AarisWeapons/PBR/M4A1/M4A1_Normal"' in inventory
+    assert '"AarisWeapons/PBR/M4A1/M4A1_MetallicSmoothness"' in inventory
+    assert 'name = "AarisWeaponPBR_M4A1"' in inventory
+    assert 'EnableKeyword("_NORMALMAP")' in inventory
+    assert 'EnableKeyword("_METALLICSPECGLOSSMAP")' in inventory
+    assert 'spec.modelResource == "AarisWeapons/PBR/M4A1/M4A1"' in inventory
+    assert 'internal static void ApplyTextureAwareWeaponFinish' in inventory
+    assert "AarisWeaponInventory.ApplyTextureAwareWeaponFinish(" in pickup_cs
     # Gun models do not all have the same length; a fixed long-barrel
     # support point is physically unreachable on shorter humanoid arms.
     # The bounded rail/sphere intersection must precede the left-arm IK.
@@ -420,8 +461,8 @@ def run():
     assert "starterLootSettled = true;" in starter
 
     assert "UnityWebRequest" not in "\n".join([catalog_cs,gun_cs,inventory,world,hud])
-    print("PASS: 5 locally committed, SHA-verified CC0 weapon FBXs, two-slot holster/swap/drop, magazine/recoil/scope, "
-          "authored 2km loot candidates, streaming and combat source contracts")
+    print("PASS: 4 legacy CC0 guns plus SHA-verified mobile PBR CC0 M4A1, two-slot holster/swap/drop, "
+          "magazine/recoil/scope, authored 2km loot candidates, streaming and combat source contracts")
     print("Unity Editor import, playable gun handling and visible materials NOT YET TESTED")
 
 
