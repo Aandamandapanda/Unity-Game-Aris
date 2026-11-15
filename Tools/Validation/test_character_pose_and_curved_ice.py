@@ -60,7 +60,9 @@ assert 'ProneAnkleClearanceMetres' in visual
 # but only near the floor so an authored swing foot is never pinned.
 assert 'private void PlantUprightContact(' in visual
 assert 'private const float UprightAnkleClearanceMetres = 0.075f;' in visual
-assert 'float supportY = SupportedAnkleY(foot, UprightAnkleClearanceMetres);' in visual
+assert 'float supportY = SupportedAnkleY(foot,' in visual
+assert 'UprightAnkleClearanceMetres, out Vector3 supportNormal);' in visual
+assert 'supportNormal' in visual
 assert 'Mathf.InverseLerp(0.025f, 0.14f, gap)' in visual
 assert 'Mathf.Lerp(0.95f, 0.62f,' in visual
 assert 'lowPose < 0.02f' in visual
