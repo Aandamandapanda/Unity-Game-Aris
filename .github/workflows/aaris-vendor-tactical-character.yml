@@ -225,21 +225,35 @@ jobs:
           set -euo pipefail
           git config user.name "Aaris Character Vendor"
           git config user.email "actions@users.noreply.github.com"
-          git add Assets/Resources/AarisCharacters/Primary/TacticalSoldier/
-          if git diff --cached --quiet; then
-            echo "AARIS_TACTICAL_CHARACTER_ALREADY_PRESENT"
-            exit 0
-          fi
-          git commit -m "feat(character): vendor textured tactical soldier body"
-          # checkout@v4 can leave already-tracked LFS worktree blobs different
-          # from their pointer representation even with lfs:false. This hosted
-          # runner is disposable and the intended tactical files are committed,
-          # so stash only runner-local residue before rebasing onto moving main.
-          git stash push --include-untracked --message "aaris-runner-residue" || true
-          test -z "$(git status --porcelain)"
+
+          # Preserve only the verified outputs outside the checkout. Some
+          # historical repo paths have LFS attributes but full blobs checked in;
+          # normal reset/rebase can therefore dirty unrelated files on a hosted
+          # runner. Publish from a fresh origin/main snapshot instead.
+          publish=/tmp/aaris-character/publish
+          rm -rf "$publish"
+          mkdir -p "$publish"
+          cp Assets/Resources/AarisCharacters/Primary/TacticalSoldier/TacticalSoldier.fbx "$publish/"
+          cp Assets/Resources/AarisCharacters/Primary/TacticalSoldier/TacticalSoldier.fbx.meta "$publish/"
+          cp Assets/Resources/AarisCharacters/Primary/TacticalSoldier/ATTRIBUTION.txt "$publish/"
+
+          # Disable LFS worktree transforms only on this disposable runner.
+          git config --local filter.lfs.smudge cat
+          git config --local filter.lfs.process ""
+          git config --local filter.lfs.required false
+
           for attempt in 1 2 3; do
             git fetch origin main
-            git rebase origin/main
+            git reset --hard origin/main
+            rm -rf Assets/Resources/AarisCharacters/Primary/TacticalSoldier
+            mkdir -p Assets/Resources/AarisCharacters/Primary/TacticalSoldier
+            cp "$publish/"* Assets/Resources/AarisCharacters/Primary/TacticalSoldier/
+            git add -f Assets/Resources/AarisCharacters/Primary/TacticalSoldier/
+            if git diff --cached --quiet; then
+              echo "AARIS_TACTICAL_CHARACTER_ALREADY_PRESENT"
+              exit 0
+            fi
+            git commit -m "feat(character): vendor textured tactical soldier body"
             if git push origin HEAD:main; then
               echo "AARIS_TACTICAL_CHARACTER_PUSHED"
               exit 0
