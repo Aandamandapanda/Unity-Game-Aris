@@ -604,6 +604,35 @@ namespace Aaris.MapReview
             return floor;
         }
 
+        // Upright locomotion previously relied only on clip Foot IK. That keeps
+        // a Humanoid gait internally coherent, but it does not guarantee that
+        // the stance ankle matches the actual bridge/terrain height under the
+        // moving player. Reuse the existing analytic two-bone solve only while
+        // a foot is near contact; a high swing foot is left entirely authored.
+        // Two non-allocating raycasts per grounded frame are acceptable for the
+        // single local player and avoid a persistent Animation Rigging graph.
+        private void PlantUprightContact(Transform thigh, Transform shin,
+            Transform foot, float planarSpeed, float uprightWeight)
+        {
+            if (thigh == null || shin == null || foot == null ||
+                uprightWeight <= 0.001f) return;
+            float supportY = SupportedAnkleY(foot, PlantedAnkleMetres);
+            float gap = foot.position.y - supportY;
+            // Always recover penetration. When the ankle is above the floor,
+            // engage only through the final 14 cm of a step so a swing foot
+            // is never pinned to the terrain.
+            float contactWeight = gap <= 0f ? 1f :
+                1f - Mathf.SmoothStep(0f, 1f,
+                    Mathf.InverseLerp(0.025f, 0.14f, gap));
+            if (contactWeight <= 0.001f) return;
+            // At sprint cadence preserve more of the authored stride while
+            // still preventing visible sole penetration on the contact foot.
+            float speedWeight = Mathf.Lerp(0.95f, 0.62f,
+                Mathf.InverseLerp(0.8f, fullRunSpeed, planarSpeed));
+            PlantCrouchLeg(thigh, shin, foot, supportY, transform.forward,
+                contactWeight * speedWeight * Mathf.Clamp01(uprightWeight));
+        }
+
         private static void LoopPlayable(AnimationClipPlayable playable, AnimationClip clip, double cycle)
         {
             if (clip == null || clip.length < 0.02f) return;
@@ -876,6 +905,21 @@ namespace Aaris.MapReview
                     SupportedAnkleY(rightFootBone, ankleClearance),
                     transform.forward, ankleRigWeight);
             }
+            // Standing/walk/run need world-space contact too. Apply the same
+            // analytic leg solve only to a near-ground stance foot; high swing
+            // feet remain untouched, so stride length and cadence stay authored.
+            // Skip the transition band so crouch/prone never receive a second
+            // knee solve in the same frame.
+            if (!visuallyAirborne && graphReady && groundedNow &&
+                lowPose < 0.02f)
+            {
+                float uprightContactWeight = Mathf.Clamp01(1f - lowPose * 4f);
+                PlantUprightContact(leftThigh, leftShin, leftFootBone,
+                    planar, uprightContactWeight);
+                PlantUprightContact(rightThigh, rightShin, rightFootBone,
+                    planar, uprightContactWeight);
+            }
+
             // The authored crawling clip places the head higher than the
             // 62cm prone capsule while its ankles already touch the terrain.
             // Pivot the chest gently forward instead of sinking the entire
