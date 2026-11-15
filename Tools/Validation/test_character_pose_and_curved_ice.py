@@ -52,9 +52,12 @@ assert 'Mathf.Min(leftFootBone.position.y,' in visual
 assert 'float capsuleTop = transform.TransformPoint(controller.center +' in visual
 assert 'Mathf.Min(excess, 0.45f) * lowPose' in visual
 assert 'private float SupportedAnkleY(Transform foot, float clearance)' in visual
-assert 'Physics.RaycastNonAlloc(new Ray(origin, Vector3.down)' in visual
+assert 'Ray ray = new Ray(origin, Vector3.down);' in visual
+assert 'Physics.RaycastNonAlloc(ray,' in visual
 assert 'hit.collider.transform.IsChildOf(transform)' in visual
 assert 'PlantCrouchLeg(leftThigh, leftShin, leftFootBone,' in visual
+assert 'Vector3 currentKnee = knee - hip;' in visual
+assert 'axis * Vector3.Dot(currentKnee, axis)' in visual
 assert 'ProneAnkleClearanceMetres' in visual
 # Upright walk/run contact uses the same bounded, allocation-free leg solve,
 # but only near the floor so an authored swing foot is never pinned.
