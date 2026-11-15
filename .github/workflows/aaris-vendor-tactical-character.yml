@@ -184,26 +184,28 @@ jobs:
           )
           (dst / "TacticalSoldier.fbx.meta").write_text(meta)
 
-          attribution = """Tactical Soldier Character - source attribution
-Original 3D character: Military tactical suit (LowPolyGameReady)
-Creator: DanlyVostok (1799danly)
-https://sketchfab.com/3d-models/military-tactical-suit-lowpolygameready-ef698ce36b1545a78ce592dd3db4c7ed
-Creative Commons Attribution 4.0 International (CC BY 4.0)
-https://creativecommons.org/licenses/by/4.0/
-
-Redistributed via cktang88/3d-fps:
-public/assets/models/characters/soldier_tac.glb
-Pinned upstream Git blob: b403237626e308c5a27be9683407b4450b03a246
-
-Modified for Aaris:
-- converted GLB to FBX offline with Blender
-- normalized Mixamo exporter suffixes for Unity Humanoid retargeting
-- removed the floating headphone mesh noted by the upstream renderer
-- stripped source animations; Aaris uses its own validated Humanoid clips
-- capped embedded texture dimensions at 1024 for low-memory Android targets
-
-Attribution must be retained.
-"""
+          attribution = "\n".join([
+              "Tactical Soldier Character - source attribution",
+              "Original 3D character: Military tactical suit (LowPolyGameReady)",
+              "Creator: DanlyVostok (1799danly)",
+              "https://sketchfab.com/3d-models/military-tactical-suit-lowpolygameready-ef698ce36b1545a78ce592dd3db4c7ed",
+              "Creative Commons Attribution 4.0 International (CC BY 4.0)",
+              "https://creativecommons.org/licenses/by/4.0/",
+              "",
+              "Redistributed via cktang88/3d-fps:",
+              "public/assets/models/characters/soldier_tac.glb",
+              "Pinned upstream Git blob: b403237626e308c5a27be9683407b4450b03a246",
+              "",
+              "Modified for Aaris:",
+              "- converted GLB to FBX offline with Blender",
+              "- normalized Mixamo exporter suffixes for Unity Humanoid retargeting",
+              "- removed the floating headphone mesh noted by the upstream renderer",
+              "- stripped source animations; Aaris uses its own validated Humanoid clips",
+              "- capped embedded texture dimensions at 1024 for low-memory Android targets",
+              "",
+              "Attribution must be retained.",
+              "",
+          ])
           (dst / "ATTRIBUTION.txt").write_text(attribution)
 
           raw = subprocess.check_output(["strings","-n","5",str(fbx)], text=True, errors="replace")
