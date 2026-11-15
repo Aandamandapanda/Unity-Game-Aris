@@ -244,7 +244,8 @@ def test():
     assert "record.visible.CanPark" in world and "record.visible.IsOccupied" in world
     assert "Resources.Load<GameObject>(item.modelResource)" in world
     assert "convertAuthoredBodyMaterials" in world
-    assert "authoredBody.GetComponentInChildren<Renderer>(true) != null" in world
+    assert "authoredBody.GetComponentInChildren<Renderer>(true) == null" in world
+    assert "CommitAuthoredBody(i, body);" in world
     assert "fallbackAuthoredModelResource" in world
     assert "Resources.Load<GameObject>(" in world
 
