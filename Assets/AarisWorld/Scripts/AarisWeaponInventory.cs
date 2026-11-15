@@ -24,6 +24,8 @@ namespace Aaris.MapReview
         private CharacterController capsule;
         private float nextRigSearch;
         private bool aiming, fistMode;
+        private static Material smgFinish, assaultFinish, battleFinish,
+            sniperFinish, shotgunFinish;
         public bool IsSprintHolstered { get; private set; }
 
         public AarisEquippedGun Current => equipped;
@@ -34,6 +36,78 @@ namespace Aaris.MapReview
         public bool FistMode => fistMode;
         public bool RequiresExchangeDrop => equipped != null && stowed != null;
         public bool PickupAvailable => lootWorld != null && lootWorld.HasPickupInRange;
+
+        private static bool HasAuthoredTexture(Material material)
+        {
+            if (material == null) return false;
+            Texture texture = null;
+            if (material.HasProperty("_BaseMap"))
+                texture = material.GetTexture("_BaseMap");
+            if (texture == null && material.mainTexture != null)
+                texture = material.mainTexture;
+            return texture != null && texture != Texture2D.whiteTexture;
+        }
+
+        // Current bundled CC0 firearms are textureless/flat-shaded. Give those
+        // meshes a physically plausible shared URP finish, while leaving any
+        // future authored PBR/textured replacement completely untouched.
+        private static Material CreateWeaponFinish(ref Material cached,
+            string label, Color baseColor, float metallic, float smoothness)
+        {
+            if (cached != null) return cached;
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Simple Lit");
+            if (shader == null) return null;
+            cached = new Material(shader) { name = "AarisWeaponFinish_" + label };
+            if (cached.HasProperty("_BaseColor"))
+                cached.SetColor("_BaseColor", baseColor);
+            else cached.color = baseColor;
+            if (cached.HasProperty("_Metallic")) cached.SetFloat("_Metallic", metallic);
+            if (cached.HasProperty("_Smoothness")) cached.SetFloat("_Smoothness", smoothness);
+            cached.enableInstancing = true;
+            return cached;
+        }
+
+        private static Material WeaponFinish(AarisWeaponSpec spec)
+        {
+            string category = spec != null && spec.category != null
+                ? spec.category.ToUpperInvariant() : "";
+            if (category.Contains("SMG"))
+                return CreateWeaponFinish(ref smgFinish, "SMG",
+                    new Color(.095f, .11f, .12f), .46f, .31f);
+            if (category.Contains("SNIP"))
+                return CreateWeaponFinish(ref sniperFinish, "Sniper",
+                    new Color(.085f, .105f, .115f), .52f, .28f);
+            if (category.Contains("SHOT"))
+                return CreateWeaponFinish(ref shotgunFinish, "Shotgun",
+                    new Color(.13f, .125f, .115f), .48f, .25f);
+            if (category.Contains("BATTLE"))
+                return CreateWeaponFinish(ref battleFinish, "BattleRifle",
+                    new Color(.12f, .125f, .12f), .58f, .27f);
+            return CreateWeaponFinish(ref assaultFinish, "AssaultRifle",
+                new Color(.105f, .115f, .115f), .55f, .29f);
+        }
+
+        private static void ApplyTextureAwareWeaponFinish(AarisWeaponSpec spec,
+            Renderer[] renderers)
+        {
+            if (renderers == null || renderers.Length == 0) return;
+            Material fallback = WeaponFinish(spec);
+            if (fallback == null) return;
+            foreach (Renderer renderer in renderers)
+            {
+                if (renderer == null) continue;
+                Material[] source = renderer.sharedMaterials;
+                bool changed = false;
+                for (int i = 0; i < source.Length; i++)
+                {
+                    if (HasAuthoredTexture(source[i])) continue;
+                    source[i] = fallback;
+                    changed = true;
+                }
+                if (changed) renderer.sharedMaterials = source;
+            }
+        }
 
         private void Awake()
         {
@@ -73,6 +147,7 @@ namespace Aaris.MapReview
             }
             foreach (var collider in visible.GetComponentsInChildren<Collider>(true))
                 collider.enabled = false;
+            ApplyTextureAwareWeaponFinish(incoming.Spec, renderers);
             var mesh = visible.transform;
             mesh.localPosition = Vector3.zero;
             mesh.localRotation = Quaternion.identity;
