@@ -25,16 +25,6 @@
       "source_hold_frame": null,
       "sha256": "3bbda6332d2192057b4f9010e54b57e71916a3440cb1a75592cace19f32a905d"
     },
-    "sprint": {
-      "source_action": "Running_B",
-      "source_category": "MovementBasic",
-      "frames": [
-        0,
-        19
-      ],
-      "source_hold_frame": null,
-      "sha256": "b45a3489fb8db3768f79a48358b97e723133b084f3c595d856145fad2450895f"
-    },
     "crouch": {
       "source_action": "Crouching",
       "source_category": "MovementAdvanced",
