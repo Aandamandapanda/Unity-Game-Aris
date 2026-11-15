@@ -207,6 +207,20 @@ namespace Aaris.MapReview
             return result;
         }
 
+        // The CC0 M4A1 source is authored with barrel along local -Z
+        // (native import audit: Barrel z=-32.25, Stock z=+21.52), while all
+        // gameplay grip/muzzle math deliberately uses logical +Z. Correct only
+        // the imported visual child so IK, muzzle and support-rail axes remain
+        // stable for every weapon.
+        internal static Quaternion ImportedModelRotation(AarisWeaponSpec spec)
+        {
+            bool reverseForward = spec != null &&
+                spec.modelResource == "AarisWeapons/PBR/M4A1/M4A1";
+            return reverseForward
+                ? Quaternion.Euler(0f, 180f, 0f)
+                : Quaternion.identity;
+        }
+
         internal static void ApplyTextureAwareWeaponFinish(AarisWeaponSpec spec,
             Renderer[] renderers)
         {
@@ -280,7 +294,7 @@ namespace Aaris.MapReview
             ApplyTextureAwareWeaponFinish(incoming.Spec, renderers);
             var mesh = visible.transform;
             mesh.localPosition = Vector3.zero;
-            mesh.localRotation = Quaternion.identity;
+            mesh.localRotation = ImportedModelRotation(incoming.Spec);
             // Renderer.bounds is an asynchronously updated world-space AABB.
             // Reading it again immediately after scaling the FBX caused
             // 5-9 metre guns in a real Unity Play Mode audit on the Android
