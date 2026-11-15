@@ -61,6 +61,17 @@ namespace Aaris.MapReview.Editor
         {
             if (!SessionState.GetBool(Session, false) ||
                 (type != LogType.Error && type != LogType.Exception && type != LogType.Assert)) return;
+            // Fresh headless projects can race Unity's editor-only Quick Search
+            // indexer during the first Play Mode reload. That exception never
+            // originates from game assemblies and must not masquerade as a
+            // runtime gameplay failure. Keep every other error/exception fatal.
+            if (!string.IsNullOrEmpty(stack) &&
+                (stack.IndexOf("UnityEditor.Search.SearchDatabase", StringComparison.Ordinal) >= 0 ||
+                 stack.IndexOf("UnityEditor.Search.SearchInit", StringComparison.Ordinal) >= 0))
+            {
+                Note("IGNORED_EDITOR_INFRASTRUCTURE UnityEditor.Search");
+                return;
+            }
             SessionState.SetInt(Session + "Errors", SessionState.GetInt(Session + "Errors", 0) + 1);
             Note("RUNTIME_ERROR " + condition.Split('\n')[0]);
         }
@@ -158,10 +169,10 @@ namespace Aaris.MapReview.Editor
                     "Gameplay has one active camera AudioListener and an audio director");
                 var audioRoot = (GameObject)typeof(AarisAudioDirector).GetField("audioRoot", Private).GetValue(audio);
                 var sources = audioRoot.GetComponentsInChildren<AudioSource>();
-                Check(sources.Length == 16 && sources.Count(s => s.loop) == 4 &&
+                Check(sources.Length == 15 && sources.Count(s => s.loop) == 3 &&
                     sources.Count(s => !s.loop && s.spatialBlend == 0f) == 4 &&
                     sources.Count(s => !s.loop && s.spatialBlend == 1f) == 8,
-                    "Four local voices, eight spatial world voices and four loops are pooled");
+                    "Four local voices, eight spatial world voices and three reusable local loops are pooled");
                 bool Cue(string name, float blend = 0f) => sources.Any(source =>
                     source.clip != null && source.clip.name == name && source.spatialBlend == blend);
                 void TickAudio() => typeof(AarisAudioDirector).GetMethod("LateUpdate", Private).Invoke(audio, null);
@@ -183,9 +194,33 @@ namespace Aaris.MapReview.Editor
                 Check(Cue("parachute_land"), "Parachute touchdown emits its cue");
                 foreach (var source in sources)
                     if (!source.loop) source.Stop();
-                typeof(AarisAudioDirector).GetMethod("PlayJump", Private).Invoke(audio, null);
-                typeof(AarisAudioDirector).GetMethod("PlayLanding", Private).Invoke(audio, new object[] { 4f });
-                Check(Cue("jump_start") && Cue("land_thud"), "Ground jump and landing use the local feedback pool");
+                // Jump/landing audio is now driven by the authoritative motor
+                // timestamps, not private AudioDirector helper methods. Advance
+                // those real event edges and let LateUpdate consume them exactly
+                // as gameplay does.
+                var motorType = typeof(AarisThirdPersonPlayer);
+                var jumpField = motorType.GetField("lastJumpStarted", Private);
+                var landingField = motorType.GetField("lastLanding", Private);
+                float savedJumpTime = player.LastJumpStartedTime;
+                float savedLandingTime = player.LastLandingTime;
+                jumpField.SetValue(player,
+                    Mathf.Max(Time.unscaledTime, player.LastJumpStartedTime + 0.01f));
+                TickAudio();
+                Check(Cue("jump_start"), "Ground jump uses the local feedback pool");
+                foreach (var source in sources)
+                    if (!source.loop) source.Stop();
+                // Parachute touchdown intentionally consumes the current
+                // landing timestamp to suppress a duplicate generic thud.
+                // Advance by a strict edge so this verifies the NEXT landing.
+                landingField.SetValue(player,
+                    Mathf.Max(Time.unscaledTime, player.LastLandingTime + 0.01f));
+                TickAudio();
+                Check(Cue("impactSoft_heavy_000"),
+                    "Ground landing resolves to the CC0 soft-impact clip in the local feedback pool");
+                // Synthetic audio edges must not contaminate the later stance
+                // graph: restore the real motor timeline from parachute landing.
+                jumpField.SetValue(player, savedJumpTime);
+                landingField.SetValue(player, savedLandingTime);
                 AarisAudioDirector.GunShot("SMG", "", player.transform.position);
                 AarisAudioDirector.BulletImpact(player.transform.position);
                 Check(Cue("smg_shot") && Cue("bullet_impact", 1f),
@@ -194,6 +229,18 @@ namespace Aaris.MapReview.Editor
                 battle = player.GetComponent<AarisBattleActions>();
                 wall = player.GetComponent<AarisOfflineGlooWall>();
                 Check(battle != null && wall != null, "Combat and Gloo on saved player");
+                var capsule = player.GetComponent<CharacterController>();
+                Physics.SyncTransforms();
+                if (capsule != null && capsule.enabled && !capsule.isGrounded)
+                    capsule.Move(Vector3.down * 0.12f);
+                Physics.SyncTransforms();
+                Check(capsule != null && capsule.enabled && capsule.isGrounded,
+                    "Player is physically grounded before stance pose checks");
+                // Stance geometry is a settled-pose assertion, not a landing
+                // transition assertion. Expire the one-shot motor edges so the
+                // 280 ms touchdown playable cannot mask crouch/prone weights.
+                jumpField.SetValue(player, -10f);
+                landingField.SetValue(player, -10f);
 
                 float Pose(float crouch, float prone)
                 {
@@ -201,8 +248,13 @@ namespace Aaris.MapReview.Editor
                     type.GetField("crouchBlend", Private).SetValue(visual, crouch);
                     type.GetField("proneBlend", Private).SetValue(visual, prone);
                     type.GetField("airborneBlend", Private).SetValue(visual, 0f);
-                    type.GetMethod("LateUpdate", Private).Invoke(visual, null);
+                    var lateUpdate = type.GetMethod("LateUpdate", Private);
+                    lateUpdate.Invoke(visual, null);
+                    // Evaluate the newly requested mixer pose, then run the
+                    // same LateUpdate post-pass Unity uses after animation:
+                    // foot planting, capsule headroom and prone chest correction.
                     ((PlayableGraph)type.GetField("graph", Private).GetValue(visual)).Evaluate(0f);
+                    lateUpdate.Invoke(visual, null);
                     return HeadHeight();
                 }
                 var standing = Pose(0f, 0f);
