@@ -20,6 +20,22 @@ faces = sum(1 for line in plane.splitlines() if line.startswith("f "))
 assert vertices >= 900, vertices
 assert faces >= 1500, faces
 
+realistic = (DROP / "CargoPlaneRealistic.obj").read_text(encoding="utf-8")
+realistic_vertices = sum(1 for line in realistic.splitlines() if line.startswith("v "))
+realistic_faces = sum(1 for line in realistic.splitlines() if line.startswith("f "))
+assert 80000 <= realistic_vertices <= 100000, realistic_vertices
+assert 40000 <= realistic_faces <= 50000, realistic_faces
+for material_name in (
+    "HulledMetal", "DarkCockpit", "WingPanels", "EngineDark", "SafetyAccent"
+):
+    assert f"usemtl {material_name}" in realistic, material_name
+
+source = (DROP / "CargoPlaneRealistic_SOURCE.txt").read_text(encoding="utf-8")
+assert "Asset ID: 32587" in source
+assert "License: CC0 1.0 Universal" in source
+assert "4fc998fda721e47fef83e5615a11a62eddb947486ae87baecabb9ed1e8623da4" in source
+assert "e8be17599956157d4304bfe6f083d27428f900ddfb79ab52da5aed5057148ae8" in source
+
 hull = text("CargoPlane-HulledMetal.mat")
 wing = text("CargoPlane-WingPanels.mat")
 engine = text("CargoPlane-EngineDark.mat")
@@ -51,6 +67,10 @@ assert "- _Smoothness: 0.82" in cockpit
 visuals = (ROOT / "Assets/AarisWorld/Scripts/AarisOfflineDropVisuals.cs").read_text(
     encoding="utf-8"
 )
+assert 'Resources.Load<GameObject>("AarisDrop/CargoPlaneRealistic")' in visuals
+assert 'new float[] { -4f, 4f }' in visuals
+assert "rotorScale = highDetailTwin ? 1.17f : 1f" in visuals
+
 for saved_name in (
     "CargoPlane-HulledMetal",
     "CargoPlane-DarkCockpit",
@@ -61,6 +81,6 @@ for saved_name in (
     assert saved_name in visuals
 
 print(
-    "PASS cargo plane: authored mesh + URP metal surface detail; "
-    "shared normal map adds no new texture asset"
+    "PASS cargo plane: high-detail CC0 flight mesh + fallback mesh + "
+    "shared URP metal detail; no runtime network dependency"
 )

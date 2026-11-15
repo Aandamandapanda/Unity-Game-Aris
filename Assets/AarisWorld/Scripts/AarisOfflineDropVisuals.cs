@@ -244,7 +244,12 @@ namespace Aaris.MapReview
         internal static GameObject CreatePlane(Vector3 position, Quaternion rotation,
             out Transform[] propellers)
         {
-            var prefab = Resources.Load<GameObject>("AarisDrop/CargoPlane");
+            // Prefer the vendored CC0 flight-state twin turboprop. Keep the
+            // original lightweight transport as an offline/mobile fallback.
+            var prefab = Resources.Load<GameObject>("AarisDrop/CargoPlaneRealistic");
+            bool highDetailTwin = prefab != null;
+            if (!highDetailTwin)
+                prefab = Resources.Load<GameObject>("AarisDrop/CargoPlane");
             GameObject root;
             if (prefab != null)
             {
@@ -331,7 +336,12 @@ namespace Aaris.MapReview
 
             // The three-blade propeller disk sits FORWARD of each engine/wing.
             // A shared mesh and four pivots replace eight rectangular cube blades.
-            float[] offsets = { -8.65f, -4.55f, 4.55f, 8.65f };
+            float[] offsets = highDetailTwin
+                ? new float[] { -4f, 4f }
+                : new float[] { -8.65f, -4.55f, 4.55f, 8.65f };
+            float rotorY = highDetailTwin ? .085f : .46f;
+            float rotorZ = highDetailTwin ? 3.73f : 4.37f;
+            float rotorScale = highDetailTwin ? 1.17f : 1f;
             propellers = new Transform[offsets.Length];
             // Propeller blades are not cockpit glass; give them an independent
             // cached satin finish even when the aircraft uses fallback materials.
@@ -346,7 +356,8 @@ namespace Aaris.MapReview
                 GameObject hub = new GameObject("PropellerPivot" + i,
                     typeof(MeshFilter), typeof(MeshRenderer));
                 hub.transform.SetParent(root.transform, false);
-                hub.transform.localPosition = new Vector3(offsets[i], .46f, 4.37f);
+                hub.transform.localPosition = new Vector3(offsets[i], rotorY, rotorZ);
+                hub.transform.localScale = Vector3.one * rotorScale;
                 hub.GetComponent<MeshFilter>().sharedMesh = rotor;
                 hub.GetComponent<MeshRenderer>().sharedMaterial = bladeMaterial;
                 GameObject blurDisc = new GameObject("HighRpmBlur",
