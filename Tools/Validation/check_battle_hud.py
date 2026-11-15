@@ -150,18 +150,18 @@ def check() -> None:
     assert "if (running && intent.sqrMagnitude < 0.04f) intent = Vector2.up;" in motor
 
     # Assert each actual field, not an unrelated occurrence of its literal.
-    # Natural pacing keeps the authored 2 km map feeling larger.
+    # Authoritative offline BR pacing matches the reviewed movement profile.
     expected_speeds = {
-        "unarmedSprintSpeed": "4.8",
-        "armedSprintSpeed": "4.4",
-        "walkSpeed": "3.4",
-        "crouchMoveSpeed": "2.0",
-        "proneMoveSpeed": "1.0",
-        "combatMoveSpeed": "1.8",
+        "unarmedSprintSpeed": "6.5",
+        "armedSprintSpeed": "5.7",
+        "walkSpeed": "4.2",
+        "crouchMoveSpeed": "2.4",
+        "proneMoveSpeed": "1.1",
+        "combatMoveSpeed": "2.0",
     }
     for field, value in expected_speeds.items():
         assert re.search(rf"\b{field}\s*=\s*{value}f\b", motor), (
-            f"2km movement setting changed: {field} != {value} m/s"
+            f"movement setting changed: {field} != {value} m/s"
         )
     assert "horizontalBraking" in motor and "normalCameraFov" in motor
     assert "Debug.isDebugBuild" in motor, "Release APK must hide saved debugging buttons"
