@@ -64,6 +64,16 @@ assert 'Mathf.InverseLerp(0.025f, 0.14f, gap)' in visual
 assert 'Mathf.Lerp(0.95f, 0.62f,' in visual
 assert 'lowPose < 0.02f' in visual
 assert visual.count('PlantUprightContact(') == 3
+# Whole-rig floating recovery must work even if the player starts moving before
+# the one-time idle scale calibration. It uses the real stance-foot support
+# and hands small residual motion back to leg IK instead of flattening gait.
+assert 'bool uprightGroundedSoldier = realisticSoldierLoaded && graphReady' in visual
+assert 'bool stableSoldier = uprightGroundedSoldier && planar < 0.15f;' in visual
+assert 'Transform stanceFoot = leftFootBone.position.y <= rightFootBone.position.y' in visual
+assert 'float supportY = SupportedAnkleY(stanceFoot, PlantedAnkleMetres);' in visual
+assert 'float stanceGap = stanceFoot.position.y - supportY;' in visual
+assert 'if (Mathf.Abs(stanceGap) > 0.07f)' in visual
+assert 'transform.position.y + 0.045f - lowestAnkle' not in visual
 # Positive calibration and grounded correction remain bounded, including
 # low-FPS 10/30/60/120Hz startup and imported soldier bone spans.
 for span in (1.168, 1.35, 1.64):
