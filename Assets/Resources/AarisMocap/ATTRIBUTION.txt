@@ -1,0 +1,20 @@
+Aaris 100STYLE locomotion mocap
+
+Motion source: 100STYLE dataset
+Authors: Ian Mason, Sebastian Starke, Taku Komura
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+Dataset: https://zenodo.org/records/8127870
+
+Retargeted/loop-closed source container:
+cktang88/3d-fps public/assets/models/characters/soldier.glb
+Pinned upstream Git blob: b00ed33108f2579880c82cd27d10f9237ff3a219
+
+Aaris ships only four forward locomotion cycles:
+- mocap_walk_F@1.1733 -> mocap_walk
+- mocap_jog_F@1.7529 -> mocap_jog
+- mocap_run_F@2.8652 -> mocap_run
+- mocap_crouch_F@0.6906 -> mocap_crouch
+
+Converted offline to a Unity Humanoid FBX. No source mesh or textures ship here.
+Attribution must be retained.
