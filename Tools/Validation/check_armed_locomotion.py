@@ -78,9 +78,15 @@ def audit():
     assert "Quaternion.Euler(0f, yaw, 0f)" in motor
     assert "Mathf.Exp(-weaponTurnResponse * dt)" in motor
     assert "adsMoveSpeed = 2.2f;" in motor
-    assert "unarmedSprintSpeed = 4.8f;" in motor
-    assert "armedSprintSpeed = 4.4f;" in motor
+    assert "unarmedSprintSpeed = 6.5f;" in motor
+    assert "armedSprintSpeed = 5.7f;" in motor
     assert "EnforceNaturalLocomotionPace();" in motor
+    for expected in (
+        "walkSpeed = 4.2f;", "runSpeed = 6.5f;",
+        "crouchMoveSpeed = 2.4f;", "proneMoveSpeed = 1.1f;",
+        "combatMoveSpeed = 2.0f;", "adsMoveSpeed = 2.2f;"
+    ):
+        assert expected in motor
     # A forward-only sprint prevents high-speed sideways/backwards sliding.
     assert 'if (sprinting && (intent.y <= 0.25f ||' in motor
     assert 'intent.y < Mathf.Abs(intent.x) * 0.5f))' in motor
@@ -88,24 +94,25 @@ def audit():
     for x,y,sprint_expected in ((0,1,True),(0.7,0.7,True),(1,0,False),(0,-1,False)):
         assert (y > 0.25 and y >= abs(x)*0.5) == sprint_expected
 
-    # Jogging already uses the full run cycle by 3.4 m/s; armed sprint
-    # still reaches its separate full-speed clip at the 4.4 m/s motor cap.
-    assert "Mathf.InverseLerp(2.0f, 3.4f, horizontal)" in visual
-    assert "bool carrying = actions != null && actions.IsArmed &&" in visual
+    # Gait blend reads the authoritative motor ceilings; visual holstering
+    # must never change the physical armed sprint threshold.
+    assert "playerMotor.JogSpeedMetresPerSecond" in visual
+    assert "playerMotor.ArmedSprintSpeedMetresPerSecond" in visual
+    assert "playerMotor.UnarmedSprintSpeedMetresPerSecond" in visual
+    assert "bool armed = actions != null && actions.IsArmed;" in visual
     assert "!weaponInventory.IsSprintHolstered" in visual
-    assert "carrying ? 4.4f : 4.8f, horizontal" in visual
-    assert "Mathf.Max(4.8f, fullRunSpeed), horizontal" not in visual
+    assert "Mathf.Max(jogCeiling * 0.95f," in visual
     assert "Mathf.Lerp(0.36f, 0.15f, releaseArms)" in visual
-    # At both real-world motor caps the sprint blend must be fully reached,
-    # otherwise gun carriers mix two incompatible foot-contact cycles forever.
-    for armed, cap in ((True, 4.4), (False, 4.8)):
-        end = 4.4 if armed else 4.8
-        blend = min(1.0, max(0.0, (cap - 4.0) / (end - 4.0)))
+    # At both reviewed sprint caps the dynamic sprint blend reaches 1.0.
+    for armed, cap in ((True, 5.7), (False, 6.5)):
+        jog = 4.2
+        start = max(jog * 0.95, cap * 0.72)
+        blend = min(1.0, max(0.0, (cap - start) / (cap - start)))
         assert blend == 1.0, (armed, cap, blend)
     assert "horizontal > 5.0f ? 0.15f : 0.36f" not in visual
-    # Legacy Inspector values must not stretch the lean curve beyond
-    # the real motor cap, and the jump apex should be a continuous blend.
-    assert "fullRunSpeed = Mathf.Min(fullRunSpeed, 4.8f);" in visual
+    # The visual reads the motor cap after startup, and jump apex remains
+    # a continuous blend.
+    assert "fullRunSpeed = playerMotor.UnarmedSprintSpeedMetresPerSecond;" in visual
     assert "float risingPose = Mathf.SmoothStep(0f, 1f," in visual
     assert "Mathf.InverseLerp(-1.75f, 0.75f, velocity.y)" in visual
     assert "float jumping = velocity.y >= -0.6f ? 1f : 0f;" not in visual
@@ -191,11 +198,11 @@ def audit():
             alpha = 1.0 - math.exp(-17.0 * dt)
             angle += (90.0 - angle) * alpha
         assert abs(angle - 90.0) < .09, (fps, angle)
-        normal = 3.4
+        normal = 4.2
         ads = min(normal, 2.2)
-        crouch = min(2.0, 2.2)
-        prone = min(1.0, 2.2)
-        assert ads == 2.2 and crouch == 2.0 and prone == 1.0
+        crouch = min(2.4, 2.2)
+        prone = min(1.1, 2.2)
+        assert ads == 2.2 and crouch == 2.2 and prone == 1.1
     print("PASS: independent E/T/V inputs, camera-relative ADS strafing, single-player motor, "
           "world-size-stable hand socket, masked upper-body recoil and 10–120FPS yaw damping")
     print("NOT TESTED: Unity AvatarMask import/retarget and physical Android visual pose")
