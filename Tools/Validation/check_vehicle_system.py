@@ -264,7 +264,14 @@ def test():
 
     # Full WheelCollider physics without fake step velocity teleports.
     assert "wheelPrefabs[i] = Resources.Load<GameObject>(item.wheelResource);" in world
-    assert "motor.AttachWheelModels(wheelSource, paletteMaterial," in world
+    assert "motor.AttachWheelModels(wheelSource, wheelPaletteMaterial," in world
+    assert 'paletteMaterial.SetFloat("_Metallic", .18f);' in world
+    assert 'paletteMaterial.SetFloat("_Smoothness", .55f);' in world
+    assert 'wheelPaletteMaterial.SetFloat("_Metallic", 0f);' in world
+    assert 'wheelPaletteMaterial.SetFloat("_Smoothness", .18f);' in world
+    assert "paletteMaterial.enableInstancing = true;" in world
+    assert "wheelPaletteMaterial.enableInstancing = true;" in world
+    assert "if (wheelPaletteMaterial != null) Destroy(wheelPaletteMaterial);" in world
     assert "record.type.preserveAuthoredUrpMaterials)" in world
     assert "public bool preserveAuthoredUrpMaterials;" in world
     assert "if (!record.type.preserveAuthoredUrpMaterials)" in build
