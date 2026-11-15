@@ -1,0 +1,118 @@
+name: Aaris current-main landed pose QA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aaris-current-main-pose-render.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aaris-current-main-pose-qa
+  cancel-in-progress: false
+
+jobs:
+  render-landed-poses:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GAMECI_IMAGE: unityci/editor:ubuntu-6000.3.26f1-base-3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+
+      - name: Require configured Unity license without printing it
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$UNITY_LICENSE" && "$UNITY_LICENSE" == *"<"* ]] || {
+            echo 'UNITY_LICENSE_NOT_CONFIGURED_FOR_CURRENT_MAIN_POSE_QA'
+            exit 2
+          }
+          echo 'UNITY_LICENSE_PRESENT'
+
+      - name: Free runner storage and hydrate authoritative Unity assets
+        run: |
+          set -euo pipefail
+          bash Tools/CI/runner_storage.sh cleanup || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq git-lfs
+          git lfs install --local
+          git lfs pull --include="Assets/**" --exclude=""
+          if head -c 100 Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity | grep -q 'git-lfs.github.com/spec'; then
+            echo 'UNITY_SCENE_STILL_LFS_POINTER'
+            exit 3
+          fi
+          mkdir -p ci-pose
+
+      - name: Render landed standing crouch prone walk sprint jump portraits
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        run: |
+          set -euo pipefail
+          docker pull "$GAMECI_IMAGE"
+          docker run --rm --shm-size=1g \
+            -e UNITY_LICENSE \
+            -e LIBGL_ALWAYS_SOFTWARE=1 -e GALLIUM_DRIVER=llvmpipe \
+            -v "$PWD:/project" -v "$PWD/ci-pose:/tmp/aaris-codespaces/motion-frames" \
+            -w /project "$GAMECI_IMAGE" bash -lc '
+              set -euo pipefail
+              apt-get update -qq
+              apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
+              mkdir -p /root/.local/share/unity3d/Unity /project/ci-pose
+              printf "%s" "$UNITY_LICENSE" > /root/.local/share/unity3d/Unity/Unity_lic.ulf
+              chmod 600 /root/.local/share/unity3d/Unity/Unity_lic.ulf
+              xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX" \
+                unity-editor -projectPath /project -batchmode \
+                -executeMethod Aaris.MapReview.Editor.AarisPoseFrames.CapturePortrait \
+                -logFile /project/ci-pose/unity-editor.log
+            '
+
+      - name: Verify evidence is landed and physically measured
+        run: |
+          set -euo pipefail
+          test -s ci-pose/report.txt
+          test -s ci-pose/phase.txt
+          grep -qx '07_COMPLETE' ci-pose/phase.txt
+          grep -q 'SUCCESS_7_ACTOR_PORTRAITS' ci-pose/report.txt
+          grep -q 'EDITOR_ONLY_FAST_FORWARD_TO_TOUCHDOWN' ci-pose/report.txt
+          grep -q 'EDITOR_ONLY_FIXED_SURVEY_LOCATION' ci-pose/report.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('ci-pose')
+          frames=sorted(p.glob('*.jpg'))
+          if len(frames) != 7:
+              raise SystemExit(f'EXPECTED_7_PORTRAITS_GOT_{len(frames)}')
+          if any(f.stat().st_size < 4000 for f in frames):
+              raise SystemExit('POSE_FRAME_TOO_SMALL')
+          report=(p/'report.txt').read_text(errors='replace')
+          for stance in ('Standing','Crouching','Prone'):
+              if f'MEASURE stance={stance}' not in report:
+                  raise SystemExit('MISSING_MEASURE_'+stance)
+          ground_lines=[x for x in report.splitlines() if x.startswith('FRAME ') and
+                        any(s in x for s in ('01_Standing','02_Crouch','03_Prone','04_Walk','05_Sprint'))]
+          if any('air=False' not in x for x in ground_lines):
+              raise SystemExit('AERIAL_FRAME_MISLABELLED_AS_GROUND_POSE')
+          print('CURRENT_MAIN_LANDED_POSE_QA_PASS')
+          for f in frames:
+              print(f.name, f.stat().st_size)
+          PY
+
+      - name: Upload current-main landed pose evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aaris-current-main-landed-poses-${{ github.run_id }}
+          path: |
+            ci-pose/*.jpg
+            ci-pose/report.txt
+            ci-pose/phase.txt
+            ci-pose/unity-editor.log
+          retention-days: 3
+          if-no-files-found: warn
