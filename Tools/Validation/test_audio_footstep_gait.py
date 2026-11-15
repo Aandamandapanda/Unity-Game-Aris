@@ -42,6 +42,19 @@ assert "distance / standStride" in visual
 assert "distance / 1.40f" in visual
 assert "distance / 0.90f" in visual
 
+# Drop wind velocity must also use the real frame duration. Audio fades may
+# clamp their smoothing step independently, but measuring fall speed with that
+# capped dt exaggerates wind during a 200-300 ms hitch.
+assert "float motionDt = Time.deltaTime;" in audio
+assert "float dt = Mathf.Clamp(motionDt, 0f, 0.15f);" in audio
+assert "Mathf.Clamp((previousY - pos.y) / motionDt, 0f, 65f)" in audio
+assert "Mathf.Clamp((previousY - pos.y) / dt, 0f, 65f)" not in audio
+for frame_dt in (1 / 120, 1 / 60, 1 / 30, 0.15, 0.20, 0.30):
+    for speed in (0.0, 8.0, 26.0, 54.0, 65.0):
+        displacement = speed * frame_dt
+        measured = min(65.0, displacement / frame_dt)
+        assert math.isclose(measured, speed)
+
 # Contact timing is driven by the actual displacement of the collision
 # capsule, not a capped animation blend delta. A 200 ms hitch or wall slide
 # must not create an artificial change of footstep frequency.
