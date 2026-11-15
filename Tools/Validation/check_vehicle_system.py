@@ -85,6 +85,42 @@ def test():
     for texture in ("SedanSurface", "SedanMetalSmoothness"):
         png = (RES / "Authored" / (texture + ".png")).read_bytes()
         assert int.from_bytes(png[16:20], "big") == int.from_bytes(png[20:24], "big") == 128
+    # Three real-proportion CC0 Quaternius bodies replace the stylized
+    # legacy presentation while retaining the existing WheelCollider/wheel art.
+    realistic = {
+        "SUV": ("AarisVehicles/Authored/QuaterniusSUV", "QuaterniusSUV", 1000,
+                (2.111102, 1.527851, 4.209349)),
+        "Sports": ("AarisVehicles/Authored/QuaterniusSports", "QuaterniusSports", 900,
+                   (1.804519, 1.155404, 3.968707)),
+        "Hatchback": ("AarisVehicles/Authored/QuaterniusCompact", "QuaterniusCompact", 900,
+                      (1.638448, 1.145616, 3.309623)),
+    }
+    for vehicle_id, (resource, mesh, max_faces, expected_size) in realistic.items():
+        item = next(x for x in types if x["id"] == vehicle_id)
+        assert item["authoredModelResource"] == resource
+        path = RES / "Authored" / (mesh + ".obj")
+        assert path.is_file() and path.with_suffix(".obj.meta").is_file()
+        lines = path.read_text().splitlines()
+        assert 300 < sum(line.startswith("f ") for line in lines) <= max_faces
+        assert sum(line.startswith("o ") for line in lines) == 1
+        assert not any("wheel" in line.lower() for line in lines if line.startswith("o "))
+        materials = {line.split(None, 1)[1] for line in lines if line.startswith("usemtl ")}
+        assert materials == {"AarisPaint", "AarisGlass", "AarisDark",
+                             "AarisHeadlight", "AarisTaillight"}
+        vertices = [tuple(map(float, line.split()[1:4]))
+                    for line in lines if line.startswith("v ")]
+        mins = [min(v[i] for v in vertices) for i in range(3)]
+        maxs = [max(v[i] for v in vertices) for i in range(3)]
+        size = (maxs[0]-mins[0], maxs[1]-mins[1], maxs[2]-mins[2])
+        assert all(abs(a-b) < 0.005 for a,b in zip(size, expected_size)), (
+            vehicle_id, size)
+        mtl = RES / "Authored" / (mesh + ".mtl")
+        assert mtl.is_file() and mtl.with_suffix(".mtl.meta").is_file()
+    provenance = (ROOT / "Docs/ASSET_PROVENANCE_QUATERNIUS_CARS.md").read_text()
+    assert "CC0 1.0 Universal" in provenance
+    assert "a170b37e1b9e5d55d82c680f2eca06877823da27" in provenance
+    assert "7611260cb8e95913ad5ef550dd89a0b140657d20" in provenance
+    assert "9a8316ecbe14f80ea98ef2f5951de7dfa8f95ce9" in provenance
     for n,(expected,size) in HASHES.items():
         p=RES/"Models"/(n+".fbx")
         assert p.is_file() and p.stat().st_size==size,("real FBX missing",n)
@@ -174,6 +210,16 @@ def test():
         "Vehicle fallback must ignore null/terrain hits without ignoring solid obstacles")
     assert "record.visible.CanPark" in world and "record.visible.IsOccupied" in world
     assert "Resources.Load<GameObject>(item.modelResource)" in world
+    assert "convertAuthoredBodyMaterials" in world
+    assert "authoredBody.GetComponentInChildren<Renderer>(true) != null" in world
+    assert "record.type.convertAuthoredBodyMaterials" in world
+    assert "ApplyAuthoredMaterials(renderers);" in world
+    for semantic in ("headlight", "taillight", "darkTrim", "glass"):
+        assert semantic in world
+    assert 'result.EnableKeyword("_EMISSION");' in world
+    assert 'result.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");' in world
+    assert "new Material(shader)" in world  # cache miss only, never per frame
+    assert "authoredMaterialCache[source] = result;" in world
     assert "if (validModels == 0 || availableWeight <= 0)" in world
     assert "prefabs[i] = null;" in world and "wheelPrefabs[i] = null;" in world
     assert "prefabs[i].GetComponentInChildren<Renderer>(true) == null" in world
