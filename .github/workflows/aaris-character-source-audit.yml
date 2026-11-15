@@ -1,0 +1,83 @@
+name: Aaris Tactical Character Source Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/aaris-character-source-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Verify upstream tactical soldier GLB contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, struct, urllib.request
+
+          url = "https://raw.githubusercontent.com/cktang88/3d-fps/main/public/assets/models/characters/soldier_tac.glb"
+          expected_size = 4532132
+          expected_git_blob = "b403237626e308c5a27be9683407b4450b03a246"
+
+          req = urllib.request.Request(url, headers={"User-Agent":"AarisCharacterAudit/1.0"})
+          data = urllib.request.urlopen(req, timeout=60).read()
+          assert len(data) == expected_size, (len(data), expected_size)
+          git_blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+          assert git_blob == expected_git_blob, git_blob
+
+          magic, version, total = struct.unpack_from("<4sII", data, 0)
+          assert magic == b"glTF" and version == 2 and total == len(data)
+          off = 12
+          doc = None
+          while off + 8 <= len(data):
+              n, kind = struct.unpack_from("<II", data, off)
+              off += 8
+              chunk = data[off:off+n]
+              off += n
+              if kind == 0x4E4F534A:
+                  doc = json.loads(chunk.rstrip(b"\x00 \t\r\n").decode("utf-8"))
+          assert doc is not None
+
+          skins = doc.get("skins", [])
+          meshes = doc.get("meshes", [])
+          nodes = doc.get("nodes", [])
+          mats = doc.get("materials", [])
+          imgs = doc.get("images", [])
+          assert skins, "TACTICAL_BODY_HAS_NO_SKIN"
+          assert meshes, "TACTICAL_BODY_HAS_NO_MESH"
+          assert imgs, "TACTICAL_BODY_HAS_NO_EMBEDDED_TEXTURES"
+          skinned_nodes = [n for n in nodes if "skin" in n and "mesh" in n]
+          assert skinned_nodes, "TACTICAL_BODY_HAS_NO_SKINNED_MESH_NODE"
+
+          jointed = 0
+          triangles = 0
+          accessors = doc.get("accessors", [])
+          for mesh in meshes:
+              for prim in mesh.get("primitives", []):
+                  attrs = prim.get("attributes", {})
+                  if "JOINTS_0" in attrs and "WEIGHTS_0" in attrs:
+                      jointed += 1
+                  idx = prim.get("indices")
+                  if idx is not None:
+                      triangles += accessors[idx].get("count", 0) // 3
+          assert jointed > 0, "TACTICAL_BODY_MESH_NOT_SKINNED"
+          assert 1000 <= triangles <= 80000, triangles
+
+          names = [m.get("name","") for m in mats]
+          mime = [i.get("mimeType","") for i in imgs]
+          assert any(x in ("image/png","image/jpeg","image/webp") for x in mime), mime
+          print("AARIS_TACTICAL_SOURCE_OK")
+          print("bytes", len(data))
+          print("skins", len(skins), "joints", [len(s.get("joints",[])) for s in skins])
+          print("meshes", len(meshes), "skinned_primitives", jointed, "triangles", triangles)
+          print("materials", names)
+          print("images", len(imgs), mime)
+          print("skinned_nodes", [(n.get("name",""), n.get("mesh"), n.get("skin")) for n in skinned_nodes])
+          PY
