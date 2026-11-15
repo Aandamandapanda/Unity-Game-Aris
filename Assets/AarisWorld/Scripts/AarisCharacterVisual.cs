@@ -275,6 +275,39 @@ namespace Aaris.MapReview
             return false;
         }
 
+        private bool TryFitHumanoidBonesToController()
+        {
+            // Some valid skinned GLB/FBX rigs carry extreme bind-space vertex
+            // coordinates even though their Humanoid skeleton is normal metric
+            // scale. Renderer.bounds can therefore be unusable before the first
+            // Animator evaluation. Measure a tightly-guarded Human skeleton
+            // instead of accepting an arbitrary AABB.
+            if (visual == null || animator == null || animator.avatar == null ||
+                !animator.avatar.isValid || !animator.avatar.isHuman)
+                return false;
+
+            Transform head = animator.GetBoneTransform(HumanBodyBones.Head);
+            Transform leftFoot = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+            Transform rightFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
+            if (head == null || leftFoot == null || rightFoot == null)
+                return false;
+
+            float feetY = Mathf.Min(leftFoot.position.y, rightFoot.position.y);
+            float boneSpan = head.position.y - feetY;
+            if (float.IsNaN(boneSpan) || float.IsInfinity(boneSpan) ||
+                boneSpan < 0.80f || boneSpan > 2.50f)
+                return false;
+
+            float targetBoneSpan = TargetHeightMetres - 0.14f;
+            float scale = Mathf.Clamp(targetBoneSpan / boneSpan, 0.50f, 2.00f);
+            visual.transform.localScale *= scale;
+
+            feetY = Mathf.Min(leftFoot.position.y, rightFoot.position.y);
+            float targetFeetY = transform.position.y + UprightAnkleClearanceMetres;
+            visual.transform.position += Vector3.up * (targetFeetY - feetY);
+            return true;
+        }
+
         private bool FitVisualToController()
         {
             var renderers = visual.GetComponentsInChildren<Renderer>(true);
@@ -286,8 +319,10 @@ namespace Aaris.MapReview
                 if (!hasBounds) { combined = renderer.bounds; hasBounds = true; }
                 else combined.Encapsulate(renderer.bounds);
             }
-            if (!hasBounds || combined.size.y < 0.01f || combined.size.y > 1000f)
-                return false;
+            if (!hasBounds || float.IsNaN(combined.size.y) ||
+                float.IsInfinity(combined.size.y) ||
+                combined.size.y < 0.01f || combined.size.y > 1000f)
+                return TryFitHumanoidBonesToController();
 
             float scale = Mathf.Clamp(TargetHeightMetres / combined.size.y, 0.01f, 100f);
             // Bounds already include the imported root scale.
