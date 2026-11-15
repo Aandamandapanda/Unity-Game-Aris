@@ -131,6 +131,10 @@ jobs:
             exit 0
           fi
           git commit -m "feat(vehicles): vendor pinned CC0 vehicle bodies"
+          # The hosted runner may leave importer/LFS bookkeeping as unstaged
+          # state after adding binary files. The intended asset set is already
+          # committed above, so discard only runner-local residue before rebase.
+          git reset --hard HEAD
           for attempt in 1 2 3; do
             git fetch origin main
             git rebase origin/main
