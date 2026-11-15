@@ -71,6 +71,7 @@ namespace Aaris.MapReview
         // Long enough to reveal parked cars before the player reaches them;
         // the 10-car active cap and 2GB Android spawn budget stay unchanged.
         private const float LoadRadius = 105f;
+        private const float AuthoredPrewarmRadius = 150f;
         private const float UnloadRadius = 160f;
         private const float SeaLevel = -38.07552f;
         private const int TargetVehicles = 44;
@@ -85,6 +86,12 @@ namespace Aaris.MapReview
         private AarisVehicleType[] vehicleTypes;
         private GameObject[] prefabs;
         private GameObject[] wheelPrefabs;
+        // High-detail authored bodies are prewarmed asynchronously only when
+        // the player approaches a planned car. This preserves the exact same
+        // visuals while avoiding five multi-megabyte FBX loads during boot.
+        private ResourceRequest[] authoredBodyRequests;
+        private bool[] authoredBodyLoadingFallback;
+        private bool[] authoredBodyResolved;
         private int validModels;
         private Material paletteMaterial;
         private Material wheelPaletteMaterial;
@@ -215,6 +222,9 @@ namespace Aaris.MapReview
             vehicleTypes = definitions.vehicles;
             prefabs = new GameObject[vehicleTypes.Length];
             wheelPrefabs = new GameObject[vehicleTypes.Length];
+            authoredBodyRequests = new ResourceRequest[vehicleTypes.Length];
+            authoredBodyLoadingFallback = new bool[vehicleTypes.Length];
+            authoredBodyResolved = new bool[vehicleTypes.Length];
             int availableWeight = 0;
             for (int i = 0; i < vehicleTypes.Length; i++)
             {
@@ -223,53 +233,12 @@ namespace Aaris.MapReview
                     item.maxSpeedMetres > 28f) continue;
                 prefabs[i] = Resources.Load<GameObject>(item.modelResource);
                 wheelPrefabs[i] = Resources.Load<GameObject>(item.wheelResource);
-                // Select the best local body while keeping the current model
-                // as a fail-safe. Newer FBXs may contain their own four wheel
-                // objects; older authored sedan art uses a separate wheel prefab.
-                if (!string.IsNullOrEmpty(item.authoredModelResource))
-                {
-                    var authoredBody =
-                        Resources.Load<GameObject>(item.authoredModelResource);
-                    if ((authoredBody == null ||
-                         authoredBody.GetComponentInChildren<Renderer>(true) == null) &&
-                        !string.IsNullOrEmpty(item.fallbackAuthoredModelResource))
-                    {
-                        authoredBody = Resources.Load<GameObject>(
-                            item.fallbackAuthoredModelResource);
-                    }
-                    if (authoredBody != null && HasEmbeddedWheelSet(authoredBody))
-                    {
-                        prefabs[i] = authoredBody;
-                        // Selection code requires a non-null paired resource,
-                        // but Build() will take the four wheels from this body.
-                        wheelPrefabs[i] = authoredBody;
-                        item.useEmbeddedAuthoredWheels = true;
-                    }
-                    else if (!string.IsNullOrEmpty(item.authoredWheelResource))
-                    {
-                        var authoredWheel =
-                            Resources.Load<GameObject>(item.authoredWheelResource);
-                        if (HasCompatibleUrpMaterials(authoredBody) &&
-                            HasCompatibleUrpMaterials(authoredWheel))
-                        {
-                            prefabs[i] = authoredBody;
-                            wheelPrefabs[i] = authoredWheel;
-                            item.preserveAuthoredUrpMaterials = true;
-                        }
-                        else
-                            Debug.LogWarning("Aaris vehicles: using legacy art for " +
-                                item.id);
-                    }
-                    else if (authoredBody != null &&
-                        authoredBody.GetComponentInChildren<Renderer>(true) != null)
-                    {
-                        // Verified body-only CC0 OBJ: preserve its real silhouette
-                        // and semantic submeshes, but keep the established wheel
-                        // prefab/physics path. Source materials are converted once.
-                        prefabs[i] = authoredBody;
-                        item.convertAuthoredBodyMaterials = true;
-                    }
-                }
+                // Do not load multi-megabyte authored FBXs here. The small
+                // legacy body/wheel pair proves the type is spawnable and stays
+                // as a fail-safe; authoredBodyResolved is completed by the
+                // proximity prewarmer before the first visible spawn.
+                authoredBodyResolved[i] =
+                    string.IsNullOrEmpty(item.authoredModelResource);
                 // A valid GameObject without a usable mesh is not a drivable
                 // 3D model. Remove both references so weighted selection
                 // cannot plan an invisible car for an entire map sector.
@@ -567,6 +536,100 @@ namespace Aaris.MapReview
             return true;
         }
 
+        private int TypeIndex(AarisVehicleType type)
+        {
+            if (type == null || vehicleTypes == null) return -1;
+            for (int i = 0; i < vehicleTypes.Length; i++)
+                if (ReferenceEquals(vehicleTypes[i], type)) return i;
+            return -1;
+        }
+
+        private void CommitAuthoredBody(int i, GameObject authoredBody)
+        {
+            var item = vehicleTypes[i];
+            if (authoredBody == null ||
+                authoredBody.GetComponentInChildren<Renderer>(true) == null)
+                return;
+            if (HasEmbeddedWheelSet(authoredBody))
+            {
+                prefabs[i] = authoredBody;
+                wheelPrefabs[i] = authoredBody;
+                item.useEmbeddedAuthoredWheels = true;
+                item.preserveAuthoredUrpMaterials = false;
+                item.convertAuthoredBodyMaterials = false;
+                return;
+            }
+            if (!string.IsNullOrEmpty(item.authoredWheelResource))
+            {
+                // The sedan wheel asset is tiny compared with the authored body;
+                // loading it only after the body is ready avoids boot-time churn.
+                var authoredWheel =
+                    Resources.Load<GameObject>(item.authoredWheelResource);
+                if (HasCompatibleUrpMaterials(authoredBody) &&
+                    HasCompatibleUrpMaterials(authoredWheel))
+                {
+                    prefabs[i] = authoredBody;
+                    wheelPrefabs[i] = authoredWheel;
+                    item.preserveAuthoredUrpMaterials = true;
+                    item.useEmbeddedAuthoredWheels = false;
+                    item.convertAuthoredBodyMaterials = false;
+                }
+                return;
+            }
+            prefabs[i] = authoredBody;
+            item.convertAuthoredBodyMaterials = true;
+            item.useEmbeddedAuthoredWheels = false;
+            item.preserveAuthoredUrpMaterials = false;
+        }
+
+        private void PumpAuthoredBodyLoads()
+        {
+            if (authoredBodyRequests == null) return;
+            for (int i = 0; i < authoredBodyRequests.Length; i++)
+            {
+                var request = authoredBodyRequests[i];
+                if (request == null || !request.isDone) continue;
+                authoredBodyRequests[i] = null;
+                var body = request.asset as GameObject;
+                if (body != null &&
+                    body.GetComponentInChildren<Renderer>(true) != null)
+                {
+                    CommitAuthoredBody(i, body);
+                    authoredBodyResolved[i] = true;
+                    continue;
+                }
+                var item = vehicleTypes[i];
+                if (!authoredBodyLoadingFallback[i] &&
+                    !string.IsNullOrEmpty(item.fallbackAuthoredModelResource))
+                {
+                    authoredBodyLoadingFallback[i] = true;
+                    var fallback = Resources.LoadAsync<GameObject>(
+                        item.fallbackAuthoredModelResource);
+                    fallback.priority = -1;
+                    authoredBodyRequests[i] = fallback;
+                }
+                else authoredBodyResolved[i] = true; // keep legacy fail-safe
+            }
+        }
+
+        private bool StartAuthoredBodyPrewarm(int i)
+        {
+            if (i < 0 || i >= vehicleTypes.Length ||
+                authoredBodyResolved[i] || authoredBodyRequests[i] != null)
+                return false;
+            var item = vehicleTypes[i];
+            if (string.IsNullOrEmpty(item.authoredModelResource))
+            {
+                authoredBodyResolved[i] = true;
+                return false;
+            }
+            var request = Resources.LoadAsync<GameObject>(item.authoredModelResource);
+            request.priority = -1;
+            authoredBodyRequests[i] = request;
+            authoredBodyLoadingFallback[i] = false;
+            return true;
+        }
+
         private uint Next()
         {
             randomState ^= randomState << 13;
@@ -762,18 +825,10 @@ namespace Aaris.MapReview
 
         private bool Build(AarisVehicleRecord record, Vector3 pos)
         {
-            GameObject source = null;
-            GameObject wheelSource = null;
-            foreach (var type in vehicleTypes)
-            {
-                if (type != record.type) continue;
-                for (int i = 0; i < vehicleTypes.Length; i++)
-                    if (vehicleTypes[i] == type)
-                    {
-                        source = prefabs[i];
-                        wheelSource = wheelPrefabs[i];
-                    }
-            }
+            int typeIndex = TypeIndex(record.type);
+            if (typeIndex < 0 || !authoredBodyResolved[typeIndex]) return false;
+            GameObject source = prefabs[typeIndex];
+            GameObject wheelSource = wheelPrefabs[typeIndex];
             if (source == null || wheelSource == null) return false;
             var root = new GameObject("Aaris Vehicle " + record.type.id + " " + record.point.id);
             root.transform.SetParent(transform, false);
@@ -872,6 +927,19 @@ namespace Aaris.MapReview
                 }
                 else active++;
             }
+            PumpAuthoredBodyLoads();
+            // Start at most one new heavyweight body load per 300 ms poll.
+            // Existing requests continue in parallel through Unity's preload manager.
+            int authoredStarts = 0;
+            foreach (var record in plans)
+            {
+                if (authoredStarts >= 1) break;
+                if ((record.position - playerPosition).sqrMagnitude >
+                    AuthoredPrewarmRadius * AuthoredPrewarmRadius) continue;
+                int typeIndex = TypeIndex(record.type);
+                if (StartAuthoredBodyPrewarm(typeIndex)) authoredStarts++;
+            }
+
             foreach (var record in plans)
             {
                 if (active >= MaximumNearbyVehicles ||
@@ -880,6 +948,12 @@ namespace Aaris.MapReview
                 if (record.visible != null || now < record.nextProbe) continue;
                 if ((record.position - playerPosition).sqrMagnitude > LoadRadius * LoadRadius)
                     continue;
+                int typeIndex = TypeIndex(record.type);
+                if (typeIndex >= 0 && !authoredBodyResolved[typeIndex])
+                {
+                    StartAuthoredBodyPrewarm(typeIndex);
+                    continue;
+                }
                 spawnProbes++;
                 if (TryResolvePlanned(record, out Vector3 pos) && Build(record, pos))
                 {
