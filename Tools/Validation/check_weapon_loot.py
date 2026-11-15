@@ -244,6 +244,20 @@ def run():
     ):
         assert resource in inventory
     assert "Quaternion.Euler(0f, 180f, 0f)" in inventory
+    # Runtime is ready for the two generated multi-material PBR families before
+    # catalog activation. Pinned source manifests place both muzzles on -Z and
+    # butts on +Z, matching the same visual-only 180 degree correction.
+    for resource in (
+        "AarisWeapons/PBR/BattleRifle/BattleRifle",
+        "AarisWeapons/PBR/Sniper/Sniper",
+    ):
+        assert resource in inventory
+    assert 'sourceName.IndexOf("Drum"' in inventory
+    assert '"BattleRifle_Drum" : "BattleRifle_Finish"' in inventory
+    assert 'sourceName.IndexOf("Optic"' in inventory
+    assert '"Sniper_Optic" : "Sniper_Finish"' in inventory
+    assert 'string cacheKey = resourceFolder + "/" + stem;' in inventory
+    assert "Material authoredPbr = AuthoredPbrFinish(spec, source[i]);" in inventory
     assert "mesh.localRotation = ImportedModelRotation(incoming.Spec);" in inventory
     assert "Quaternion.Euler(0f, 0f, -75f) *" in pickup_cs
     assert "AarisWeaponInventory.ImportedModelRotation(state.Spec)" in pickup_cs
