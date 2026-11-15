@@ -202,10 +202,26 @@ for head, legs, slope, permitted in (
     (0.10, 0.10, 55, False),
 ):
     assert mesh_support_clear(head, legs, slope) == permitted, (head, legs, slope)
-# Stance visual catch-up is quicker than the upward recovery, with a
-# frame-rate independent exponential; the physics capsule is untouched.
-assert 'crouching ? 0.085f : 0.15f' in visual
-assert 'prone ? 0.085f : 0.15f' in visual
+# Stance visual timing stays frame-rate independent but human-scaled:
+# crouch is quicker than prone, and getting back up is deliberately slower.
+assert 'crouching ? 0.11f : 0.16f' in visual
+assert 'prone ? 0.17f : 0.24f' in visual
+
+def exp_blend_after(seconds, fps, tau):
+    value = 0.0
+    dt = min(1.0 / fps, 0.15)
+    steps = round(seconds * fps)
+    for _ in range(steps):
+        alpha = 1.0 - math.exp(-dt / tau)
+        value += (1.0 - value) * alpha
+    return value
+
+for tau in (0.11, 0.16, 0.17, 0.24):
+    reference = exp_blend_after(0.4, 120, tau)
+    for fps in (10, 20, 30, 60):
+        assert abs(exp_blend_after(0.4, fps, tau) - reference) < 0.006
+assert exp_blend_after(0.25, 60, 0.11) > 0.89
+assert exp_blend_after(0.25, 60, 0.17) < 0.80
 assert 'if (!visuallyAirborne)' in visual
 assert 'if (!visuallyAirborne && horizontal < 0.045f)' in visual
 assert 'if (controller.isGrounded && horizontal < 0.045f)' not in visual
