@@ -11,8 +11,9 @@ namespace Aaris.MapReview
     internal static class AarisOfflineDropVisuals
     {
         private static Material hull, dark, wingPanels, engineDark, safetyAccent, rotorPaint,
+            propellerBlur, navRed, navGreen, navWhite,
             canopyBlue, canopyWhite, canopyOrange, rope;
-        private static Mesh cachedPropellerMesh;
+        private static Mesh cachedPropellerMesh, cachedPropellerBlurMesh;
 
         private static Material Paint(ref Material cached, Color color)
         {
@@ -28,6 +29,41 @@ namespace Aaris.MapReview
             cached.name = "AarisDrop_Original_" + ColorUtility.ToHtmlStringRGB(color);
             if (cached.HasProperty("_BaseColor")) cached.SetColor("_BaseColor", color);
             else cached.color = color;
+            cached.enableInstancing = true;
+            return cached;
+        }
+
+        // Tiny aircraft marker lights and high-RPM propeller blur should
+        // remain readable against sky without spawning real Light components.
+        // One shared unlit material per colour keeps mobile fill/draw cost small.
+        private static Material Unlit(ref Material cached, Color color,
+            bool transparent = false)
+        {
+            if (cached != null) return cached;
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null) shader = Shader.Find("Sprites/Default");
+            if (shader == null) shader = Shader.Find("Unlit/Color");
+            if (shader == null) return Paint(ref cached, color);
+            cached = new Material(shader)
+            {
+                name = "AarisDrop_Unlit_" + ColorUtility.ToHtmlStringRGBA(color)
+            };
+            if (cached.HasProperty("_BaseColor")) cached.SetColor("_BaseColor", color);
+            else cached.color = color;
+            if (transparent)
+            {
+                cached.SetOverrideTag("RenderType", "Transparent");
+                if (cached.HasProperty("_Surface")) cached.SetFloat("_Surface", 1f);
+                if (cached.HasProperty("_SrcBlend"))
+                    cached.SetFloat("_SrcBlend",
+                        (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                if (cached.HasProperty("_DstBlend"))
+                    cached.SetFloat("_DstBlend",
+                        (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                if (cached.HasProperty("_ZWrite")) cached.SetFloat("_ZWrite", 0f);
+                cached.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                cached.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            }
             cached.enableInstancing = true;
             return cached;
         }
@@ -149,6 +185,62 @@ namespace Aaris.MapReview
             return cachedPropellerMesh;
         }
 
+        // Shared translucent annulus: at flight RPM individual blades visually
+        // integrate into a disc. This adds no collider, texture sample, particle
+        // system or per-frame allocation and is reused by all four engines.
+        private static Mesh BuildPropellerBlurMesh()
+        {
+            if (cachedPropellerBlurMesh != null) return cachedPropellerBlurMesh;
+            const int segments = 24;
+            const float inner = .29f, outer = 1.62f, z = .032f;
+            var vertices = new Vector3[(segments + 1) * 2];
+            var triangles = new int[segments * 12];
+            for (int i = 0; i <= segments; i++)
+            {
+                float angle = i * Mathf.PI * 2f / segments;
+                float x = Mathf.Cos(angle), y = Mathf.Sin(angle);
+                vertices[i * 2] = new Vector3(x * inner, y * inner, z);
+                vertices[i * 2 + 1] = new Vector3(x * outer, y * outer, z);
+            }
+            int t = 0;
+            for (int i = 0; i < segments; i++)
+            {
+                int a = i * 2, b = a + 1, c = a + 2, d = a + 3;
+                triangles[t++] = a; triangles[t++] = b; triangles[t++] = c;
+                triangles[t++] = c; triangles[t++] = b; triangles[t++] = d;
+                triangles[t++] = a; triangles[t++] = c; triangles[t++] = b;
+                triangles[t++] = c; triangles[t++] = d; triangles[t++] = b;
+            }
+            cachedPropellerBlurMesh = new Mesh { name = "AarisSharedPropellerBlur" };
+            cachedPropellerBlurMesh.vertices = vertices;
+            cachedPropellerBlurMesh.triangles = triangles;
+            cachedPropellerBlurMesh.RecalculateBounds();
+            return cachedPropellerBlurMesh;
+        }
+
+        private static void AddAircraftMarkerLights(Transform root)
+        {
+            if (root == null) return;
+            Material red = Unlit(ref navRed, new Color(1f, .035f, .02f, 1f));
+            Material green = Unlit(ref navGreen, new Color(.02f, 1f, .16f, 1f));
+            Material white = Unlit(ref navWhite, new Color(1f, .96f, .82f, 1f));
+            // ICAO-style steady navigation markers: port red, starboard green,
+            // aft white plus a small red anti-collision beacon. They are
+            // emissive-looking unlit meshes, NOT dynamic lights.
+            Part(root, "PortNavigationRed", PrimitiveType.Sphere,
+                new Vector3(-12.55f, 1.38f, 1.15f), Quaternion.identity,
+                Vector3.one * .23f, red);
+            Part(root, "StarboardNavigationGreen", PrimitiveType.Sphere,
+                new Vector3(12.55f, 1.38f, 1.15f), Quaternion.identity,
+                Vector3.one * .23f, green);
+            Part(root, "TailNavigationWhite", PrimitiveType.Sphere,
+                new Vector3(0f, 2.15f, -10.15f), Quaternion.identity,
+                Vector3.one * .20f, white);
+            Part(root, "AntiCollisionBeacon", PrimitiveType.Sphere,
+                new Vector3(0f, 3.0f, -1.0f), Quaternion.identity,
+                Vector3.one * .18f, red);
+        }
+
         internal static GameObject CreatePlane(Vector3 position, Quaternion rotation,
             out Transform[] propellers)
         {
@@ -246,6 +338,9 @@ namespace Aaris.MapReview
             Material bladeMaterial = Paint(ref rotorPaint, new Color(.055f, .08f, .085f));
             SetAircraftFinish(bladeMaterial, .30f, .24f);
             Mesh rotor = BuildPropellerMesh();
+            Mesh blur = BuildPropellerBlurMesh();
+            Material blurMaterial = Unlit(ref propellerBlur,
+                new Color(.60f, .68f, .70f, .13f), true);
             for (int i = 0; i < offsets.Length; i++)
             {
                 GameObject hub = new GameObject("PropellerPivot" + i,
@@ -254,8 +349,14 @@ namespace Aaris.MapReview
                 hub.transform.localPosition = new Vector3(offsets[i], .46f, 4.37f);
                 hub.GetComponent<MeshFilter>().sharedMesh = rotor;
                 hub.GetComponent<MeshRenderer>().sharedMaterial = bladeMaterial;
+                GameObject blurDisc = new GameObject("HighRpmBlur",
+                    typeof(MeshFilter), typeof(MeshRenderer));
+                blurDisc.transform.SetParent(hub.transform, false);
+                blurDisc.GetComponent<MeshFilter>().sharedMesh = blur;
+                blurDisc.GetComponent<MeshRenderer>().sharedMaterial = blurMaterial;
                 propellers[i] = hub.transform;
             }
+            AddAircraftMarkerLights(root.transform);
             root.name = "Aaris_CargoPlane";
             return root;
         }
