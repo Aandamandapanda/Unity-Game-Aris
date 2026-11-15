@@ -1,0 +1,35 @@
+AARIS VEHICLE ART - GRAB3D CC0 SOURCES
+
+License: CC0-1.0 public domain. Commercial use and modification permitted.
+Source library: https://grab3d.com/
+Vendored and checksum-verified by GitHub Actions; never downloaded at game runtime.
+
+1990s-hatchback
+  source: https://grab3d.com/models/vehicles/1990s-hatchback/
+  direct vendor URL: https://grab3d.com/dl/1990s-hatchback/1990s-hatchback.fbx
+  sha256: 9266b0ac0bbccee09cb03a3ade7a17483d641fbe8d4baffbf6fd6bcb0271c932
+  bytes: 2120156
+
+1990s-suv
+  source: https://grab3d.com/models/vehicles/1990s-suv/
+  direct vendor URL: https://grab3d.com/dl/1990s-suv/1990s-suv.fbx
+  sha256: 64069497f9c436ef8c2d8b197c51e8abf8c9f9656bedfe6834f04c9996673f1b
+  bytes: 2607228
+
+1990s-sports-car
+  source: https://grab3d.com/models/vehicles/1990s-sports-car/
+  direct vendor URL: https://grab3d.com/dl/1990s-sports-car/1990s-sports-car.fbx
+  sha256: 42eefdcde7275013aa5894e577c81a92e991f042750ff4c7360ef71764dcf826
+  bytes: 2046796
+
+1980s-van
+  source: https://grab3d.com/models/vehicles/1980s-van/
+  direct vendor URL: https://grab3d.com/dl/1980s-van/1980s-van.fbx
+  sha256: c50f781d642e39f84cbe664ea2ec7c1545d33e173c229c17031fd0464e5ba285
+  bytes: 2333388
+
+1990s-pickup-truck
+  source: https://grab3d.com/models/vehicles/1990s-pickup-truck/
+  direct vendor URL: https://grab3d.com/dl/1990s-pickup-truck/1990s-pickup-truck.fbx
+  sha256: a561a47fe2b92404a7a35d32be209d4d618a6b5e9475e70cfa4dc1394fc6ab5d
+  bytes: 2433580
