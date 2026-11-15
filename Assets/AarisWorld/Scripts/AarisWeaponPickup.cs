@@ -92,7 +92,11 @@ namespace Aaris.MapReview
             // Eight transformed corners per renderer are calculated ONCE on
             // spawn, never in the streaming Update hot path.
             model.localPosition = Vector3.zero;
-            model.localRotation = Quaternion.Euler(0f, 0f, -75f);
+            // Keep floor presentation arbitrary, but preserve the same source
+            // forward correction used by the held model before measuring bounds.
+            model.localRotation =
+                Quaternion.Euler(0f, 0f, -75f) *
+                AarisWeaponInventory.ImportedModelRotation(state.Spec);
             if (!AarisWeaponMeshBounds.TryMeasure(transform,
                 modelRenderers, out Bounds modelBounds))
             {
