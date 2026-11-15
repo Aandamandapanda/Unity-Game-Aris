@@ -14,7 +14,7 @@ assert motor.index('private void AnimateWalk(float dt)') < motor.index(
     'if (characterVisual != null && characterVisual.HasWorkingHumanoid)') < motor.index(
     'float secondsSincePunch = battle != null')
 gloo = (ROOT / 'Assets/AarisWorld/Scripts/AarisOfflineGlooWall.cs').read_text()
-assert 'crouchPlayable.SetTime(crouchClip.length * (10d / 24d));' in visual
+assert 'crouchPlayable.SetTime(naturalMocapLoaded' in visual
 assert 'pronePlayable.SetTime(proneClip != null' in visual
 assert '? 0d : crouchClip.length * (10d / 24d)' in visual
 assert 'jumpPlayable.SetTime(jump.length * 0.39d)' in visual
@@ -22,7 +22,7 @@ assert 'fallPlayable.SetTime(fall.length * 0.72d)' in visual
 assert 'jumpStartPlayable.SetSpeed(Mathf.Clamp' in visual
 # Authored samples keep the continuous locomotion distance phase and
 # shift only the contact points of distinct primary run and sprint clips.
-assert 'if (primaryLoaded && walkClip != runClip)' in visual
+assert 'if (!naturalMocapLoaded && primaryLoaded && walkClip != runClip)' in visual
 assert 'runPhaseOffset = -2f / 60f;' in visual
 assert 'sprintPhaseOffset = sprintClip == runClip ? runPhaseOffset : 0f;' in visual
 assert 'LoopPlayable(runPlayable, runClip, locomotionPhase + runPhaseOffset);' in visual
@@ -38,6 +38,51 @@ assert 'phaseDirection * distance / standStride' in visual
 assert 'phaseDirection * distance / 1.40f' in visual
 assert 'phaseDirection * distance / 0.90f' in visual
 assert 'smoothedStrafeBank = Mathf.Lerp(smoothedStrafeBank, bankTarget, alpha)' in visual
+# Natural locomotion is a complete, local-only 100STYLE set. Never partially
+# mix it with KayKit gait clips, and never add runtime network/download work.
+assert 'private const string MocapLocomotion = "AarisMocap/mocap_locomotion";' in visual
+assert 'Resources.LoadAll<AnimationClip>(MocapLocomotion)' in visual
+assert "importedName.LastIndexOf('|')" in visual
+assert 'leafLength == exactName.Length' in visual
+assert 'string.Compare(importedName, separator + 1, exactName, 0,' in visual
+def matches_mocap_name(imported, expected):
+    if imported.lower() == expected.lower():
+        return True
+    separator = imported.rfind('|')
+    return separator >= 0 and imported[separator + 1:].lower() == expected.lower()
+assert matches_mocap_name('mocap_walk', 'mocap_walk')
+assert matches_mocap_name('BamenMilitarySoldierRig|mocap_walk', 'mocap_walk')
+assert matches_mocap_name('BamenMilitarySoldierRig|MOCAP_RUN', 'mocap_run')
+assert not matches_mocap_name('wrong_mocap_walk', 'mocap_walk')
+assert not matches_mocap_name('Rig|prefix_mocap_walk', 'mocap_walk')
+assert 'naturalMocapLoaded = naturalWalk != null && naturalJog != null &&' in visual
+assert 'naturalRun != null && naturalCrouch != null;' in visual
+assert 'runClip = naturalMocapLoaded ? naturalJog' in visual
+assert 'walkClip = naturalMocapLoaded ? naturalWalk' in visual
+assert 'sprintClip = naturalMocapLoaded ? naturalRun' in visual
+assert 'crouchClip = naturalMocapLoaded ? naturalCrouch' in visual
+assert 'crouchWalkClip = naturalMocapLoaded ? naturalCrouch' in visual
+assert 'if (!naturalMocapLoaded && primaryLoaded && walkClip != runClip)' in visual
+assert 'crouchPlayable.SetTime(naturalMocapLoaded' in visual
+assert 'float crouchLowering = naturalMocapLoaded ? 0f :' in visual
+assert 'UnityWebRequest' not in visual
+# Fresh Unity imports must auto-map each FBX from its own hierarchy. Never
+# serialize a HumanDescription copied from another soldier/rig: that made
+# TacticalSoldier's Avatar invalid and produced multi-metre mocap leg errors.
+tactical_humanoid_meta = (ROOT / 'Assets/Resources/AarisCharacters/Primary/TacticalSoldier/TacticalSoldier.fbx.meta').read_text()
+mocap_humanoid_meta = (ROOT / 'Assets/Resources/AarisMocap/mocap_locomotion.fbx.meta').read_text()
+for humanoid_meta in (tactical_humanoid_meta, mocap_humanoid_meta):
+    assert '    human: []' in humanoid_meta
+    assert '    skeleton: []' in humanoid_meta
+    assert '  autoGenerateAvatarMappingIfUnspecified: 1' in humanoid_meta
+    assert '  animationType: 3' in humanoid_meta
+    assert '  avatarSetup: 1' in humanoid_meta
+assert 'RealisticSoldier(Clone)' not in tactical_humanoid_meta
+assert 'BamenMilitarySoldierRig' not in tactical_humanoid_meta
+# Translation DoF adds a Humanoid retargeting step on mobile. The native
+# clean-import pose contract showed no lower-body benefit here, so keep the
+# cheaper rotation-only path for the 2 GB Android target.
+assert '    hasTranslationDoF: 0' in mocap_humanoid_meta
 # November native Unity stance-jump diagnostic measured a real 0.75m
 # standing shoe hover above terrain (physical capsule foot gap 0.035m).
 # Enforce animated-bone calibration, never a guessed -skinWidth offset.
@@ -652,7 +697,9 @@ for import_scale in ((0.5, 0.5, 0.5), (2.0, 2.0, 2.0), (0.9, 1.2, 1.1)):
 assert 'private const float RealisticSoldierProneRigLowering = 0.64f;' in visual
 assert 'private const float RealisticSoldierCrouchRigLowering = 0.73f;' in visual
 assert 'realisticSoldierLoaded ? RealisticSoldierProneRigLowering : ProneRigLowering' in visual
-assert 'realisticSoldierLoaded ? RealisticSoldierCrouchRigLowering : CrouchRigLowering' in visual
+assert 'float crouchLowering = naturalMocapLoaded ? 0f :' in visual
+assert 'realisticSoldierLoaded ? RealisticSoldierCrouchRigLowering :' in visual
+assert 'CrouchRigLowering) * crouchRigWeight;' in visual
 assert 'public static void CapturePortrait()' in pose_probe
 assert 'ACTOR_HEAD_PENETRATES_CEILING_' in pose_probe
 assert 'SUCCESS_7_ACTOR_PORTRAITS' in pose_probe
