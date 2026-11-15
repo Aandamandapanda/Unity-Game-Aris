@@ -34,7 +34,7 @@ namespace Aaris.MapReview
         private float visualRecoilDegrees;
         private float lastVisualShotTime = -10f;
         private static Material smgFinish, assaultFinish, battleFinish,
-            sniperFinish, shotgunFinish;
+            sniperFinish, shotgunFinish, m4PbrFinish;
         // One converted URP material per imported flat-shaded source slot.
         // Reused by every pickup/equip instance so extra visual separation
         // does not become per-gun memory churn.
@@ -80,6 +80,53 @@ namespace Aaris.MapReview
             if (cached.HasProperty("_Smoothness")) cached.SetFloat("_Smoothness", smoothness);
             cached.enableInstancing = true;
             return cached;
+        }
+
+        private static Material CreateM4PbrFinish()
+        {
+            if (m4PbrFinish != null) return m4PbrFinish;
+            Texture2D baseColor = Resources.Load<Texture2D>(
+                "AarisWeapons/PBR/M4A1/M4A1_Base_Color");
+            Texture2D normal = Resources.Load<Texture2D>(
+                "AarisWeapons/PBR/M4A1/M4A1_Normal");
+            Texture2D metallicSmoothness = Resources.Load<Texture2D>(
+                "AarisWeapons/PBR/M4A1/M4A1_MetallicSmoothness");
+            if (baseColor == null || normal == null || metallicSmoothness == null)
+                return null;
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Simple Lit");
+            if (shader == null) return null;
+            m4PbrFinish = new Material(shader)
+            {
+                name = "AarisWeaponPBR_M4A1",
+                enableInstancing = true
+            };
+            if (m4PbrFinish.HasProperty("_BaseMap"))
+                m4PbrFinish.SetTexture("_BaseMap", baseColor);
+            else m4PbrFinish.mainTexture = baseColor;
+            if (m4PbrFinish.HasProperty("_BaseColor"))
+                m4PbrFinish.SetColor("_BaseColor", Color.white);
+            if (m4PbrFinish.HasProperty("_BumpMap"))
+            {
+                m4PbrFinish.SetTexture("_BumpMap", normal);
+                m4PbrFinish.EnableKeyword("_NORMALMAP");
+                if (m4PbrFinish.HasProperty("_BumpScale"))
+                    m4PbrFinish.SetFloat("_BumpScale", 1f);
+            }
+            if (m4PbrFinish.HasProperty("_MetallicGlossMap"))
+            {
+                m4PbrFinish.SetTexture("_MetallicGlossMap", metallicSmoothness);
+                m4PbrFinish.EnableKeyword("_METALLICSPECGLOSSMAP");
+                if (m4PbrFinish.HasProperty("_Metallic"))
+                    m4PbrFinish.SetFloat("_Metallic", 1f);
+                if (m4PbrFinish.HasProperty("_Smoothness"))
+                    m4PbrFinish.SetFloat("_Smoothness", 1f);
+                if (m4PbrFinish.HasProperty("_SmoothnessTextureChannel"))
+                    m4PbrFinish.SetFloat("_SmoothnessTextureChannel", 0f);
+            }
+            if (m4PbrFinish.HasProperty("_WorkflowMode"))
+                m4PbrFinish.SetFloat("_WorkflowMode", 1f);
+            return m4PbrFinish;
         }
 
         private static Material WeaponFinish(AarisWeaponSpec spec)
@@ -160,10 +207,13 @@ namespace Aaris.MapReview
             return result;
         }
 
-        private static void ApplyTextureAwareWeaponFinish(AarisWeaponSpec spec,
+        internal static void ApplyTextureAwareWeaponFinish(AarisWeaponSpec spec,
             Renderer[] renderers)
         {
             if (renderers == null || renderers.Length == 0) return;
+            bool useM4Pbr = spec != null &&
+                spec.modelResource == "AarisWeapons/PBR/M4A1/M4A1";
+            Material authoredPbr = useM4Pbr ? CreateM4PbrFinish() : null;
             foreach (Renderer renderer in renderers)
             {
                 if (renderer == null) continue;
@@ -171,6 +221,15 @@ namespace Aaris.MapReview
                 bool changed = false;
                 for (int i = 0; i < source.Length; i++)
                 {
+                    if (authoredPbr != null)
+                    {
+                        if (source[i] != authoredPbr)
+                        {
+                            source[i] = authoredPbr;
+                            changed = true;
+                        }
+                        continue;
+                    }
                     Material converted = ConvertedWeaponFinish(spec, source[i]);
                     if (converted == null || converted == source[i]) continue;
                     source[i] = converted;
