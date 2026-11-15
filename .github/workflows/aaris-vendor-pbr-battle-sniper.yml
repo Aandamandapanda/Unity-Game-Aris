@@ -95,6 +95,11 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'Vendor pinned CC0 PBR BattleRifle and Sniper assets'
+          # Checkout can expose legacy full-file/LFS bookkeeping as unstaged
+          # residue even though the intended generated asset set is already
+          # committed. Match the proven vehicle-vendor flow: reset only this
+          # ephemeral runner back to the new commit before rebasing.
+          git reset --hard HEAD
           for attempt in 1 2 3 4 5; do
             git fetch origin main
             if git rebase origin/main && git push origin HEAD:refs/heads/main; then
