@@ -14,6 +14,11 @@ namespace Aaris.MapReview
         private const float WheelRadius = 0.39f;
         private readonly WheelCollider[] wheels = new WheelCollider[4];
         private readonly Transform[] visualWheels = new Transform[4];
+        // Imported vehicle bodies may carry four real wheel meshes with their
+        // own authored local axes. Preserve that rest orientation while the
+        // WheelCollider supplies steering, suspension and spin.
+        private readonly Quaternion[] visualWheelRotationOffsets =
+            new Quaternion[4];
         private Rigidbody body;
         private AarisVehicleSession driver;
         private float forward, steering, smoothSteer;
@@ -133,6 +138,7 @@ namespace Aaris.MapReview
             // An initially sleeping, unoccupied car still needs parking brakes.
             wheel.brakeTorque = ParkingBrakeTorque;
             wheels[index] = wheel;
+            visualWheelRotationOffsets[index] = Quaternion.identity;
         }
 
         /// <summary>
@@ -225,7 +231,66 @@ namespace Aaris.MapReview
                 instance.transform.localScale *=
                     Mathf.Clamp(2f * WheelRadius / maxDimension, .01f, 30f);
                 visualWheels[i] = instance.transform;
+                visualWheelRotationOffsets[i] = Quaternion.identity;
             }
+            SyncVisibleWheels();
+            return true;
+        }
+
+        /// <summary>
+        /// Reuse the four separate wheel objects already authored inside a
+        /// higher-fidelity FBX body. This avoids duplicate toy wheels and keeps
+        /// the imported tyre/rim materials while WheelColliders remain the only
+        /// physics authority. The model contract is *_wheel_fl/fr/rl/rr.
+        /// </summary>
+        public bool AttachEmbeddedWheelModels(Transform bodyRoot)
+        {
+            if (bodyRoot == null || body == null) return false;
+            string[] tokens = { "wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr" };
+            Transform[] all = bodyRoot.GetComponentsInChildren<Transform>(true);
+            Transform[] found = new Transform[4];
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] == null) continue;
+                string label = all[i].name.ToLowerInvariant();
+                for (int w = 0; w < tokens.Length; w++)
+                    if (found[w] == null && label.Contains(tokens[w]))
+                        found[w] = all[i];
+            }
+            for (int i = 0; i < found.Length; i++)
+                if (found[i] == null || wheels[i] == null) return false;
+
+            for (int i = 0; i < found.Length; i++)
+            {
+                Transform wheelVisual = found[i];
+                foreach (var obstacle in
+                    wheelVisual.GetComponentsInChildren<Collider>(true))
+                    obstacle.enabled = false;
+
+                Renderer[] renderers =
+                    wheelVisual.GetComponentsInChildren<Renderer>(true);
+                if (renderers.Length == 0) return false;
+                Bounds worldBounds = renderers[0].bounds;
+                for (int r = 1; r < renderers.Length; r++)
+                    worldBounds.Encapsulate(renderers[r].bounds);
+
+                // Source metadata defines local X as the roll axle. Use the
+                // world-space Y/Z footprint for physical tyre radius and clamp
+                // corrupted imports to plausible passenger-vehicle dimensions.
+                float diameter = Mathf.Max(worldBounds.size.y,
+                    worldBounds.size.z);
+                wheels[i].radius = Mathf.Clamp(diameter * 0.5f, .27f, .46f);
+                Vector3 localCenter = transform.InverseTransformPoint(
+                    worldBounds.center);
+                wheels[i].transform.localPosition = localCenter;
+
+                Quaternion restOffset =
+                    Quaternion.Inverse(transform.rotation) * wheelVisual.rotation;
+                wheelVisual.SetParent(transform, true);
+                visualWheels[i] = wheelVisual;
+                visualWheelRotationOffsets[i] = restOffset;
+            }
+            if (wheels[0] != null) wheels[0].ResetSprungMasses();
             SyncVisibleWheels();
             return true;
         }
@@ -237,7 +302,8 @@ namespace Aaris.MapReview
                 if (wheels[i] == null || visualWheels[i] == null) continue;
                 wheels[i].GetWorldPose(out Vector3 worldPosition,
                     out Quaternion worldRotation);
-                visualWheels[i].SetPositionAndRotation(worldPosition, worldRotation);
+                visualWheels[i].SetPositionAndRotation(worldPosition,
+                    worldRotation * visualWheelRotationOffsets[i]);
             }
         }
 
