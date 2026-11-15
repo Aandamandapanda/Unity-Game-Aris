@@ -1,0 +1,144 @@
+name: Vendor lightweight CC0 vehicle bodies
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/aaris-vendor-realistic-vehicles.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aaris-vendor-realistic-vehicles
+  cancel-in-progress: false
+
+jobs:
+  vendor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download and verify pinned CC0 FBXs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import pathlib
+          import urllib.request
+
+          root = pathlib.Path("Assets/Resources/AarisVehicles/Authored")
+          root.mkdir(parents=True, exist_ok=True)
+
+          assets = [
+              (
+                  "1990s-hatchback",
+                  "https://grab3d.com/dl/1990s-hatchback/1990s-hatchback.fbx",
+                  "9266b0ac0bbccee09cb03a3ade7a17483d641fbe8d4baffbf6fd6bcb0271c932",
+                  "6d8c8debc79549f8a9ff3fa4a8b71990",
+              ),
+              (
+                  "1990s-suv",
+                  "https://grab3d.com/dl/1990s-suv/1990s-suv.fbx",
+                  "64069497f9c436ef8c2d8b197c51e8abf8c9f9656bedfe6834f04c9996673f1b",
+                  "bd9c6502bd5543389ca4b73567112f32",
+              ),
+              (
+                  "1990s-sports-car",
+                  "https://grab3d.com/dl/1990s-sports-car/1990s-sports-car.fbx",
+                  "42eefdcde7275013aa5894e577c81a92e991f042750ff4c7360ef71764dcf826",
+                  "1980ec56c79f4670b012d04a8c052235",
+              ),
+              (
+                  "1980s-van",
+                  "https://grab3d.com/dl/1980s-van/1980s-van.fbx",
+                  "c50f781d642e39f84cbe664ea2ec7c1545d33e173c229c17031fd0464e5ba285",
+                  "d11144ae097f4927a53a0e3ab2189bc9",
+              ),
+              (
+                  "1990s-pickup-truck",
+                  "https://grab3d.com/dl/1990s-pickup-truck/1990s-pickup-truck.fbx",
+                  "a561a47fe2b92404a7a35d32be209d4d618a6b5e9475e70cfa4dc1394fc6ab5d",
+                  "60dd6047a58e4ea6bb9ed5c347e29531",
+              ),
+          ]
+
+          meta = """fileFormatVersion: 2
+          guid: {guid}
+          ModelImporter:
+            serializedVersion: 22200
+            globalScale: 1
+            useFileScale: 1
+            importAnimation: 0
+            importMaterials: 1
+          """
+
+          rows = []
+          for slug, url, expected, guid in assets:
+              req = urllib.request.Request(url, headers={"User-Agent": "Aaris-CC0-Vendor/1.0"})
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  data = response.read()
+              actual = hashlib.sha256(data).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f"SHA256_MISMATCH {slug} {actual}")
+              if not (1_000_000 <= len(data) <= 4_000_000):
+                  raise SystemExit(f"SIZE_OUT_OF_RANGE {slug} {len(data)}")
+              path = root / f"{slug}.fbx"
+              path.write_bytes(data)
+              (root / f"{slug}.fbx.meta").write_text(
+                  meta.format(guid=guid), encoding="utf-8"
+              )
+              rows.append((slug, url, expected, len(data)))
+
+          note = [
+              "AARIS VEHICLE ART - GRAB3D CC0 SOURCES",
+              "",
+              "License: CC0-1.0 public domain. Commercial use and modification permitted.",
+              "Source library: https://grab3d.com/",
+              "Vendored and checksum-verified by GitHub Actions; never downloaded at game runtime.",
+              "",
+          ]
+          for slug, url, sha, size in rows:
+              note += [
+                  f"{slug}",
+                  f"  source: {url.rsplit('/dl/', 1)[0]}/models/vehicles/{slug}/",
+                  f"  direct vendor URL: {url}",
+                  f"  sha256: {sha}",
+                  f"  bytes: {size}",
+                  "",
+              ]
+          (root / "GRAB3D_CC0_SOURCES.txt").write_text(
+              "\n".join(note), encoding="utf-8"
+          )
+          print("AARIS_CC0_VEHICLE_VENDOR_VERIFIED count=5")
+          PY
+
+      - name: Commit verified assets to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Aaris Vehicle Vendor"
+          git config user.email "actions@users.noreply.github.com"
+          git add Assets/Resources/AarisVehicles/Authored/
+          if git diff --cached --quiet; then
+            echo "AARIS_CC0_VEHICLE_ASSETS_ALREADY_PRESENT"
+            exit 0
+          fi
+          git commit -m "feat(vehicles): vendor pinned CC0 vehicle bodies"
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git rebase origin/main
+            if git push origin HEAD:main; then
+              echo "AARIS_CC0_VEHICLE_VENDOR_PUSHED"
+              exit 0
+            fi
+            sleep $((attempt * 2))
+          done
+          echo "AARIS_CC0_VEHICLE_VENDOR_PUSH_FAILED" >&2
+          exit 1
