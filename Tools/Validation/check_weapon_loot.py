@@ -274,7 +274,7 @@ def run():
     assert "main.simulationSpace = ParticleSystemSimulationSpace.World;" in gun_cs
     assert "main.maxParticles = 12;" in gun_cs
     assert "impactParticles.Emit(spec != null && spec.pellets > 1 ? 5 : 3);" in gun_cs
-    assert "TriggerImpactParticles(target.point, target.normal);" in fire_block
+    assert "TriggerImpactParticles(impactPoint, impactNormal);" in fire_block
     assert "AddComponent<ParticleSystem>" not in fire_block
     assert "new GameObject" not in fire_block
     assert "BeginReload()" in gun_cs and "reloading" in gun_cs
@@ -661,6 +661,15 @@ def run():
         "private void ApplyProceduralWeaponMotion()"):inventory.index(
         "private static float GripFrameScale()")]
     assert "handlingMassKg >= 2.0f" in catalog_cs
+
+    # Camera aim may hit the same collider deeper than the barrel ray.
+    # Damage can keep the reticle target, but sound/VFX must use first muzzle contact.
+    assert "Vector3 impactPoint = destination;" in gun_cs
+    assert "Vector3 impactNormal = targetFound ? target.normal : -look;" in gun_cs
+    assert "impactPoint = muzzleHit.point;" in gun_cs
+    assert "impactNormal = muzzleHit.normal;" in gun_cs
+    assert "AarisAudioDirector.BulletImpact(impactPoint);" in gun_cs
+    assert "TriggerImpactParticles(impactPoint, impactNormal);" in gun_cs
 
     # The normal landing pickup remains physical; only after failed
     # floor/visibility checks may the existing inventory grant one starter.
