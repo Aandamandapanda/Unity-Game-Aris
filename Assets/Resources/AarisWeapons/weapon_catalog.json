@@ -33,7 +33,7 @@
     {
       "id": "AssaultRifle",
       "displayName": "Tactical AR",
-      "modelResource": "AarisWeapons/Models/AssaultRifle",
+      "modelResource": "AarisWeapons/PBR/M4A1/M4A1",
       "category": "AR",
       "automatic": true,
       "rpm": 660,
