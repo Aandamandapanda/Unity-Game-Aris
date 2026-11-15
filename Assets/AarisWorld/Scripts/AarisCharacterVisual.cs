@@ -682,15 +682,21 @@ namespace Aaris.MapReview
             // sloped terrain. Reuse the same support hit normal (no extra
             // raycast) and add a bounded world-space tilt after the leg solve.
             // Preserve the authored toe/heel animation underneath the slope.
-            if (supportNormal.y < 0.999f && finalWeight > 0.001f)
-            {
-                Quaternion slopeTilt = Quaternion.FromToRotation(
-                    transform.up, supportNormal);
-                slopeTilt = Quaternion.RotateTowards(
-                    Quaternion.identity, slopeTilt, 32f);
-                foot.rotation = Quaternion.Slerp(foot.rotation,
-                    slopeTilt * foot.rotation, Mathf.Clamp01(finalWeight * 0.85f));
-            }
+            AlignFootToSupport(foot, supportNormal, finalWeight, 32f, 0.85f);
+        }
+
+        private void AlignFootToSupport(Transform foot, Vector3 supportNormal,
+            float solveWeight, float maxDegrees, float blendScale)
+        {
+            if (foot == null || supportNormal.y >= 0.999f ||
+                solveWeight <= 0.001f) return;
+            Quaternion slopeTilt = Quaternion.FromToRotation(
+                transform.up, supportNormal);
+            slopeTilt = Quaternion.RotateTowards(
+                Quaternion.identity, slopeTilt, maxDegrees);
+            foot.rotation = Quaternion.Slerp(foot.rotation,
+                slopeTilt * foot.rotation,
+                Mathf.Clamp01(solveWeight * blendScale));
         }
 
         private static void LoopPlayable(AnimationClipPlayable playable, AnimationClip clip, double cycle)
@@ -972,12 +978,22 @@ namespace Aaris.MapReview
                 float proneShare = proneRigWeight / Mathf.Max(totalRigWeight, 0.0001f);
                 float ankleClearance = Mathf.Lerp(PlantedAnkleMetres,
                     ProneAnkleClearanceMetres, proneShare);
+                float leftAnkleY = SupportedAnkleY(leftFootBone,
+                    ankleClearance, out Vector3 leftSupportNormal);
+                float rightAnkleY = SupportedAnkleY(rightFootBone,
+                    ankleClearance, out Vector3 rightSupportNormal);
                 PlantCrouchLeg(leftThigh, leftShin, leftFootBone,
-                    SupportedAnkleY(leftFootBone, ankleClearance),
-                    transform.forward, ankleRigWeight);
+                    leftAnkleY, transform.forward, ankleRigWeight);
                 PlantCrouchLeg(rightThigh, rightShin, rightFootBone,
-                    SupportedAnkleY(rightFootBone, ankleClearance),
-                    transform.forward, ankleRigWeight);
+                    rightAnkleY, transform.forward, ankleRigWeight);
+                // Crouch/prone used to correct only ankle height, leaving the
+                // sole visually cutting through a sloped road or bridge deck.
+                // Reuse the exact two support normals sampled above; no extra
+                // Physics query is introduced by this low-stance correction.
+                AlignFootToSupport(leftFootBone, leftSupportNormal,
+                    ankleRigWeight, 26f, 0.72f);
+                AlignFootToSupport(rightFootBone, rightSupportNormal,
+                    ankleRigWeight, 26f, 0.72f);
             }
             // Standing/walk/run need world-space contact too. Apply the same
             // analytic leg solve only to a near-ground stance foot; high swing
