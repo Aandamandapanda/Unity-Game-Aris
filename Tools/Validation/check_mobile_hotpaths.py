@@ -603,6 +603,16 @@ def audit():
     assert stream.count("player.position") == 1  # Cache native Transform once.
     assert stream.count("Time.unscaledTime") == 1  # Cache clock once.
     assert "record.nextProbe = now + 3.0f;" in stream
+    # Multi-megabyte authored cars must not be synchronously pulled into
+    # memory at boot. Prewarm one nearby type per 300 ms poll through Unity's
+    # resource preload manager while preserving the same high-detail model.
+    assert "AuthoredPrewarmRadius = 150f" in vehicle
+    assert "Resources.LoadAsync<GameObject>(item.authoredModelResource)" in vehicle
+    assert "request.priority = -1;" in vehicle
+    assert "fallback.priority = -1;" in vehicle
+    assert "int authoredStarts = 0;" in stream
+    assert "if (authoredStarts >= 1) break;" in stream
+    assert "PumpAuthoredBodyLoads();" in stream
     assert "new List<" not in stream
 
     # Frame-paced simulation checks operation bursts at 15-120 FPS.
