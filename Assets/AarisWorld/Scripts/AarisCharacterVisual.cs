@@ -307,34 +307,45 @@ namespace Aaris.MapReview
                 : source.HasProperty("_MainTex") ? source.GetTexture("_MainTex") : null;
             Texture normal = source.HasProperty("_BumpMap")
                 ? source.GetTexture("_BumpMap") : null;
+            Texture metallicMap = source.HasProperty("_MetallicGlossMap")
+                ? source.GetTexture("_MetallicGlossMap") : null;
+            Texture occlusionMap = source.HasProperty("_OcclusionMap")
+                ? source.GetTexture("_OcclusionMap") : null;
+            Texture emissionMap = source.HasProperty("_EmissionMap")
+                ? source.GetTexture("_EmissionMap") : null;
+            bool hasAuthoredBase = baseMap != null && baseMap != Texture2D.whiteTexture;
 
             string label = source.name ?? string.Empty;
             Color colour = sourceColor;
-            float metallic = 0.02f;
-            float smoothness = 0.18f;
+            float metallic = source.HasProperty("_Metallic")
+                ? source.GetFloat("_Metallic") : 0.02f;
+            float smoothness = source.HasProperty("_Smoothness")
+                ? source.GetFloat("_Smoothness")
+                : source.HasProperty("_Glossiness")
+                    ? source.GetFloat("_Glossiness") : 0.18f;
             bool glass = false;
 
-            if (label.IndexOf("Clothes", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (!hasAuthoredBase && label.IndexOf("Clothes", StringComparison.OrdinalIgnoreCase) >= 0)
             { colour = new Color(.13f,.16f,.12f,sourceColor.a); metallic = 0f; smoothness = .14f; }
-            else if (label.IndexOf("Fabric", StringComparison.OrdinalIgnoreCase) >= 0)
+            else if (!hasAuthoredBase && label.IndexOf("Fabric", StringComparison.OrdinalIgnoreCase) >= 0)
             { colour = new Color(.28f,.23f,.15f,sourceColor.a); metallic = 0f; smoothness = .10f; }
-            else if (label.IndexOf("Armor", StringComparison.OrdinalIgnoreCase) >= 0)
+            else if (!hasAuthoredBase && label.IndexOf("Armor", StringComparison.OrdinalIgnoreCase) >= 0)
             { colour = new Color(.18f,.17f,.11f,sourceColor.a); metallic = .04f; smoothness = .32f; }
-            else if (label.IndexOf("Elements", StringComparison.OrdinalIgnoreCase) >= 0)
+            else if (!hasAuthoredBase && label.IndexOf("Elements", StringComparison.OrdinalIgnoreCase) >= 0)
             { colour = new Color(.06f,.07f,.06f,sourceColor.a); metallic = .06f; smoothness = .35f; }
-            else if (label.IndexOf("Iron", StringComparison.OrdinalIgnoreCase) >= 0)
+            else if (!hasAuthoredBase && label.IndexOf("Iron", StringComparison.OrdinalIgnoreCase) >= 0)
             { colour = new Color(.16f,.17f,.16f,sourceColor.a); metallic = .80f; smoothness = .50f; }
-            else if (label.IndexOf("Metal", StringComparison.OrdinalIgnoreCase) >= 0)
+            else if (!hasAuthoredBase && label.IndexOf("Metal", StringComparison.OrdinalIgnoreCase) >= 0)
             { colour = new Color(.24f,.25f,.24f,sourceColor.a); metallic = .75f; smoothness = .55f; }
-            else if (label.IndexOf("Flesh", StringComparison.OrdinalIgnoreCase) >= 0)
+            else if (!hasAuthoredBase && label.IndexOf("Flesh", StringComparison.OrdinalIgnoreCase) >= 0)
             { colour = new Color(.42f,.29f,.20f,sourceColor.a); metallic = 0f; smoothness = .35f; }
-            else if (label.IndexOf("Shoes", StringComparison.OrdinalIgnoreCase) >= 0)
+            else if (!hasAuthoredBase && label.IndexOf("Shoes", StringComparison.OrdinalIgnoreCase) >= 0)
             { colour = new Color(.05f,.045f,.04f,sourceColor.a); metallic = 0f; smoothness = .18f; }
-            else if (label.IndexOf("Boots", StringComparison.OrdinalIgnoreCase) >= 0)
+            else if (!hasAuthoredBase && label.IndexOf("Boots", StringComparison.OrdinalIgnoreCase) >= 0)
             { colour = new Color(.06f,.05f,.04f,sourceColor.a); metallic = 0f; smoothness = .20f; }
-            else if (label.IndexOf("Glass", StringComparison.OrdinalIgnoreCase) >= 0)
+            else if (!hasAuthoredBase && label.IndexOf("Glass", StringComparison.OrdinalIgnoreCase) >= 0)
             { colour = new Color(.02f,.03f,.035f,.52f); metallic = .12f; smoothness = .88f; glass = true; }
-            else if (label.IndexOf("Skin", StringComparison.OrdinalIgnoreCase) >= 0)
+            else if (!hasAuthoredBase && label.IndexOf("Skin", StringComparison.OrdinalIgnoreCase) >= 0)
             { colour = new Color(.04f,.045f,.04f,sourceColor.a); metallic = 0f; smoothness = .16f; }
             else if (baseMap == null && Mathf.Min(sourceColor.r,
                 Mathf.Min(sourceColor.g, sourceColor.b)) > .72f)
@@ -347,14 +358,40 @@ namespace Aaris.MapReview
             };
             if (result.HasProperty("_BaseColor")) result.SetColor("_BaseColor", colour);
             if (baseMap != null && result.HasProperty("_BaseMap"))
+            {
                 result.SetTexture("_BaseMap", baseMap);
+                string sourceMapProperty = source.HasProperty("_BaseMap")
+                    ? "_BaseMap" : "_MainTex";
+                result.SetTextureScale("_BaseMap", source.GetTextureScale(sourceMapProperty));
+                result.SetTextureOffset("_BaseMap", source.GetTextureOffset(sourceMapProperty));
+            }
             if (normal != null && result.HasProperty("_BumpMap"))
             {
                 result.SetTexture("_BumpMap", normal);
+                if (source.HasProperty("_BumpScale") && result.HasProperty("_BumpScale"))
+                    result.SetFloat("_BumpScale", source.GetFloat("_BumpScale"));
                 result.EnableKeyword("_NORMALMAP");
             }
-            if (result.HasProperty("_Metallic")) result.SetFloat("_Metallic", metallic);
-            if (result.HasProperty("_Smoothness")) result.SetFloat("_Smoothness", smoothness);
+            if (metallicMap != null && result.HasProperty("_MetallicGlossMap"))
+            {
+                result.SetTexture("_MetallicGlossMap", metallicMap);
+                result.EnableKeyword("_METALLICSPECGLOSSMAP");
+            }
+            if (occlusionMap != null && result.HasProperty("_OcclusionMap"))
+            {
+                result.SetTexture("_OcclusionMap", occlusionMap);
+                result.EnableKeyword("_OCCLUSIONMAP");
+            }
+            if (emissionMap != null && result.HasProperty("_EmissionMap"))
+            {
+                result.SetTexture("_EmissionMap", emissionMap);
+                if (source.HasProperty("_EmissionColor") &&
+                    result.HasProperty("_EmissionColor"))
+                    result.SetColor("_EmissionColor", source.GetColor("_EmissionColor"));
+                result.EnableKeyword("_EMISSION");
+            }
+            if (result.HasProperty("_Metallic")) result.SetFloat("_Metallic", Mathf.Clamp01(metallic));
+            if (result.HasProperty("_Smoothness")) result.SetFloat("_Smoothness", Mathf.Clamp01(smoothness));
             if (glass)
             {
                 result.SetOverrideTag("RenderType", "Transparent");
