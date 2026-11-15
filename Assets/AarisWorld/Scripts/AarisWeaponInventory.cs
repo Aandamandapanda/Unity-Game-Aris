@@ -38,7 +38,12 @@ namespace Aaris.MapReview
         private float visualRecoilDegrees;
         private float lastVisualShotTime = -10f;
         private static Material smgFinish, assaultFinish, battleFinish,
-            sniperFinish, shotgunFinish, m4PbrFinish;
+            sniperFinish, shotgunFinish;
+        // One shared URP PBR material per locally vendored textured firearm.
+        // The cache is keyed by Resources folder and is reused by every held,
+        // stowed and floor instance; no per-pickup material copies are made.
+        private static readonly Dictionary<string, Material> pbrFinishCache =
+            new Dictionary<string, Material>(5, System.StringComparer.Ordinal);
         // One converted URP material per imported flat-shaded source slot.
         // Reused by every pickup/equip instance so extra visual separation
         // does not become per-gun memory churn.
@@ -86,51 +91,80 @@ namespace Aaris.MapReview
             return cached;
         }
 
-        private static Material CreateM4PbrFinish()
+        private static Material CreatePbrFinish(string label,
+            string resourceFolder, string stem)
         {
-            if (m4PbrFinish != null) return m4PbrFinish;
+            if (string.IsNullOrEmpty(resourceFolder) || string.IsNullOrEmpty(stem))
+                return null;
+            if (pbrFinishCache.TryGetValue(resourceFolder, out Material cached) &&
+                cached != null)
+                return cached;
+
             Texture2D baseColor = Resources.Load<Texture2D>(
-                "AarisWeapons/PBR/M4A1/M4A1_Base_Color");
+                resourceFolder + "/" + stem + "_Base_Color");
             Texture2D normal = Resources.Load<Texture2D>(
-                "AarisWeapons/PBR/M4A1/M4A1_Normal");
+                resourceFolder + "/" + stem + "_Normal");
             Texture2D metallicSmoothness = Resources.Load<Texture2D>(
-                "AarisWeapons/PBR/M4A1/M4A1_MetallicSmoothness");
+                resourceFolder + "/" + stem + "_MetallicSmoothness");
             if (baseColor == null || normal == null || metallicSmoothness == null)
                 return null;
+
             Shader shader = Shader.Find("Universal Render Pipeline/Lit");
-            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Simple Lit");
+            if (shader == null) shader =
+                Shader.Find("Universal Render Pipeline/Simple Lit");
             if (shader == null) return null;
-            m4PbrFinish = new Material(shader)
+            var material = new Material(shader)
             {
-                name = "AarisWeaponPBR_M4A1",
+                name = "AarisWeaponPBR_" + label,
                 enableInstancing = true
             };
-            if (m4PbrFinish.HasProperty("_BaseMap"))
-                m4PbrFinish.SetTexture("_BaseMap", baseColor);
-            else m4PbrFinish.mainTexture = baseColor;
-            if (m4PbrFinish.HasProperty("_BaseColor"))
-                m4PbrFinish.SetColor("_BaseColor", Color.white);
-            if (m4PbrFinish.HasProperty("_BumpMap"))
+            if (material.HasProperty("_BaseMap"))
+                material.SetTexture("_BaseMap", baseColor);
+            else material.mainTexture = baseColor;
+            if (material.HasProperty("_BaseColor"))
+                material.SetColor("_BaseColor", Color.white);
+            if (material.HasProperty("_BumpMap"))
             {
-                m4PbrFinish.SetTexture("_BumpMap", normal);
-                m4PbrFinish.EnableKeyword("_NORMALMAP");
-                if (m4PbrFinish.HasProperty("_BumpScale"))
-                    m4PbrFinish.SetFloat("_BumpScale", 1f);
+                material.SetTexture("_BumpMap", normal);
+                material.EnableKeyword("_NORMALMAP");
+                if (material.HasProperty("_BumpScale"))
+                    material.SetFloat("_BumpScale", 1f);
             }
-            if (m4PbrFinish.HasProperty("_MetallicGlossMap"))
+            if (material.HasProperty("_MetallicGlossMap"))
             {
-                m4PbrFinish.SetTexture("_MetallicGlossMap", metallicSmoothness);
-                m4PbrFinish.EnableKeyword("_METALLICSPECGLOSSMAP");
-                if (m4PbrFinish.HasProperty("_Metallic"))
-                    m4PbrFinish.SetFloat("_Metallic", 1f);
-                if (m4PbrFinish.HasProperty("_Smoothness"))
-                    m4PbrFinish.SetFloat("_Smoothness", 1f);
-                if (m4PbrFinish.HasProperty("_SmoothnessTextureChannel"))
-                    m4PbrFinish.SetFloat("_SmoothnessTextureChannel", 0f);
+                material.SetTexture("_MetallicGlossMap", metallicSmoothness);
+                material.EnableKeyword("_METALLICSPECGLOSSMAP");
+                if (material.HasProperty("_Metallic"))
+                    material.SetFloat("_Metallic", 1f);
+                if (material.HasProperty("_Smoothness"))
+                    material.SetFloat("_Smoothness", 1f);
+                if (material.HasProperty("_SmoothnessTextureChannel"))
+                    material.SetFloat("_SmoothnessTextureChannel", 0f);
             }
-            if (m4PbrFinish.HasProperty("_WorkflowMode"))
-                m4PbrFinish.SetFloat("_WorkflowMode", 1f);
-            return m4PbrFinish;
+            if (material.HasProperty("_WorkflowMode"))
+                material.SetFloat("_WorkflowMode", 1f);
+            pbrFinishCache[resourceFolder] = material;
+            return material;
+        }
+
+        private static Material AuthoredPbrFinish(AarisWeaponSpec spec)
+        {
+            if (spec == null || string.IsNullOrEmpty(spec.modelResource))
+                return null;
+            switch (spec.modelResource)
+            {
+                case "AarisWeapons/PBR/M4A1/M4A1":
+                    return CreatePbrFinish("M4A1",
+                        "AarisWeapons/PBR/M4A1", "M4A1");
+                case "AarisWeapons/PBR/GreaseGun/Grease_Gun":
+                    return CreatePbrFinish("GreaseGun",
+                        "AarisWeapons/PBR/GreaseGun", "Grease_Gun");
+                case "AarisWeapons/PBR/Shotgun/Shotgun":
+                    return CreatePbrFinish("Shotgun",
+                        "AarisWeapons/PBR/Shotgun", "Shotgun");
+                default:
+                    return null;
+            }
         }
 
         private static Material WeaponFinish(AarisWeaponSpec spec)
@@ -219,7 +253,9 @@ namespace Aaris.MapReview
         internal static Quaternion ImportedModelRotation(AarisWeaponSpec spec)
         {
             bool reverseForward = spec != null &&
-                spec.modelResource == "AarisWeapons/PBR/M4A1/M4A1";
+                (spec.modelResource == "AarisWeapons/PBR/M4A1/M4A1" ||
+                 spec.modelResource == "AarisWeapons/PBR/GreaseGun/Grease_Gun" ||
+                 spec.modelResource == "AarisWeapons/PBR/Shotgun/Shotgun");
             return reverseForward
                 ? Quaternion.Euler(0f, 180f, 0f)
                 : Quaternion.identity;
@@ -229,9 +265,7 @@ namespace Aaris.MapReview
             Renderer[] renderers)
         {
             if (renderers == null || renderers.Length == 0) return;
-            bool useM4Pbr = spec != null &&
-                spec.modelResource == "AarisWeapons/PBR/M4A1/M4A1";
-            Material authoredPbr = useM4Pbr ? CreateM4PbrFinish() : null;
+            Material authoredPbr = AuthoredPbrFinish(spec);
             foreach (Renderer renderer in renderers)
             {
                 if (renderer == null) continue;
