@@ -20,13 +20,13 @@ namespace Aaris.MapReview
         [SerializeField, Min(0.01f)] private float horizontalAcceleration = 13f;
         [SerializeField, Min(0.01f)] private float horizontalBraking = 19f;
         [Header("Jump, slope and third-person camera feel")]
-        [SerializeField, Min(1.1f)] private float earlyJumpReleaseGravity = 1.35f;
-        [SerializeField, Range(0.0f, 0.18f)] private float minimumJumpAscentSeconds = 0.12f;
+        [SerializeField, Min(1.1f)] private float earlyJumpReleaseGravity = 1.65f;
+        [SerializeField, Range(0.0f, 0.18f)] private float minimumJumpAscentSeconds = 0.09f;
         [SerializeField, Range(0f, 0.6f)] private float downhillProbeDistance = 0.32f;
         [SerializeField, Min(0.1f)] private float groundedDownVelocity = 5.5f;
         [SerializeField, Range(0.2f, 1f)] private float airborneSteering = 0.78f;
         [SerializeField, Range(0.05f, 0.6f)] private float stanceCameraBlendSeconds = 0.15f;
-        [SerializeField] private float jumpHeight = 1.35f, gravity = 18.5f;
+        [SerializeField] private float jumpHeight = 0.90f, gravity = 21.5f;
         [SerializeField] private float followDistance = 4.2f, pivotHeight = 1.45f;
         [SerializeField] private float lookSensitivity = 0.12f;
         [SerializeField] private float minLookPitch = -70f, maxLookPitch = 70f;
@@ -191,6 +191,13 @@ namespace Aaris.MapReview
             proneMoveSpeed = 1.1f;
             combatMoveSpeed = 2.0f;
             adsMoveSpeed = 2.2f;
+            // The old serialized 1.35m arc reads like an arcade hop on a
+            // geared soldier. Keep enough clearance for BR traversal while
+            // enforcing a compact, weighty ballistic profile in old scenes.
+            jumpHeight = 0.90f;
+            gravity = 21.5f;
+            earlyJumpReleaseGravity = 1.65f;
+            minimumJumpAscentSeconds = 0.09f;
         }
 
         private void Awake()
