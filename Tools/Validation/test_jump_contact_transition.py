@@ -74,13 +74,16 @@ def camera_dip(age: float, impact: float) -> float:
     if age < 0.0 or age >= 0.24:
         return 0.0
     weight = max(0.0, min(1.0, (impact - 1.5) / (10.0 - 1.5)))
+    if weight <= 0.001:
+        return 0.0
     return math.sin(math.pi * age / 0.24) * (0.008 + (0.05 - 0.008) * weight)
 
 assert math.isclose(camera_dip(0.0, 10.0), 0.0, abs_tol=1e-9)
 assert math.isclose(camera_dip(0.24, 10.0), 0.0, abs_tol=1e-9)
 assert camera_dip(0.12, 10.0) <= 0.0500001
-assert camera_dip(0.12, 1.0) == 0.008
-assert camera_dip(0.12, 6.0) < camera_dip(0.12, 10.0)
+assert camera_dip(0.12, 1.0) == 0.0
+assert camera_dip(0.12, 1.5) == 0.0
+assert 0.0 < camera_dip(0.12, 6.0) < camera_dip(0.12, 10.0)
 
 # Stair stepping may resume on actual or predicted ground support, but
 # NOT merely because the player reached the descending half of a jump.
