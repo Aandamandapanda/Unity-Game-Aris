@@ -5,6 +5,7 @@ These checks are NOT a substitute for a licensed Unity compilation, physics
 test, native scene render, Android profiling or Play Mode verification.
 """
 from pathlib import Path
+import hashlib
 import json
 import math
 import re
@@ -291,7 +292,8 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         self.assertIn("WriteWeightIfChanged(mixer, lastBaseWeights, 10, baseWeight * proneWeight", source)
         self.assertIn("WriteWeightIfChanged(mixer, lastBaseWeights, 11, baseWeight * proneWeight", source)
         self.assertIn("LoopPlayable(crawlPlayable, crawlClip, crawlPhase);", source)
-        self.assertIn("LoopPlayable(sprintPlayable, sprintClip, locomotionPhase);", source)
+        self.assertIn("LoopPlayable(runPlayable, runClip, locomotionPhase + runPhaseOffset);", source)
+        self.assertIn("LoopPlayable(sprintPlayable, sprintClip, locomotionPhase + sprintPhaseOffset);", source)
         # Authored prone is entirely clip driven. The old bone-pulse hack must
         # not fight the retargeted crawl or spend time mutating limb bones.
         self.assertNotIn("crawlLeftArm.localRotation *=", source)
@@ -348,9 +350,14 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         sprint_meta = folder / "Animations" / "sprint.fbx.meta"
         self.assertTrue(sprint_fbx.is_file())
         self.assertTrue(sprint_meta.is_file())
-        pointer = sprint_fbx.read_text("utf-8")
-        self.assertIn("oid sha256:" + sprint["output_sha256"], pointer)
-        self.assertIn("size 394796", pointer)
+        sprint_bytes = sprint_fbx.read_bytes()
+        if sprint_bytes.startswith(b"version https://git-lfs.github.com/spec/v1"):
+            pointer = sprint_bytes.decode("utf-8")
+            self.assertIn("oid sha256:" + sprint["output_sha256"], pointer)
+            self.assertIn("size 394796", pointer)
+        else:
+            self.assertEqual(hashlib.sha256(sprint_bytes).hexdigest(),
+                             sprint["output_sha256"])
 
         importer = (ROOT / "Assets/AarisWorld/Editor/AarisCharacterImport.cs").read_text("utf-8")
         self.assertIn("private static readonly (string bone, string human)[] QuaterniusHumanoid", importer)
