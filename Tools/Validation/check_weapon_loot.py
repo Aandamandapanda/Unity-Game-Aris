@@ -423,6 +423,26 @@ def run():
     assert "aiming ? 52f : 38f" in inventory
     assert inventory.index("ReachArm(leftUpperArm, leftForearm, leftHand,") < inventory.index(
         "AlignSupportWristRotation();")
+    # Visible two-hand grip also closes the fingers around real gun-space
+    # targets. Use evaluated world-space segment directions rather than
+    # hard-coded local Euler axes, which differ across Humanoid avatars.
+    for bone in (
+        "RightIndexProximal", "RightMiddleProximal", "RightRingProximal",
+        "RightLittleProximal", "LeftIndexProximal", "LeftMiddleProximal",
+        "LeftRingProximal", "LeftLittleProximal",
+    ):
+        assert "HumanBodyBones." + bone in inventory
+    assert "private static void BendDigitTowardGrip(" in inventory
+    assert "Quaternion.FromToRotation(" in inventory
+    assert "Vector3.Slerp(first.normalized" in inventory
+    assert "Vector3.Slerp(second.normalized" in inventory
+    assert "private void ApplyFingerGrip(float foregrip)" in inventory
+    assert "BendDigitTowardGrip(rightGripDigits, 0," in inventory
+    assert "8f, 11f" in inventory  # trigger index stays comparatively relaxed
+    assert "BendDigitTowardGrip(rightGripDigits, 3, pistolGrip, 25f, 38f);" in inventory
+    assert "BendDigitTowardGrip(leftGripDigits, 3, supportWrap, 22f, 34f);" in inventory
+    assert inventory.index("hand.rotation = Quaternion.Slerp") < inventory.index(
+        "ApplyFingerGrip(foregrip);")
 
     def reachable_rail_grip(dx, dy, dz, arm_reach, preferred):
         # Forward-facing barrel = +Z. C# uses the same quadratic intersection
