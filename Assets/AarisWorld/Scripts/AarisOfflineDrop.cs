@@ -153,15 +153,10 @@ namespace Aaris.MapReview
             // Every subsequent swipe continues through the normal orbit.
             if (view != null && plane != null)
             {
-                Vector3 orbit = Quaternion.Euler(-pitch, yaw, 0f) * Vector3.back;
-                Vector3 initialPosition = plane.transform.position + orbit * 28f +
-                    Vector3.up * 9f;
-                // Keep the chase camera on the authoritative route axis:
-                // visual gust/bank remains visible on the airframe without
-                // injecting micro-jitter into the camera's look direction.
-                Vector3 focus = plane.transform.position + planeFlightDirection * 4f;
+                GetPlaneCameraPose(out Vector3 initialPosition,
+                    out Vector3 initialFocus);
                 view.transform.SetPositionAndRotation(initialPosition,
-                    Quaternion.LookRotation(focus - initialPosition, Vector3.up));
+                    Quaternion.LookRotation(initialFocus - initialPosition, Vector3.up));
             }
             previousMouse = Input.mousePosition;
         }
@@ -707,6 +702,21 @@ namespace Aaris.MapReview
                 if (initialPlayerRenderers[i] != null) initialPlayerRenderers[i].enabled = previousRendererStates[i];
         }
 
+        private void GetPlaneCameraPose(out Vector3 position,
+            out Vector3 focus)
+        {
+            Vector3 orbit = Quaternion.Euler(-pitch, yaw, 0f) * Vector3.back;
+            // Route-yaw shoulder offset gives the default rear view visible
+            // wing/nacelle depth without changing the yaw used by ejection.
+            Vector3 shoulder = Quaternion.Euler(0f, yaw, 0f) * Vector3.right;
+            position = plane.transform.position + orbit * 25.5f +
+                Vector3.up * 13.5f + shoulder * 3.8f;
+            // Look slightly above/forward of the model origin; the saved mesh
+            // has a raised tail and engines, so exact-origin focus reads flat.
+            focus = plane.transform.position + planeFlightDirection * 2.8f +
+                Vector3.up * 0.8f;
+        }
+
         private Vector3 CameraSafePosition(Vector3 focus, Vector3 goal)
         {
             Vector3 delta = goal - focus;
@@ -767,12 +777,10 @@ namespace Aaris.MapReview
             Vector3 pos, focus;
             if (phase == DropPhase.InPlane && plane != null)
             {
-                // The previous fixed chase camera ignored all plane-phase
-                // swipes. Orbit the actual aircraft so players can inspect
-                // above, below and either side before ejecting.
-                Vector3 orbit = Quaternion.Euler(-pitch, yaw, 0f) * Vector3.back;
-                pos = plane.transform.position + orbit * 28f + Vector3.up * 9f;
-                focus = plane.transform.position + planeFlightDirection * 4f;
+                // Keep the camera independent from the tiny visual airframe
+                // gusts, but frame the aircraft from a higher three-quarter
+                // angle so wing volume/nacelles read as a full-size transport.
+                GetPlaneCameraPose(out pos, out focus);
             }
             else
             {
