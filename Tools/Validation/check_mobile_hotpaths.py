@@ -14,6 +14,18 @@ SRC = ROOT / "Assets" / "AarisWorld" / "Scripts"
 def audit():
     motor = (SRC / "AarisThirdPersonPlayer.cs").read_text(encoding="utf-8")
     audio = (SRC / "AarisAudioDirector.cs").read_text(encoding="utf-8")
+
+    # Repeated rocks use shaders already proven to support GPU instancing.
+    # Keep this strictly visual-neutral: only the material instancing bit is
+    # guarded; shader, textures, queues and BRDF values remain authored.
+    rock_materials = (
+        "Rock_A.mat", "Rock_B.mat", "Rock_C.mat", "Rock_D.mat",
+        "Rock_Overgrown_C.mat", "Rock_Overgrown_D.mat",
+    )
+    rock_root = ROOT / "Assets/TerrainDemoScene_URP/Prefabs/Rocks/Materials"
+    for name in rock_materials:
+        material = (rock_root / name).read_text(encoding="utf-8")
+        assert "m_EnableInstancingVariants: 1" in material, name
     # The pre-existing local glide loop should actually play after canopy
     # opens, using the same pooled voice instead of a new Android mixer.
     glide = ROOT / "Assets/Resources/SFX/canopy_glide_loop.wav"
