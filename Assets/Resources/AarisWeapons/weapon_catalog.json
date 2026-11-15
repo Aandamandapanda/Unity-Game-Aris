@@ -3,7 +3,7 @@
     {
       "id": "SMG",
       "displayName": "Compact SMG",
-      "modelResource": "AarisWeapons/Models/SMG",
+      "modelResource": "AarisWeapons/PBR/GreaseGun/Grease_Gun",
       "category": "SMG",
       "automatic": true,
       "rpm": 780,
@@ -123,7 +123,7 @@
     {
       "id": "Shotgun",
       "displayName": "Pump Shotgun",
-      "modelResource": "AarisWeapons/Models/Shotgun",
+      "modelResource": "AarisWeapons/PBR/Shotgun/Shotgun",
       "category": "Shotgun",
       "automatic": false,
       "rpm": 85,
