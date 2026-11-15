@@ -46,7 +46,10 @@ namespace Aaris.MapReview
         private Renderer[] initialPlayerRenderers;
         private bool[] previousRendererStates;
         private Vector3 pathStart, pathEnd, horizontalVelocity, preFlightGroundPosition;
+        private Vector3 planeFlightDirection = Vector3.forward;
         private Quaternion cachedPlayerRotation;
+        private Quaternion planeHeadingRotation = Quaternion.identity;
+        private float planeMotionPhase;
         private float flightProgress, pathDuration, downwardSpeed, yaw, pitch, openingProgress, airborneSince;
         private float propellerAngle;
         // 6000 deg/s = 1000 RPM. The old 1150 deg/s (~192 RPM) made the
@@ -137,7 +140,7 @@ namespace Aaris.MapReview
 
             BuildFlightPath();
             plane = AarisOfflineDropVisuals.CreatePlane(pathStart,
-                Quaternion.LookRotation(pathEnd - pathStart), out propellers);
+                planeHeadingRotation, out propellers);
             capsule.enabled = false;
             HidePlayer();
             transform.position = pathStart + Vector3.down * 6f;
@@ -195,6 +198,11 @@ namespace Aaris.MapReview
                 tallest + altitudeAboveTerrain, (minZ + maxZ) * 0.5f);
             float heading = Random.Range(0f, Mathf.PI * 2f);
             Vector3 direction = new Vector3(Mathf.Cos(heading), 0f, Mathf.Sin(heading));
+            planeFlightDirection = direction.normalized;
+            planeHeadingRotation = Quaternion.LookRotation(planeFlightDirection, Vector3.up);
+            // Deterministic per-flight phase from the already chosen route.
+            // No extra Random calls means loot/spawn random streams stay unchanged.
+            planeMotionPhase = heading * 1.73f;
             float halfDistance = Mathf.Min(maxX - minX, maxZ - minZ) * 0.46f;
             pathStart = center - direction * halfDistance;
             pathEnd = center + direction * halfDistance;
@@ -218,6 +226,7 @@ namespace Aaris.MapReview
                 if (plane != null)
                 {
                     plane.transform.position = Vector3.Lerp(pathStart, pathEnd, flightProgress);
+                    ApplyPlaneVisualInertia();
                     transform.position = plane.transform.position + Vector3.down * 6f;
                 }
                 if (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.F)) OnAction();
@@ -251,6 +260,23 @@ namespace Aaris.MapReview
         // Screen-space swipe up must lift the view; the orbit uses -pitch,
         // so increasing pitch positions the camera below its focal point.
         // Normalize by screen height for consistent touch response on Android.
+        // The transport follows a perfectly straight gameplay path, but a
+        // perfectly rigid airframe reads like a toy in a long third-person shot.
+        // Add sub-degree deterministic gust response to the VISUAL root only.
+        // Authoritative flight direction, ejection momentum and path position
+        // remain based on planeFlightDirection, not the perturbed transform.
+        private void ApplyPlaneVisualInertia()
+        {
+            if (plane == null) return;
+            float t = Time.unscaledTime + planeMotionPhase;
+            float pitchGust = Mathf.Sin(t * 0.47f) * 0.24f +
+                Mathf.Sin(t * 1.11f + 0.7f) * 0.08f;
+            float rollGust = Mathf.Sin(t * 0.61f + 0.4f) * 0.62f +
+                Mathf.Sin(t * 1.37f + 1.2f) * 0.18f;
+            plane.transform.rotation = planeHeadingRotation *
+                Quaternion.Euler(pitchGust, 0f, rollGust);
+        }
+
         private void AnimatePlaneRotors()
         {
             if (plane == null || propellers == null) return;
@@ -274,9 +300,10 @@ namespace Aaris.MapReview
                 propellers = null;
                 return;
             }
-            // Ejection retains a visible aircraft that continues to fly away,
-            // without adding Rigidbody physics or per-frame model allocations.
-            plane.transform.position += plane.transform.forward * planeSpeed * dt;
+            // Ejection retains a visible aircraft that continues to fly away.
+            // Keep path authority independent from the visual micro-bank above.
+            plane.transform.position += planeFlightDirection * planeSpeed * dt;
+            ApplyPlaneVisualInertia();
         }
 
         private void SimulateAirborne(float elapsed)
@@ -603,7 +630,7 @@ namespace Aaris.MapReview
             capsule.enabled = true;
             downwardSpeed = -3f;
             // Preserve some aircraft momentum for a smooth, controllable exit.
-            horizontalVelocity = plane.transform.forward *
+            horizontalVelocity = planeFlightDirection *
                 Mathf.Min(freefallForwardSpeed, planeSpeed * 0.55f);
             airborneSince = Time.time;
             if (hud != null) hud.SetAction("OPEN", true);
