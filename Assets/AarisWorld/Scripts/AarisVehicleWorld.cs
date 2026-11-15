@@ -23,6 +23,9 @@ namespace Aaris.MapReview
     {
         public string id, modelResource, wheelResource;
         public string authoredModelResource, authoredWheelResource;
+        // Optional lighter verified body if the primary authored import is
+        // unavailable on a constrained/device-specific Unity importer.
+        public string fallbackAuthoredModelResource;
         public int weight;
         public float maxSpeedMetres, massKg;
         // Opt-in for imported car AND wheel prefabs with valid URP Lit PBR materials.
@@ -227,6 +230,13 @@ namespace Aaris.MapReview
                 {
                     var authoredBody =
                         Resources.Load<GameObject>(item.authoredModelResource);
+                    if ((authoredBody == null ||
+                         authoredBody.GetComponentInChildren<Renderer>(true) == null) &&
+                        !string.IsNullOrEmpty(item.fallbackAuthoredModelResource))
+                    {
+                        authoredBody = Resources.Load<GameObject>(
+                            item.fallbackAuthoredModelResource);
+                    }
                     if (authoredBody != null && HasEmbeddedWheelSet(authoredBody))
                     {
                         prefabs[i] = authoredBody;
