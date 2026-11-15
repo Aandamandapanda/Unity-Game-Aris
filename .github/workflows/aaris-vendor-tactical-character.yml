@@ -28,7 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends blender
+          sudo apt-get install -y --no-install-recommends blender python3-numpy
 
       - name: Convert pinned tactical GLB to Unity FBX
         shell: bash
@@ -160,6 +160,8 @@ jobs:
           PY
 
           blender --background --python /tmp/aaris-character/convert.py
+          test -s Assets/Resources/AarisCharacters/Primary/TacticalSoldier/TacticalSoldier.fbx
+          echo "AARIS_TACTICAL_FBX_FILE_PRESENT"
 
       - name: Add stable Unity metadata and attribution
         shell: bash
