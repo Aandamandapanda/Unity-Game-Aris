@@ -321,6 +321,14 @@ def run():
     assert "hand.position + hand.rotation * equipped.Spec.handOffset" in inventory
     assert "hand.rotation * grip" in inventory
     assert "weaponRoot.SetParent(transform, false);" in inventory
+    assert "private static void SetHierarchyLayer(GameObject root, int layer)" in inventory
+    assert "root.GetComponentsInChildren<Transform>(true)" in inventory
+    assert "node.gameObject.layer = layer;" in inventory
+    pickup_block = inventory[inventory.index("public bool TryPickup("):
+                             inventory.index("public bool TryRemove(")]
+    assert "SetHierarchyLayer(root, gameObject.layer);" in pickup_block
+    assert pickup_block.index("SetHierarchyLayer(root, gameObject.layer);") < \
+           pickup_block.index("foreach (var collider in visible.GetComponentsInChildren<Collider>(true))")
     # Multi-mesh FBX pickups must size from all renderers and rest fully
     # above the ground, including meshes with an offset source pivot.
     assert "modelRenderers = visible.GetComponentsInChildren<Renderer>(true);" in pickup_cs
