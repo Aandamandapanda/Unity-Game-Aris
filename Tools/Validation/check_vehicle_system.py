@@ -285,6 +285,13 @@ def test():
     assert "body.AddForce(-transform.up" in motor
     assert "linearVelocity =" not in motor and "MoveRotation(" not in motor
     assert "body.centerOfMass = new Vector3(0f, -.27f, 0f)" in motor
+    # Suspension response should remain comparable across the catalog's wide
+    # mass range; fitted axle geometry must also recompute PhysX wheel loads.
+    assert "body.mass / 1500f" in motor
+    assert "spring = 32000f * massScale" in motor
+    assert "damper = 4200f * massScale" in motor
+    assert "wheels[0].ResetSprungMasses();" in motor
+    assert "wheels[0].ConfigureVehicleSubsteps(12f, 3, 2);" in motor
     assert "TryTakeDriver" in motor and "ReleaseDriver" in motor
     # A car with no stable exit must never become the player's input owner:
     # a flipped/airborne car previously allowed entry but blocked all exits.
