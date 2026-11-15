@@ -23,6 +23,9 @@ namespace Aaris.MapReview
         private Transform hand, chest, leftUpperArm, leftForearm, leftHand;
         private Transform leftThumb, leftMiddle;
         private Transform rightUpperArm, rightForearm;
+        private readonly Transform[] rightGripDigits = new Transform[12];
+        private readonly Transform[] leftGripDigits = new Transform[12];
+        private bool fingerRigResolved;
         private CharacterController capsule;
         private float nextRigSearch;
         private bool aiming, fistMode;
@@ -439,7 +442,8 @@ namespace Aaris.MapReview
         {
             if (hand != null && chest != null && leftUpperArm != null &&
                 leftForearm != null && leftHand != null &&
-                rightUpperArm != null && rightForearm != null) return;
+                rightUpperArm != null && rightForearm != null &&
+                fingerRigResolved) return;
             if (Time.unscaledTime < nextRigSearch) return;
             nextRigSearch = Time.unscaledTime + 1f;
             foreach (var animator in GetComponentsInChildren<Animator>(true))
@@ -457,6 +461,31 @@ namespace Aaris.MapReview
                 leftMiddle = animator.GetBoneTransform(HumanBodyBones.LeftMiddleProximal);
                 rightUpperArm = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
                 rightForearm = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
+                rightGripDigits[0] = animator.GetBoneTransform(HumanBodyBones.RightIndexProximal);
+                rightGripDigits[1] = animator.GetBoneTransform(HumanBodyBones.RightIndexIntermediate);
+                rightGripDigits[2] = animator.GetBoneTransform(HumanBodyBones.RightIndexDistal);
+                rightGripDigits[3] = animator.GetBoneTransform(HumanBodyBones.RightMiddleProximal);
+                rightGripDigits[4] = animator.GetBoneTransform(HumanBodyBones.RightMiddleIntermediate);
+                rightGripDigits[5] = animator.GetBoneTransform(HumanBodyBones.RightMiddleDistal);
+                rightGripDigits[6] = animator.GetBoneTransform(HumanBodyBones.RightRingProximal);
+                rightGripDigits[7] = animator.GetBoneTransform(HumanBodyBones.RightRingIntermediate);
+                rightGripDigits[8] = animator.GetBoneTransform(HumanBodyBones.RightRingDistal);
+                rightGripDigits[9] = animator.GetBoneTransform(HumanBodyBones.RightLittleProximal);
+                rightGripDigits[10] = animator.GetBoneTransform(HumanBodyBones.RightLittleIntermediate);
+                rightGripDigits[11] = animator.GetBoneTransform(HumanBodyBones.RightLittleDistal);
+                leftGripDigits[0] = animator.GetBoneTransform(HumanBodyBones.LeftIndexProximal);
+                leftGripDigits[1] = animator.GetBoneTransform(HumanBodyBones.LeftIndexIntermediate);
+                leftGripDigits[2] = animator.GetBoneTransform(HumanBodyBones.LeftIndexDistal);
+                leftGripDigits[3] = animator.GetBoneTransform(HumanBodyBones.LeftMiddleProximal);
+                leftGripDigits[4] = animator.GetBoneTransform(HumanBodyBones.LeftMiddleIntermediate);
+                leftGripDigits[5] = animator.GetBoneTransform(HumanBodyBones.LeftMiddleDistal);
+                leftGripDigits[6] = animator.GetBoneTransform(HumanBodyBones.LeftRingProximal);
+                leftGripDigits[7] = animator.GetBoneTransform(HumanBodyBones.LeftRingIntermediate);
+                leftGripDigits[8] = animator.GetBoneTransform(HumanBodyBones.LeftRingDistal);
+                leftGripDigits[9] = animator.GetBoneTransform(HumanBodyBones.LeftLittleProximal);
+                leftGripDigits[10] = animator.GetBoneTransform(HumanBodyBones.LeftLittleIntermediate);
+                leftGripDigits[11] = animator.GetBoneTransform(HumanBodyBones.LeftLittleDistal);
+                fingerRigResolved = true;
                 if (hand != null) break;
             }
         }
@@ -734,6 +763,62 @@ namespace Aaris.MapReview
                 leftHand.rotation, target, aiming ? 52f : 38f);
         }
 
+        private static void BendDigitTowardGrip(Transform[] digits,
+            int offset, Vector3 gripTarget, float proximalDegrees,
+            float middleDegrees)
+        {
+            if (digits == null || offset < 0 || offset + 2 >= digits.Length) return;
+            Transform proximal = digits[offset], middle = digits[offset + 1],
+                distal = digits[offset + 2];
+            if (proximal == null || middle == null || distal == null) return;
+            Vector3 first = middle.position - proximal.position;
+            Vector3 towardFirst = gripTarget - middle.position;
+            if (first.sqrMagnitude > 0.000001f && towardFirst.sqrMagnitude > 0.000001f)
+            {
+                Vector3 desired = Vector3.Slerp(first.normalized,
+                    towardFirst.normalized, 0.42f);
+                Quaternion target = Quaternion.FromToRotation(
+                    first.normalized, desired) * proximal.rotation;
+                proximal.rotation = Quaternion.RotateTowards(
+                    proximal.rotation, target, proximalDegrees);
+            }
+            Vector3 second = distal.position - middle.position;
+            Vector3 towardSecond = gripTarget - distal.position;
+            if (second.sqrMagnitude > 0.000001f && towardSecond.sqrMagnitude > 0.000001f)
+            {
+                Vector3 desired = Vector3.Slerp(second.normalized,
+                    towardSecond.normalized, 0.58f);
+                Quaternion target = Quaternion.FromToRotation(
+                    second.normalized, desired) * middle.rotation;
+                middle.rotation = Quaternion.RotateTowards(
+                    middle.rotation, target, middleDegrees);
+            }
+        }
+
+        private void ApplyFingerGrip(float foregrip)
+        {
+            if (weaponRoot == null || !fingerRigResolved) return;
+            Vector3 trigger = weaponRoot.TransformPoint(
+                new Vector3(0.015f, -0.045f, -0.045f));
+            BendDigitTowardGrip(rightGripDigits, 0,
+                trigger - weaponRoot.up * 0.006f, 8f, 11f);
+            Vector3 pistolGrip = trigger - weaponRoot.up * 0.060f +
+                weaponRoot.forward * 0.010f;
+            BendDigitTowardGrip(rightGripDigits, 3, pistolGrip, 25f, 38f);
+            BendDigitTowardGrip(rightGripDigits, 6,
+                pistolGrip - weaponRoot.up * 0.010f, 28f, 42f);
+            BendDigitTowardGrip(rightGripDigits, 9,
+                pistolGrip - weaponRoot.up * 0.020f, 30f, 45f);
+            Vector3 supportWrap = weaponRoot.TransformPoint(
+                new Vector3(0.025f, -0.045f, foregrip));
+            BendDigitTowardGrip(leftGripDigits, 0, supportWrap, 18f, 28f);
+            BendDigitTowardGrip(leftGripDigits, 3, supportWrap, 22f, 34f);
+            BendDigitTowardGrip(leftGripDigits, 6,
+                supportWrap - weaponRoot.up * 0.008f, 24f, 38f);
+            BendDigitTowardGrip(leftGripDigits, 9,
+                supportWrap - weaponRoot.up * 0.016f, 26f, 40f);
+        }
+
         private void AlignSupportHand()
         {
             if (!HasGun || IsSprintHolstered || hand == null ||
@@ -766,6 +851,7 @@ namespace Aaris.MapReview
             Quaternion desiredWrist = weaponRoot.rotation * Quaternion.Inverse(grip);
             hand.rotation = Quaternion.Slerp(hand.rotation, desiredWrist,
                 aiming ? 0.92f : 0.76f);
+            ApplyFingerGrip(foregrip);
         }
 
         private void LateUpdate()
