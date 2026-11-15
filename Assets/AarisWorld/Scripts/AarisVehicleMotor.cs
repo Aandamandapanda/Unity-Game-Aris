@@ -22,7 +22,7 @@ namespace Aaris.MapReview
         private Rigidbody body;
         private AarisVehicleSession driver;
         private float forward, steering, smoothSteer;
-        private float topSpeed;
+        private float topSpeed, tyreSlip;
         private const float ServiceBrakeTorque = 3200f;
         private const float ParkingBrakeTorque = 3600f;
         private const float AntiRollStrength = 4800f;
@@ -34,6 +34,10 @@ namespace Aaris.MapReview
         public float ThrottleInput => driver == null ? 0f : forward;
         public float LateralSlipMetresPerSecond => body == null ? 0f :
             Mathf.Abs(Vector3.Dot(body.linearVelocity, transform.right));
+        // Peak contact slip from the same WheelHit samples already used by
+        // anti-roll. Audio/VFX can react to real tyre friction instead of
+        // inferring skid from chassis velocity, with no additional ray/query.
+        public float TyreSlip => tyreSlip;
         public bool IsOccupied => driver != null;
         public bool CanPark => !IsOccupied && body != null &&
             body.linearVelocity.sqrMagnitude < .20f &&
@@ -414,6 +418,9 @@ namespace Aaris.MapReview
             // Axle load transfer: counter excessive roll on fast bends and
             // uneven slopes without freezing Rigidbody rotation or faking
             // wheel contact. Only grounded wheels receive corrective force.
+            // Reset once per physics step; ApplyAntiRoll reuses each WheelHit
+            // to accumulate real longitudinal/lateral tyre slip.
+            tyreSlip = 0f;
             ApplyAntiRoll(0, 1);
             ApplyAntiRoll(2, 3);
 
@@ -439,6 +446,7 @@ namespace Aaris.MapReview
                     " steer_deg=" + smoothSteer.ToString("F1") +
                     " throttle=" + throttle.ToString("F2") +
                     " brake_Nm=" + brake.ToString("F0") +
+                    " tyre_slip=" + tyreSlip.ToString("F2") +
                     " roll_deg=" + Vector3.Angle(transform.up, Vector3.up).ToString("F1"));
             }
         }
@@ -479,13 +487,23 @@ namespace Aaris.MapReview
             bool rightGrounded = right.GetGroundHit(out WheelHit rightHit);
             float leftTravel = 1f, rightTravel = 1f;
             if (leftGrounded)
+            {
                 leftTravel = Mathf.Clamp01(
                     (-left.transform.InverseTransformPoint(leftHit.point).y -
                         left.radius) / Mathf.Max(.01f, left.suspensionDistance));
+                tyreSlip = Mathf.Max(tyreSlip, Mathf.Max(
+                    Mathf.Abs(leftHit.sidewaysSlip),
+                    Mathf.Abs(leftHit.forwardSlip) * 0.78f));
+            }
             if (rightGrounded)
+            {
                 rightTravel = Mathf.Clamp01(
                     (-right.transform.InverseTransformPoint(rightHit.point).y -
                         right.radius) / Mathf.Max(.01f, right.suspensionDistance));
+                tyreSlip = Mathf.Max(tyreSlip, Mathf.Max(
+                    Mathf.Abs(rightHit.sidewaysSlip),
+                    Mathf.Abs(rightHit.forwardSlip) * 0.78f));
+            }
             float force = Mathf.Clamp((leftTravel - rightTravel) * AntiRollStrength,
                 -AntiRollStrength, AntiRollStrength);
             if (leftGrounded)
