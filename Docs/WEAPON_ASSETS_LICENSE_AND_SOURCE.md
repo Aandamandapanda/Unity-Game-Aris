@@ -61,7 +61,7 @@ Source tree pinned to `petroulacl/fps-asset-kit@a19b7458a593598211c95ec46ef4eb4b
 
 The binary FBX files must be **committed to this game repository**; a deleted upstream link cannot break a shipped APK. The GitHub Actions file `.github/workflows/aaris-weapon-vendor.yml` retrieves only these five pinned assets once. No actual game ever downloads weapons from that link.
 
-**Honest visual limitation:** The BattleRifle and Sniper slots still use the original CC0 **flat-shaded/rigged** firearm shapes. AssaultRifle, SMG and Shotgun now use locally vendored PBR model/texture sets, but they should only be called visually verified after Unity/device inspection confirms import orientation, shading, scale and hand fit. No PUBG/BGMI meshes, proprietary skins, trademarked art or other copyrighted commercial-game assets have been copied.
+**Current visual status:** All five firearm slots now use locally vendored PBR model/texture sets. BattleRifle and Sniper are deterministic mobile derivatives of the pinned sources recorded in `Docs/WEAPON_PBR_BATTLE_SNIPER_SOURCE.md`; AssaultRifle, SMG and Shotgun use the pinned sources documented above. Runtime validation still distinguishes source/asset correctness from final Unity/device visual QA: orientation, shading, scale, hand fit and animation must be inspected in the imported game before calling the result photorealistic. No PUBG/BGMI meshes, proprietary skins, trademarked art or other copyrighted commercial-game assets have been copied.
 
 The Unity model poses/hand orientations must be inspected in Editor before declaring the feature ready. The initial offline catalog uses balanced *Aaris-specific* parameters, not copied proprietary game values.
 
