@@ -349,6 +349,39 @@ namespace Aaris.MapReview
             return plans.Count >= 18;
         }
 
+        private static Transform FindNamedWheel(Transform root, string token)
+        {
+            if (root == null) return null;
+            Transform[] all = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < all.Length; i++)
+                if (all[i] != null &&
+                    all[i].name.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return all[i];
+            return null;
+        }
+
+        // FBX exporters disagree about forward axes. The higher-fidelity
+        // vehicles have semantic wheel names, so infer their true nose from
+        // front-vs-rear axle centers after the broad X/Z bounds correction.
+        // This is one spawn-time hierarchy pass and never touches physics.
+        private static void FaceEmbeddedVehicleForward(Transform chassis,
+            Transform model)
+        {
+            if (chassis == null || model == null) return;
+            Transform fl = FindNamedWheel(model, "wheel_fl");
+            Transform fr = FindNamedWheel(model, "wheel_fr");
+            Transform rl = FindNamedWheel(model, "wheel_rl");
+            Transform rr = FindNamedWheel(model, "wheel_rr");
+            if (fl == null || fr == null || rl == null || rr == null) return;
+            float frontZ = (chassis.InverseTransformPoint(fl.position).z +
+                            chassis.InverseTransformPoint(fr.position).z) * .5f;
+            float rearZ = (chassis.InverseTransformPoint(rl.position).z +
+                           chassis.InverseTransformPoint(rr.position).z) * .5f;
+            if (Mathf.Abs(frontZ - rearZ) < .20f) return;
+            if (frontZ < rearZ)
+                model.localRotation *= Quaternion.Euler(0f, 180f, 0f);
+        }
+
         private static bool HasEmbeddedWheelSet(GameObject source)
         {
             if (source == null) return false;
@@ -719,6 +752,8 @@ namespace Aaris.MapReview
             { Destroy(root); return false; }
             if (bounds.size.x > bounds.size.z * 1.1f)
                 mesh.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
+            if (record.type.useEmbeddedAuthoredWheels)
+                FaceEmbeddedVehicleForward(root.transform, mesh.transform);
             if (!TryGetVisualBoundsLocal(root.transform, out bounds) ||
                 bounds.size.z < .1f || bounds.size.x < .1f)
             { Destroy(root); return false; }
