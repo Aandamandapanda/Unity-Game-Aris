@@ -63,6 +63,16 @@ namespace Aaris.MapReview.Editor
             bool kayKit = isMotion && Array.IndexOf(KayKitClips, clipName) >= 0;
             bool quaterniusSprint = isMotion &&
                 string.Equals(clipName, "sprint", StringComparison.Ordinal);
+            // Unity's Humanoid importer otherwise discards authored limb
+            // translations on these locomotion clips and explicitly warns that
+            // Translation DoF should be enabled. Preserve it only for moving
+            // gaits; static crouch/prone and attacks keep the stricter default.
+            bool preserveTranslationDof = isMotion &&
+                (string.Equals(clipName, "walk", StringComparison.Ordinal) ||
+                 string.Equals(clipName, "run", StringComparison.Ordinal) ||
+                 string.Equals(clipName, "sprint", StringComparison.Ordinal) ||
+                 string.Equals(clipName, "crouch_walk", StringComparison.Ordinal) ||
+                 string.Equals(clipName, "crawl", StringComparison.Ordinal));
             if (kayKit || quaterniusSprint)
             {
                 var humanoid = importer.humanDescription;
@@ -74,6 +84,7 @@ namespace Aaris.MapReview.Editor
                     limit = new HumanLimit { useDefaultValues = true }
                 }).ToArray();
                 humanoid.skeleton = Array.Empty<SkeletonBone>();
+                humanoid.hasTranslationDoF = preserveTranslationDof;
                 importer.humanDescription = humanoid;
             }
             importer.importAnimation = isMotion;
