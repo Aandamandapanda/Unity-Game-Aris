@@ -63,6 +63,13 @@ namespace Aaris.MapReview
         private int originalPlayerVisualMask;
         private bool playerVisualsHiddenForCamera;
         private float weaponAimFov = -1f;
+        // Camera recoil is a transient presentation offset, not a permanent
+        // mutation of the player's base aim. Automatic fire can accumulate
+        // climb while the same spring settles smoothly between bursts.
+        private float recoilPitchOffset, recoilYawOffset;
+        private const float RecoilRecoveryPerSecond = 9.5f;
+        private const float MaxRecoilPitchOffset = 10f;
+        private const float MaxRecoilYawOffset = 4f;
 
         /// <summary>Single camera authority: scopes cannot fight sprint FOV.</summary>
         public void SetWeaponAimFov(float fov)
@@ -72,9 +79,15 @@ namespace Aaris.MapReview
 
         public void ApplyWeaponRecoil(float pitchKick, float yawKick)
         {
-            pitch = Mathf.Clamp(pitch - Mathf.Clamp(pitchKick, 0f, 20f),
-                minLookPitch, maxLookPitch);
-            yaw += Mathf.Clamp(yawKick, -5f, 5f);
+            // Kick is applied after the current shot trace, so the first
+            // bullet follows the sight while subsequent automatic shots climb.
+            // The player can still counter-steer because base pitch/yaw remain
+            // independent from this transient camera offset.
+            recoilPitchOffset = Mathf.Clamp(recoilPitchOffset +
+                Mathf.Clamp(pitchKick, 0f, 20f), 0f, MaxRecoilPitchOffset);
+            recoilYawOffset = Mathf.Clamp(recoilYawOffset +
+                Mathf.Clamp(yawKick, -5f, 5f),
+                -MaxRecoilYawOffset, MaxRecoilYawOffset);
         }
         // Skip repeated native limb Transform writes once the legacy fallback
         // has reached a grounded idle pose; motion and punch edges re-arm it.
@@ -252,6 +265,7 @@ namespace Aaris.MapReview
             jumpButtonHeld = false;
             running = false;
             horizontalVelocity = Vector3.zero;
+            recoilPitchOffset = recoilYawOffset = 0f;
             if (battle != null) battle.SetFireHeld(false);
         }
 
@@ -848,7 +862,18 @@ namespace Aaris.MapReview
                     Mathf.Infinity, Mathf.Clamp(Time.deltaTime, 0f, 0.15f));
             }
             Vector3 pivot = transform.position + Vector3.up * smoothedEyeHeight;
-            Quaternion orbit = Quaternion.Euler(pitch, yaw, 0f);
+            // Frame-rate-independent recoil recovery. 9.5 / second gives a
+            // quick SMG/AR settle while a sniper kick remains visibly heavy.
+            float recoilDt = Mathf.Clamp(Time.deltaTime, 0f, 0.15f);
+            float recoilAlpha = 1f - Mathf.Exp(-RecoilRecoveryPerSecond * recoilDt);
+            recoilPitchOffset = Mathf.Lerp(recoilPitchOffset, 0f, recoilAlpha);
+            recoilYawOffset = Mathf.Lerp(recoilYawOffset, 0f, recoilAlpha);
+            if (Mathf.Abs(recoilPitchOffset) < 0.0005f) recoilPitchOffset = 0f;
+            if (Mathf.Abs(recoilYawOffset) < 0.0005f) recoilYawOffset = 0f;
+            float cameraPitch = Mathf.Clamp(pitch - recoilPitchOffset,
+                minLookPitch, maxLookPitch);
+            float cameraYaw = yaw + recoilYawOffset;
+            Quaternion orbit = Quaternion.Euler(cameraPitch, cameraYaw, 0f);
             Vector3 wanted = pivot - orbit * Vector3.forward * followDistance + orbit * Vector3.right * 0.30f;
             wanted = ObstructionSafe(pivot, wanted);
             Vector3 next = instant ? wanted : Vector3.SmoothDamp(followCamera.transform.position, wanted, ref cameraVelocity, 0.07f);
@@ -905,6 +930,7 @@ namespace Aaris.MapReview
             cameraVelocity = Vector3.zero;
             if (followCamera != null) followCamera.fieldOfView = normalCameraFov;
             weaponAimFov = -1f;
+            recoilPitchOffset = recoilYawOffset = 0f;
             lastMouse = Input.mousePosition;
             PlaceCamera(true);
         }
