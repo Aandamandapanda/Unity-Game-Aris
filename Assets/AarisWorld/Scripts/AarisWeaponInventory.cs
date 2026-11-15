@@ -345,6 +345,31 @@ namespace Aaris.MapReview
                 forearm.rotation;
         }
 
+        // The receiver is camera/chest anchored, so on a differently
+        // proportioned Humanoid the trigger point can sit beyond the right
+        // arm's physical reach. The old arm solver correctly clamped its
+        // chain but left a visible gap between palm and gun. Translate only
+        // the weapon root, by at most 12 cm, toward the shoulder until the
+        // trigger is reachable; rotation/aim direction remains untouched.
+        private void FitTriggerGripToArmReach()
+        {
+            if (weaponRoot == null || hand == null || rightUpperArm == null ||
+                rightForearm == null) return;
+            float upperLength = Vector3.Distance(
+                rightUpperArm.position, rightForearm.position);
+            float lowerLength = Vector3.Distance(
+                rightForearm.position, hand.position);
+            if (upperLength < 0.05f || lowerLength < 0.05f) return;
+            Vector3 trigger = weaponRoot.TransformPoint(
+                new Vector3(0.015f, -0.045f, -0.045f));
+            Vector3 fromShoulder = trigger - rightUpperArm.position;
+            float distance = fromShoulder.magnitude;
+            float maximumReach = upperLength + lowerLength - 0.025f;
+            if (distance <= maximumReach || distance < 0.001f) return;
+            float correction = Mathf.Min(distance - maximumReach, 0.12f);
+            weaponRoot.position -= fromShoulder / distance * correction;
+        }
+
         // A fixed foregrip point on a long sniper/rifle can lie beyond the
         // left arm's actual Humanoid reach, leaving the palm visibly detached.
         // Intersect the gun's forward grip rail with the arm's reach sphere;
@@ -385,8 +410,9 @@ namespace Aaris.MapReview
                 leftForearm == null || leftHand == null ||
                 rightUpperArm == null || rightForearm == null) return;
             // Receiver at right trigger, front grip down barrel +Z.
-            // Preserve the right-hand trigger IK while matching the left
-            // support grip to this weapon's physical barrel length.
+            // First make the trigger physically reachable on this Humanoid;
+            // then match the left support grip to the weapon's barrel length.
+            FitTriggerGripToArmReach();
             float foregrip = Mathf.Clamp(
                 equipped.Spec.presentationLengthMetres * 0.40f, 0.22f, 0.48f);
             foregrip = ReachableSupportGripZ(
