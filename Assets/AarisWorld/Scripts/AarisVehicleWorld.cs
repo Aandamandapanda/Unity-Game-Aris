@@ -107,6 +107,10 @@ namespace Aaris.MapReview
         // Even a failed spawn has up to five ground rays + one box overlap.
         // Limit physics probes as well as successful Instantiate operations.
         private int spawnProbeBudgetPerPoll = 8;
+        // Heavy authored FBXs can each occupy several megabytes once Unity
+        // expands mesh/material data. Bound simultaneous async imports so
+        // low-RAM phones never stack six vehicle bodies in one memory spike.
+        private int maxConcurrentAuthoredLoads = 2;
 
 
         // Bounds in VEHICLE-LOCAL coordinates, not Unity Renderer.bounds (which
@@ -163,6 +167,7 @@ namespace Aaris.MapReview
                 spawnBudgetPerPoll = 1;
                 unloadBudgetPerPoll = 2;
                 spawnProbeBudgetPerPoll = 3;
+                maxConcurrentAuthoredLoads = 1;
             }
 #endif
         }
@@ -617,6 +622,13 @@ namespace Aaris.MapReview
             if (i < 0 || i >= vehicleTypes.Length ||
                 authoredBodyResolved[i] || authoredBodyRequests[i] != null)
                 return false;
+            int inFlight = 0;
+            for (int j = 0; j < authoredBodyRequests.Length; j++)
+            {
+                ResourceRequest request = authoredBodyRequests[j];
+                if (request != null && !request.isDone) inFlight++;
+            }
+            if (inFlight >= maxConcurrentAuthoredLoads) return false;
             var item = vehicleTypes[i];
             if (string.IsNullOrEmpty(item.authoredModelResource))
             {
