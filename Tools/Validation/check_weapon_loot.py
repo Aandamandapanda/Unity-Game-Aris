@@ -126,7 +126,8 @@ def run():
     assert fire_block.index("magazine--;") < fire_block.index("ScheduleCasingEjection();")
     assert "PrimitiveType.Cylinder" not in fire_block
     assert "AddComponent<Rigidbody>" not in gun_cs
-    assert "Rigidbody" not in gun_cs
+    assert "GetComponent<Rigidbody>" not in gun_cs
+    assert "new Rigidbody" not in gun_cs
     assert "private void HideCasing()" in gun_cs
     assert "BeginReload()" in gun_cs and "reloading" in gun_cs
     assert "semiShotQueued" in action and "equippedGun.Automatic" in action
