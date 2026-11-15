@@ -18,13 +18,15 @@ PBR_M4 = PBR_ROOT / "M4A1"
 EXPECTED = {
     "SMG": None,
     "AssaultRifle": None,
-    "BattleRifle": (91644, "24f2bfee4166e2208cb070b3de273f0989fafc9d"),
-    "Sniper": (86636, "a743e79ea184966021aba937d30cb6876e2cbaba"),
+    "BattleRifle": None,
+    "Sniper": None,
     "Shotgun": None,
 }
 PBR_RESOURCES = {
     "SMG": ("GreaseGun", "Grease_Gun", "AarisWeapons/PBR/GreaseGun/Grease_Gun"),
     "AssaultRifle": ("M4A1", "M4A1", "AarisWeapons/PBR/M4A1/M4A1"),
+    "BattleRifle": ("BattleRifle", "BattleRifle", "AarisWeapons/PBR/BattleRifle/BattleRifle"),
+    "Sniper": ("Sniper", "Sniper", "AarisWeapons/PBR/Sniper/Sniper"),
     "Shotgun": ("Shotgun", "Shotgun", "AarisWeapons/PBR/Shotgun/Shotgun"),
 }
 PBR_FILES = {
@@ -47,6 +49,28 @@ PBR_FILES = {
         "Shotgun_MetallicSmoothness.png": (153276, "86491aca9f869e556db68a659012ed9d9acb8184"),
     },
 }
+GENERATED_PBR_FILES = {
+    "BattleRifle": {
+        "BattleRifle.obj": (834622, "4850e05ad63b2eb3bb29a808631d16af1b2fef85"),
+        "BattleRifle.mtl": (284, "b680d111a7fc47aa9944dbaf30b06a034cf3920e"),
+        "BattleRifle_Finish_Base_Color.png": (757094, "4d0a8510ac2ad84abe4a0580a75fb3e608a2abbb"),
+        "BattleRifle_Finish_Normal.png": (627659, "f5811a592ebddeea311c81e11a48391aa37b51e5"),
+        "BattleRifle_Finish_MetallicSmoothness.png": (313812, "5c7443004a64a61b3952c823ac08a134e59f21df"),
+        "BattleRifle_Drum_Base_Color.png": (806038, "b47d21a8dcccc3fbb6dcc93799ae776da46c6e61"),
+        "BattleRifle_Drum_Normal.png": (988446, "59a1adacb79bce180fb3c0077525659d200a333c"),
+        "BattleRifle_Drum_MetallicSmoothness.png": (334065, "c76432910d2e07125937a969c8d12902ade6f58a"),
+    },
+    "Sniper": {
+        "Sniper.obj": (2687167, "8ff693661a26756c65d43969d9a26bdd411207ac"),
+        "Sniper.mtl": (266, "662e2417c8f53c276d53995c9add12a43981b3c0"),
+        "Sniper_Finish_Base_Color.png": (1991713, "d5c3f0d1a2bb8a8b2352cba6680432985817971d"),
+        "Sniper_Finish_Normal.png": (1329316, "e206166bec12fabbc092b69802d14d41c6c2db24"),
+        "Sniper_Finish_MetallicSmoothness.png": (436223, "09e9caad968d508b1b53e571eb7998f7f8c59d73"),
+        "Sniper_Optic_Base_Color.png": (2139991, "d540d583021934cc5477687fc6fae065edee8cc3"),
+        "Sniper_Optic_Normal.png": (1951226, "9051fe60e20695cda91e0448def7c51d7da39a29"),
+        "Sniper_Optic_MetallicSmoothness.png": (440171, "be18a9508b085c5c4451f91c8c70b6b78f8ca0c0"),
+    },
+}
 SCRIPTS = ROOT / "Assets/AarisWorld/Scripts"
 
 
@@ -56,7 +80,7 @@ def run():
     assert ids == list(EXPECTED), ids
     lengths = {gun["id"]: gun["presentationLengthMetres"] for gun in catalog["weapons"]}
     assert lengths == {"SMG": 0.65, "AssaultRifle": 0.91,
-                       "BattleRifle": 1.06, "Sniper": 1.23, "Shotgun": 1.03}
+                       "BattleRifle": 1.02, "Sniper": 1.23, "Shotgun": 1.03}
     assert lengths["SMG"] < lengths["AssaultRifle"] < lengths["Sniper"]
     for gun in catalog["weapons"]:
         name = gun["id"]
@@ -77,7 +101,7 @@ def run():
         assert subprocess.check_output(["git", "hash-object", str(path)]).decode().strip() == EXPECTED[name][1]
         assert (MODELS / (name + ".fbx.meta")).exists(), name + " GUID missing"
 
-    # Three held-gun classes now use locally committed, pinned CC0 PBR art.
+    # Five held-gun classes now use locally committed, pinned CC0 PBR art.
     # Base/normal stay <=1024 and packed metallic/smoothness <=512 with mip
     # streaming, keeping near-camera detail while bounding Android residency.
     for weapon_id, files in PBR_FILES.items():
@@ -101,6 +125,38 @@ def run():
         assert normal_meta.count("maxTextureSize: 1024") >= 2
         assert "sRGBTexture: 0" in packed_meta and "streamingMipmaps: 1" in packed_meta
         assert packed_meta.count("maxTextureSize: 512") >= 2
+    # BattleRifle/Sniper are deterministic OBJ derivatives of pinned CC0
+    # glTF sources. They use two independent PBR material sets each.
+    for weapon_id, files in GENERATED_PBR_FILES.items():
+        folder, _, _ = PBR_RESOURCES[weapon_id]
+        root = PBR_ROOT / folder
+        for filename, (size, blob_sha) in files.items():
+            asset = root / filename
+            assert asset.exists(), "Missing generated PBR asset: " + str(asset)
+            assert asset.stat().st_size == size, (filename, asset.stat().st_size, size)
+            actual = subprocess.check_output(["git", "hash-object", str(asset)]).decode().strip()
+            assert actual == blob_sha, (filename, actual, blob_sha)
+            assert (root / (filename + ".meta")).exists(), filename + " GUID missing"
+        obj = root / (weapon_id + ".obj")
+        text = obj.read_text("utf-8")
+        assert text.count("\nf ") > 1000 and "mtllib " + weapon_id + ".mtl" in text
+        stems = ("BattleRifle_Finish", "BattleRifle_Drum") if weapon_id == "BattleRifle" else (
+            "Sniper_Finish", "Sniper_Optic")
+        for stem in stems:
+            base_meta = (root / (stem + "_Base_Color.png.meta")).read_text()
+            normal_meta = (root / (stem + "_Normal.png.meta")).read_text()
+            packed_meta = (root / (stem + "_MetallicSmoothness.png.meta")).read_text()
+            assert "sRGBTexture: 1" in base_meta and base_meta.count("maxTextureSize: 1024") >= 2
+            assert "sRGBTexture: 0" in normal_meta and "textureType: 1" in normal_meta
+            assert normal_meta.count("maxTextureSize: 1024") >= 2
+            assert "sRGBTexture: 0" in packed_meta and packed_meta.count("maxTextureSize: 512") >= 2
+    provenance = (ROOT / "Docs/WEAPON_PBR_BATTLE_SNIPER_SOURCE.md").read_text()
+    assert "Physical source length: 1.0165 m" in provenance
+    assert "Exported view triangles: 5801" in provenance
+    assert "Physical source length: 1.231 m" in provenance
+    assert "Exported view triangles: 19365" in provenance
+    assert "CC0-1.0" in provenance
+
     assert (PBR_M4 / "M4A1.fbx").read_bytes()[:18].startswith(b"Kaydara FBX Binary")
     # Native Unity 6000.3.26f1 import audit of the vendored M4A1:
     # 13 meshes, 11,322 vertices, 9,246 triangles, 13 material slots,
