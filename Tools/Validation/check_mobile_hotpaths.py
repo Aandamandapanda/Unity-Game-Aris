@@ -26,6 +26,18 @@ def audit():
     for name in rock_materials:
         material = (rock_root / name).read_text(encoding="utf-8")
         assert "m_EnableInstancingVariants: 1" in material, name
+    # Unity 6 Terrain.drawInstanced defaults false. Enable the native
+    # instance renderer once at startup without touching TerrainData quality.
+    mobile_runtime = (SRC / "AarisMobileRuntime.cs").read_text(encoding="utf-8")
+    assert "ConfigureTerrainInstanceRenderer();" in mobile_runtime
+    assert "if (!SystemInfo.supportsInstancing) return;" in mobile_runtime
+    assert "if (tile != null && !tile.drawInstanced)" in mobile_runtime
+    assert "tile.drawInstanced = true;" in mobile_runtime
+    assert mobile_runtime.index("ConfigureTerrainInstanceRenderer();") < mobile_runtime.index(
+        "ConfigureAndroidQuality();")
+    assert mobile_runtime.index("ConfigureTerrainInstanceRenderer();") < mobile_runtime.index(
+        "AuditNativeTerrain();")
+
     # The pre-existing local glide loop should actually play after canopy
     # opens, using the same pooled voice instead of a new Android mixer.
     glide = ROOT / "Assets/Resources/SFX/canopy_glide_loop.wav"
