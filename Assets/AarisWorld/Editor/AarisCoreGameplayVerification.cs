@@ -194,9 +194,19 @@ namespace Aaris.MapReview.Editor
                 Check(Cue("parachute_land"), "Parachute touchdown emits its cue");
                 foreach (var source in sources)
                     if (!source.loop) source.Stop();
-                typeof(AarisAudioDirector).GetMethod("PlayJump", Private).Invoke(audio, null);
-                typeof(AarisAudioDirector).GetMethod("PlayLanding", Private).Invoke(audio, new object[] { 4f });
-                Check(Cue("jump_start") && Cue("land_thud"), "Ground jump and landing use the local feedback pool");
+                // Jump/landing audio is now driven by the authoritative motor
+                // timestamps, not private AudioDirector helper methods. Advance
+                // those real event edges and let LateUpdate consume them exactly
+                // as gameplay does.
+                var motorType = typeof(AarisThirdPersonPlayer);
+                motorType.GetField("lastJumpStarted", Private).SetValue(player, Time.unscaledTime);
+                TickAudio();
+                Check(Cue("jump_start"), "Ground jump uses the local feedback pool");
+                foreach (var source in sources)
+                    if (!source.loop) source.Stop();
+                motorType.GetField("lastLanding", Private).SetValue(player, Time.unscaledTime);
+                TickAudio();
+                Check(Cue("land_thud"), "Ground landing uses the local feedback pool");
                 AarisAudioDirector.GunShot("SMG", "", player.transform.position);
                 AarisAudioDirector.BulletImpact(player.transform.position);
                 Check(Cue("smg_shot") && Cue("bullet_impact", 1f),
