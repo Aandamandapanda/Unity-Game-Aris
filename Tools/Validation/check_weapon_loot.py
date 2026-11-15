@@ -354,6 +354,21 @@ def run():
     assert "ReachArm(leftUpperArm, leftForearm, leftHand," in inventory
     assert "Vector3 targetElbow = " in inventory
     assert "Quaternion.FromToRotation(oldUpper, newUpper)" in inventory
+    # Camera/chest anchoring must not leave the trigger palm floating when a
+    # smaller Humanoid cannot physically reach the nominal receiver position.
+    assert "private void FitTriggerGripToArmReach()" in inventory
+    assert "float maximumReach = upperLength + lowerLength - 0.025f;" in inventory
+    assert "float correction = Mathf.Min(distance - maximumReach, 0.12f);" in inventory
+    assert "weaponRoot.position -= fromShoulder / distance * correction;" in inventory
+    assert inventory.index("FitTriggerGripToArmReach();") < inventory.index(
+        "foregrip = ReachableSupportGripZ(")
+
+    def trigger_fit(distance, reach):
+        return min(max(0.0, distance - reach), 0.12)
+
+    assert trigger_fit(0.50, 0.55) == 0.0
+    assert abs(trigger_fit(0.61, 0.55) - 0.06) < 1e-12
+    assert trigger_fit(0.90, 0.55) == 0.12
 
     # The normal landing pickup remains physical; only after failed
     # floor/visibility checks may the existing inventory grant one starter.
