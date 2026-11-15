@@ -160,6 +160,16 @@ def run():
     assert "GetComponent<Rigidbody>" not in gun_cs
     assert "new Rigidbody" not in gun_cs
     assert "private void HideCasing()" in gun_cs
+    # Bullet impacts use one pre-created world-space emitter. The firing
+    # loop may call Emit(), but must never construct ParticleSystems/objects.
+    assert "private ParticleSystem impactParticles;" in gun_cs
+    assert "private void EnsureImpactParticles()" in gun_cs
+    assert "main.simulationSpace = ParticleSystemSimulationSpace.World;" in gun_cs
+    assert "main.maxParticles = 12;" in gun_cs
+    assert "impactParticles.Emit(spec != null && spec.pellets > 1 ? 5 : 3);" in gun_cs
+    assert "TriggerImpactParticles(target.point, target.normal);" in fire_block
+    assert "AddComponent<ParticleSystem>" not in fire_block
+    assert "new GameObject" not in fire_block
     assert "BeginReload()" in gun_cs and "reloading" in gun_cs
     assert "semiShotQueued" in action and "equippedGun.Automatic" in action
     # One held weapon, one genuinely visible back-stowed weapon, no third slot.
