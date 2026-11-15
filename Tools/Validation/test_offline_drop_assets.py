@@ -564,6 +564,16 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         self.assertIn("view.transform.SetPositionAndRotation(initialPosition,", start)
         self.assertLess(start.index("phase = DropPhase.InPlane;"),
                         start.index("view.transform.SetPositionAndRotation(initialPosition,"))
+        # Plane visual gust/bank must remain visible on the model without
+        # making the chase camera inherit that perturbed forward axis.
+        self.assertIn(
+            "Vector3 focus = plane.transform.position + planeFlightDirection * 4f;",
+            start)
+        self.assertIn(
+            "focus = plane.transform.position + planeFlightDirection * 4f;",
+            late)
+        self.assertNotIn("plane.transform.forward * 4f", start + late)
+        self.assertIn("ApplyPlaneVisualInertia();", source)
         self.assertIn("if (phase != DropPhase.InPlane) pos = CameraSafePosition(focus, pos);", late)
         self.assertIn("if (phase != DropPhase.InPlane &&", late)
         self.assertIn("next = CameraSafePosition(focus, next);", late)
