@@ -73,6 +73,30 @@ jobs:
           names = [m.get("name","") for m in mats]
           mime = [i.get("mimeType","") for i in imgs]
           assert any(x in ("image/png","image/jpeg","image/webp") for x in mime), mime
+
+          # The Unity player relies on Humanoid retarget + hand/foot IK.
+          # Lock the source to the same Mixamo-style semantic skeleton rather
+          # than assuming that "has a skin" is enough.
+          joint_nodes = set()
+          for skin in skins:
+              joint_nodes.update(skin.get("joints", []))
+          joint_names = [nodes[i].get("name","") for i in sorted(joint_nodes)]
+          def key(name):
+              name = name.replace("mixamorig:", "").replace("mixamorig", "")
+              while name and name[-1].isdigit():
+                  name = name[:-1]
+              return name.rstrip("_")
+          keys = {key(n) for n in joint_names}
+          required = {
+              "Hips","Spine","Spine1","Neck","Head",
+              "LeftShoulder","RightShoulder","LeftArm","RightArm",
+              "LeftForeArm","RightForeArm","LeftHand","RightHand",
+              "LeftUpLeg","RightUpLeg","LeftLeg","RightLeg",
+              "LeftFoot","RightFoot","LeftToeBase","RightToeBase",
+          }
+          missing = sorted(required - keys)
+          assert not missing, ("TACTICAL_HUMANOID_BONES_MISSING", missing, joint_names)
+
           print("AARIS_TACTICAL_SOURCE_OK")
           print("bytes", len(data))
           print("skins", len(skins), "joints", [len(s.get("joints",[])) for s in skins])
@@ -80,4 +104,5 @@ jobs:
           print("materials", names)
           print("images", len(imgs), mime)
           print("skinned_nodes", [(n.get("name",""), n.get("mesh"), n.get("skin")) for n in skinned_nodes])
+          print("humanoid_joint_names", joint_names)
           PY
