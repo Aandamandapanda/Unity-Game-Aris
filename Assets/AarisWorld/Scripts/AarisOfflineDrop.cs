@@ -49,6 +49,11 @@ namespace Aaris.MapReview
         private Quaternion cachedPlayerRotation;
         private float flightProgress, pathDuration, downwardSpeed, yaw, pitch, openingProgress, airborneSince;
         private float propellerAngle;
+        // 6000 deg/s = 1000 RPM. The old 1150 deg/s (~192 RPM) made the
+        // visible three-blade rotor read like a slow toy propeller. The shared
+        // translucent blur disc already handles high-RPM integration, so this
+        // realism correction adds no renderer, physics or allocation cost.
+        private const float PropellerDegreesPerSecond = 6000f;
         private int lookFinger = -1;
         private Vector3 previousMouse;
         private DropPhase phase = DropPhase.InPlane;
@@ -251,7 +256,8 @@ namespace Aaris.MapReview
             if (plane == null || propellers == null) return;
             // All four rotors share one mesh and one angle accumulator.
             propellerAngle = Mathf.Repeat(propellerAngle +
-                1150f * Mathf.Min(Time.unscaledDeltaTime, .05f), 360f);
+                PropellerDegreesPerSecond *
+                Mathf.Min(Time.unscaledDeltaTime, .05f), 360f);
             for (int i = 0; i < propellers.Length; i++)
                 if (propellers[i] != null)
                     propellers[i].localRotation = Quaternion.Euler(0f, 0f,
