@@ -1,0 +1,213 @@
+name: Vendor 100STYLE Locomotion Mocap
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/aaris-vendor-100style-mocap.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aaris-vendor-100style-mocap
+  cancel-in-progress: false
+
+jobs:
+  vendor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+
+      - name: Install Blender conversion tool
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends blender python3-numpy
+
+      - name: Extract four pinned 100STYLE locomotion cycles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/aaris-mocap
+          python3 - <<'PY'
+          import hashlib, pathlib, urllib.request
+          url = "https://raw.githubusercontent.com/cktang88/3d-fps/main/public/assets/models/characters/soldier.glb"
+          expected_size = 3094592
+          expected_blob = "b00ed33108f2579880c82cd27d10f9237ff3a219"
+          req = urllib.request.Request(url, headers={"User-Agent":"AarisMocapVendor/1.0"})
+          data = urllib.request.urlopen(req, timeout=60).read()
+          assert len(data) == expected_size
+          got = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+          assert got == expected_blob, got
+          pathlib.Path("/tmp/aaris-mocap/soldier.glb").write_bytes(data)
+          print("AARIS_MOCAP_SOURCE_PIN_OK", len(data), got)
+          PY
+
+          cat > /tmp/aaris-mocap/extract.py <<'PY'
+          import bpy, pathlib, re
+
+          bpy.ops.wm.read_factory_settings(use_empty=True)
+          bpy.ops.import_scene.gltf(filepath="/tmp/aaris-mocap/soldier.glb")
+
+          wanted = {
+              "mocap_walk_F@1.1733": "mocap_walk",
+              "mocap_jog_F@1.7529": "mocap_jog",
+              "mocap_run_F@2.8652": "mocap_run",
+              "mocap_crouch_F@0.6906": "mocap_crouch",
+          }
+          kept = []
+          for action in list(bpy.data.actions):
+              source = next((k for k in wanted if k in action.name), None)
+              if source is None:
+                  bpy.data.actions.remove(action)
+                  continue
+              action.name = wanted[source]
+              action.use_fake_user = True
+              kept.append(action)
+
+          assert {a.name for a in kept} == set(wanted.values()), [a.name for a in kept]
+          armatures = [o for o in bpy.data.objects if o.type == 'ARMATURE']
+          assert len(armatures) == 1, [o.name for o in armatures]
+          arm = armatures[0]
+
+          # Keep source BAMEN skeleton names: the game's validated
+          # RealisticSoldier Humanoid mapping came from this exact GLB.
+          bones = {b.name for b in arm.data.bones}
+          required = {
+              "mixamorig:Hips","mixamorig:LeftHand","mixamorig:RightHand",
+              "mixamorig:LeftFoot","mixamorig:RightFoot",
+          }
+          assert not (required - bones), (required - bones, sorted(bones)[:30])
+
+          if arm.animation_data is None:
+              arm.animation_data_create()
+          arm.animation_data.action = kept[0]
+
+          bpy.ops.object.select_all(action='DESELECT')
+          arm.select_set(True)
+          bpy.context.view_layer.objects.active = arm
+
+          out = pathlib.Path("/tmp/aaris-mocap/mocap_locomotion.fbx")
+          bpy.ops.export_scene.fbx(
+              filepath=str(out),
+              use_selection=True,
+              object_types={'ARMATURE'},
+              apply_unit_scale=True,
+              apply_scale_options='FBX_SCALE_ALL',
+              axis_forward='-Z',
+              axis_up='Y',
+              add_leaf_bones=False,
+              bake_anim=True,
+              bake_anim_use_all_bones=True,
+              bake_anim_use_nla_strips=False,
+              bake_anim_use_all_actions=True,
+              bake_anim_force_startend_keying=True,
+              bake_anim_step=1.0,
+              bake_anim_simplify_factor=0.0,
+              path_mode='AUTO',
+          )
+          assert out.is_file() and 50_000 < out.stat().st_size < 5_000_000
+          print("AARIS_MOCAP_FBX_EXPORTED", out.stat().st_size,
+                "actions", sorted(a.name for a in kept), "bones", len(bones))
+          PY
+
+          blender --background --python /tmp/aaris-mocap/extract.py
+          test -s /tmp/aaris-mocap/mocap_locomotion.fbx
+
+      - name: Build stable Unity Humanoid metadata and attribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+
+          out = Path("/tmp/aaris-mocap")
+          fbx = out / "mocap_locomotion.fbx"
+          meta = Path("Assets/Resources/AarisCharacters/Primary/RealisticSoldier/RealisticSoldier.fbx.meta").read_text()
+          meta = re.sub(r"(?m)^guid: [0-9a-f]{32}$",
+                        "guid: a6c2d3771ac74a3497bf79e25f0d3bc4", meta, count=1)
+          meta = meta.replace("importAnimation: 0", "importAnimation: 1", 1)
+          (out / "mocap_locomotion.fbx.meta").write_text(meta)
+
+          attribution = "\n".join([
+              "Aaris 100STYLE locomotion mocap",
+              "",
+              "Motion source: 100STYLE dataset",
+              "Authors: Ian Mason, Sebastian Starke, Taku Komura",
+              "License: Creative Commons Attribution 4.0 International (CC BY 4.0)",
+              "https://creativecommons.org/licenses/by/4.0/",
+              "Dataset: https://zenodo.org/records/8127870",
+              "",
+              "Retargeted/loop-closed source container:",
+              "cktang88/3d-fps public/assets/models/characters/soldier.glb",
+              "Pinned upstream Git blob: b00ed33108f2579880c82cd27d10f9237ff3a219",
+              "",
+              "Aaris ships only four forward locomotion cycles:",
+              "- mocap_walk_F@1.1733 -> mocap_walk",
+              "- mocap_jog_F@1.7529 -> mocap_jog",
+              "- mocap_run_F@2.8652 -> mocap_run",
+              "- mocap_crouch_F@0.6906 -> mocap_crouch",
+              "",
+              "Converted offline to a Unity Humanoid FBX. No source mesh or textures ship here.",
+              "Attribution must be retained.",
+              "",
+          ])
+          (out / "ATTRIBUTION.txt").write_text(attribution)
+
+          raw = subprocess.check_output(
+              ["strings","-n","5",str(fbx)], text=True, errors="replace")
+          for name in ("mocap_walk","mocap_jog","mocap_run","mocap_crouch"):
+              assert name in raw, name
+          for bone in ("mixamorig:Hips","mixamorig:LeftHand","mixamorig:RightHand",
+                       "mixamorig:LeftFoot","mixamorig:RightFoot"):
+              assert bone in raw, bone
+          print("AARIS_MOCAP_FBX_CONTRACT_OK", fbx.stat().st_size)
+          PY
+
+      - name: Publish verified mocap from a clean main snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Aaris Mocap Vendor"
+          git config user.email "actions@users.noreply.github.com"
+
+          publish=/tmp/aaris-mocap/publish
+          rm -rf "$publish"
+          mkdir -p "$publish"
+          cp /tmp/aaris-mocap/mocap_locomotion.fbx "$publish/"
+          cp /tmp/aaris-mocap/mocap_locomotion.fbx.meta "$publish/"
+          cp /tmp/aaris-mocap/ATTRIBUTION.txt "$publish/"
+
+          # Target AarisMocap is ordinary Git, intentionally outside the
+          # historical Primary/Animations LFS pattern. Disable LFS worktree
+          # transforms on this disposable runner before resetting old assets.
+          git config --local filter.lfs.smudge cat
+          git config --local filter.lfs.process ""
+          git config --local filter.lfs.required false
+
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            rm -rf Assets/Resources/AarisMocap
+            mkdir -p Assets/Resources/AarisMocap
+            cp "$publish/"* Assets/Resources/AarisMocap/
+            git add -f Assets/Resources/AarisMocap/
+            if git diff --cached --quiet; then
+              echo "AARIS_MOCAP_ALREADY_PRESENT"
+              exit 0
+            fi
+            git commit -m "feat(character): vendor 100STYLE locomotion mocap"
+            if git push origin HEAD:main; then
+              echo "AARIS_MOCAP_PUSHED"
+              exit 0
+            fi
+            sleep $((attempt * 2))
+          done
+          exit 1
