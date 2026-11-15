@@ -1,0 +1,33 @@
+name: Aaris Vehicle Regression
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/aaris-vehicle-regression.yml"
+      - "Assets/AarisWorld/Scripts/AarisVehicle*.cs"
+      - "Assets/Resources/AarisVehicles/**"
+      - "Tools/Validation/check_vehicle_system.py"
+      - "Docs/MAP_LAYOUT.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aaris-vehicle-regression-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  vehicle-static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          lfs: false
+      - name: Compile validator
+        run: python3 -m py_compile Tools/Validation/check_vehicle_system.py
+      - name: Validate authored vehicle assets and runtime contracts
+        run: python3 Tools/Validation/check_vehicle_system.py
