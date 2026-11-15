@@ -144,7 +144,7 @@ jobs:
           assert "    hasTranslationDoF: 0" in meta
           assert "RealisticSoldier(Clone)" not in meta
           assert "BamenMilitarySoldierRig\\n      parentName:" not in meta
-                    (out / "mocap_locomotion.fbx.meta").write_text(meta)
+          (out / "mocap_locomotion.fbx.meta").write_text(meta)
 
           attribution = "\n".join([
               "Aaris 100STYLE locomotion mocap",
