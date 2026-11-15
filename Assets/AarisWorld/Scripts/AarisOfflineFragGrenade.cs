@@ -12,7 +12,8 @@ namespace Aaris.MapReview
         [SerializeField, Min(0f)] private float centerDamage = 135f;
         [SerializeField] private LayerMask damageMask = ~0;
 
-        private static Material grenadeMaterial;
+        private static Material grenadeMaterial, oliveShell, oliveLight, darkMetal;
+        private static bool grenadeFinishesLoaded;
         private static PhysicsMaterial bounceMaterial;
         private readonly Collider[] overlaps = new Collider[96];
         private readonly RaycastHit[] rays = new RaycastHit[48];
@@ -58,10 +59,19 @@ namespace Aaris.MapReview
                 grenadeMaterial = new Material(shader);
                 grenadeMaterial.color = new Color(0.16f, 0.25f, 0.17f);
             }
+            // Preserve authored shell and metal finishes; do not flatten all slots.
+            if (imported != null && !grenadeFinishesLoaded)
+            {
+                oliveShell = Resources.Load<Material>("AarisCombat/Materials/FragGrenade-OliveShell");
+                oliveLight = Resources.Load<Material>("AarisCombat/Materials/FragGrenade-OliveLight");
+                darkMetal = Resources.Load<Material>("AarisCombat/Materials/FragGrenade-DarkMetal");
+                grenadeFinishesLoaded = true;
+            }
             foreach (var renderer in visual.GetComponentsInChildren<Renderer>(true))
             {
                 var slots = renderer.sharedMaterials;
-                for (int i = 0; i < slots.Length; i++) slots[i] = grenadeMaterial;
+                for (int i = 0; i < slots.Length; i++)
+                    slots[i] = imported != null ? ResolveGrenadeFinish(slots[i]) : grenadeMaterial;
                 renderer.sharedMaterials = slots;
             }
             var rigidbody = grenade.AddComponent<Rigidbody>();
@@ -73,6 +83,26 @@ namespace Aaris.MapReview
             var script = grenade.AddComponent<AarisOfflineFragGrenade>();
             script.Launch(rigidbody, velocity, thrower);
             return script;
+        }
+
+        private static bool IsUrpFinish(Material material) =>
+            material != null && material.shader != null &&
+            material.shader.name.StartsWith("Universal Render Pipeline/", System.StringComparison.Ordinal);
+
+        private static Material ResolveGrenadeFinish(Material authored)
+        {
+            Material saved = null;
+            if (authored != null)
+            {
+                switch (authored.name)
+                {
+                    case "OliveShell": case "FragGrenade-OliveShell": saved = oliveShell; break;
+                    case "OliveLight": case "FragGrenade-OliveLight": saved = oliveLight; break;
+                    case "DarkMetal": case "FragGrenade-DarkMetal": saved = darkMetal; break;
+                }
+            }
+            if (IsUrpFinish(saved)) return saved;
+            return IsUrpFinish(authored) ? authored : grenadeMaterial;
         }
 
         private void Launch(Rigidbody rigidbody, Vector3 velocity, GameObject thrower)

@@ -47,6 +47,16 @@ class FragDensityContracts(unittest.TestCase):
         self.assertLess(body.index("collider.enabled = false;"), body.index("Destroy(collider);"))
         self.assertIn("var sphere = grenade.AddComponent<SphereCollider>();", TEXT)
 
+    def test_authored_grenade_finishes_are_not_flattened(self):
+        for name in ("OliveShell", "OliveLight", "DarkMetal"):
+            self.assertIn(f'AarisCombat/Materials/FragGrenade-{name}', TEXT)
+            self.assertIn(f'case "{name}":', TEXT)
+            material = ROOT / "Assets" / "Resources" / "AarisCombat" / "Materials" / f"FragGrenade-{name}.mat"
+            self.assertTrue(material.is_file())
+        self.assertIn("if (imported != null && !grenadeFinishesLoaded)", TEXT)
+        self.assertIn("slots[i] = imported != null ? ResolveGrenadeFinish(slots[i]) : grenadeMaterial;", TEXT)
+        self.assertIn("if (IsUrpFinish(saved)) return saved;", TEXT)
+
     def test_full_explosion_query_only_on_overflow(self):
         start = TEXT.index("private void Detonate()")
         end = TEXT.index("private bool HasBlastLineOfSight(", start)
