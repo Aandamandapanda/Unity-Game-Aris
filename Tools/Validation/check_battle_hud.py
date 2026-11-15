@@ -71,6 +71,24 @@ def check() -> None:
     ):
         assert fragment in button, "Missing held-touch interruption cleanup: " + fragment
     assert "SetFireHeld(false)" in hud and "CapturesScreenPosition" in hud
+    # Lost touch snapshots must be reconciled without cancelling surviving
+    # fingers, and desktop right-click look must never press HUD actions.
+    for fragment in (
+        "eventData.button != PointerEventData.InputButton.Left",
+        "currentInputModule is StandaloneInputModule",
+        "if (heldPointers.Count == 0) return;",
+        "if (!IsPointerPhysicallyHeld(pointerId))",
+        "ReleasePointer(stalePointers[i]);",
+        "touch.fingerId == pointerId",
+        "touch.phase != TouchPhase.Ended",
+        "touch.phase != TouchPhase.Canceled",
+        "Input.GetMouseButton(0)",
+        "if (!heldPointers.Remove(pointerId)) return;",
+        "if (pointerId == aimPointerId)",
+        "if (heldPointers.Count == 0 && owner != null) owner.Up(kind);",
+    ):
+        assert fragment in button, "Missing orphaned-pointer recovery: " + fragment
+
     # The HUD forwards Fire-button drag to the player's ONLY look motor.
     # Without this exact player method Unity fails compilation (CS1061),
     # even when tree-sitter accepts every individual C# source file.

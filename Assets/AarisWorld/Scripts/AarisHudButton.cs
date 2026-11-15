@@ -23,6 +23,9 @@ namespace Aaris.MapReview
             new System.Collections.Generic.HashSet<int>();
         // One Fire finger owns camera aim; other fingers only hold Fire.
         private int aimPointerId = int.MinValue;
+        // Reused only while a button is held; no per-frame allocation.
+        private readonly System.Collections.Generic.List<int> stalePointers =
+            new System.Collections.Generic.List<int>(4);
         private static readonly Color Normal = Color.white;
         private static readonly Color Selected = new Color(1f, 0.85f, 0.62f, 1f);
 
@@ -47,7 +50,8 @@ namespace Aaris.MapReview
 
         public void OnPointerDown(PointerEventData eventData)
         {
-            if (owner == null || !AarisBattleHUD.IsVisible || eventData == null) return;
+            if (owner == null || !AarisBattleHUD.IsVisible || eventData == null ||
+                eventData.button != PointerEventData.InputButton.Left) return;
             bool isHoldAction = kind == AarisBattleHUD.Action.Fire ||
                 kind == AarisBattleHUD.Action.Jump;
             if (!isHoldAction && heldPointers.Count > 0) return;
@@ -86,9 +90,14 @@ namespace Aaris.MapReview
 
         public void OnPointerUp(PointerEventData eventData)
         {
-            if (eventData == null || !heldPointers.Remove(eventData.pointerId)) return;
+            if (eventData != null) ReleasePointer(eventData.pointerId);
+        }
+
+        private void ReleasePointer(int pointerId)
+        {
+            if (!heldPointers.Remove(pointerId)) return;
             // Promote a remaining Fire finger without cancelling the shot.
-            if (eventData.pointerId == aimPointerId)
+            if (pointerId == aimPointerId)
             {
                 aimPointerId = int.MinValue;
                 foreach (int pointer in heldPointers)
@@ -99,6 +108,51 @@ namespace Aaris.MapReview
             }
             if (heldPointers.Count == 0) aimPointerId = int.MinValue;
             if (heldPointers.Count == 0 && owner != null) owner.Up(kind);
+        }
+
+        // PointerUp is usually delivered by the EventSystem. A lost touch
+        // snapshot (without focus loss) can otherwise leave Fire/Jump held
+        // forever. Reconcile after EventSystem.Update, never infer ownership
+        // from a new touch's screen position.
+        private void LateUpdate()
+        {
+            if (heldPointers.Count == 0) return;
+            if (!AarisBattleHUD.IsVisible)
+            {
+                Release();
+                return;
+            }
+            // This mapping is specific to the classic StandaloneInputModule.
+            // Other input modules may assign device-specific pointer IDs.
+            if (EventSystem.current == null ||
+                !(EventSystem.current.currentInputModule is StandaloneInputModule)) return;
+
+            stalePointers.Clear();
+            foreach (int pointerId in heldPointers)
+            {
+                if (!IsPointerPhysicallyHeld(pointerId))
+                    stalePointers.Add(pointerId);
+            }
+            for (int i = 0; i < stalePointers.Count; i++)
+                ReleasePointer(stalePointers[i]);
+            stalePointers.Clear();
+        }
+
+        private static bool IsPointerPhysicallyHeld(int pointerId)
+        {
+            if (pointerId == PointerInputModule.kMouseLeftId)
+                return Input.GetMouseButton(0);
+
+            int count = Input.touchCount;
+            for (int i = 0; i < count; i++)
+            {
+                Touch touch = Input.GetTouch(i);
+                if (touch.fingerId == pointerId &&
+                    touch.phase != TouchPhase.Ended &&
+                    touch.phase != TouchPhase.Canceled)
+                    return true;
+            }
+            return false;
         }
 
         public void OnCancel(BaseEventData eventData) => Release();
