@@ -77,11 +77,21 @@ class FragDensityContracts(unittest.TestCase):
         self.assertNotIn("if (hits >= rays.Length) return false;", body)
 
     def test_single_damage_and_solid_cover_guards_preserved(self):
-        self.assertIn("private readonly HashSet<IAarisDamageable> damaged", TEXT)
-        self.assertIn("damaged.Contains(target)", TEXT)
-        self.assertIn("damaged.Add(target);", TEXT)
+        self.assertIn("private readonly Dictionary<IAarisDamageable,", TEXT)
+        self.assertIn("blastTargets.TryGetValue(target, out var previous)", TEXT)
+        self.assertIn("amount < previous.amount", TEXT)
+        self.assertIn("collider.GetInstanceID() >= previous.collider.GetInstanceID()", TEXT)
+        self.assertIn("blastTargets[target] = (amount, collider);", TEXT)
         self.assertIn("HasBlastLineOfSight(blast, near, targetComponent.transform)", TEXT)
-        self.assertIn("target.ApplyDamage(amount, owner);", TEXT)
+        self.assertIn("foreach (var entry in blastTargets)", TEXT)
+        self.assertEqual(TEXT.count(".ApplyDamage("), 1)
+        self.assertIn("entry.Key.ApplyDamage(entry.Value.amount, owner);", TEXT)
+        self.assertLess(TEXT.index("if (!HasBlastLineOfSight(blast, near, targetComponent.transform))"),
+                        TEXT.index("blastTargets[target] = (amount, collider);"))
+        self.assertLess(TEXT.index("blastTargets[target] = (amount, collider);"),
+                        TEXT.index("foreach (var entry in blastTargets)"))
+        self.assertLess(TEXT.index("foreach (var entry in blastTargets)"),
+                        TEXT.index("entry.Key.ApplyDamage(entry.Value.amount, owner);"))
         self.assertIn("Physics.DefaultRaycastLayers", TEXT)
         self.assertIn("QueryTriggerInteraction.Ignore", TEXT)
 
