@@ -239,6 +239,22 @@ def audit() -> None:
     assert "if (jumpStart == null) jumpStart = jump;" in visual
     assert "if (jumpLand == null) jumpLand = jump;" in visual
 
+    # The tactical primary body carries semantic material slots rather than
+    # external photo textures. Preserve them as physically distinct URP
+    # surfaces instead of collapsing the whole character into one plastic tint.
+    for slot in ("Clothes", "Fabric", "Armor", "Elements", "Iron", "Metal",
+                 "Flesh", "Shoes", "Boots", "Glass", "Skin"):
+        assert f'IndexOf("{slot}"' in visual
+    assert "BuildRealisticSoldierMaterial(" in visual
+    assert "ApplyRealisticSoldierMaterials();" in visual
+    assert 'Shader.Find("Universal Render Pipeline/Lit")' in visual
+    assert "realisticSkinMaterials.TryGetValue" in visual
+    assert "renderer.sharedMaterials = converted;" in visual
+    assert "_SURFACE_TYPE_TRANSPARENT" in visual
+    assert "RenderQueue.Transparent" in visual
+    late = visual.split("private void LateUpdate()", 1)[1]
+    assert "new Material(" not in late
+
     # CharacterController.isGrounded can blink false for a single mobile frame
     # while walking down a stair lip. Do not pop the full-body jump/fall pose.
     # Explicit jump timestamps must always bypass this grace immediately.
