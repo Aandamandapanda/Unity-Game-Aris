@@ -21,6 +21,7 @@ namespace Aaris.MapReview
         private AarisThirdPersonPlayer motor;
         private AarisWeaponLootWorld lootWorld;
         private Transform hand, chest, leftUpperArm, leftForearm, leftHand;
+        private Transform leftThumb, leftMiddle;
         private Transform rightUpperArm, rightForearm;
         private CharacterController capsule;
         private float nextRigSearch;
@@ -452,6 +453,8 @@ namespace Aaris.MapReview
                 leftUpperArm = animator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
                 leftForearm = animator.GetBoneTransform(HumanBodyBones.LeftLowerArm);
                 leftHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
+                leftThumb = animator.GetBoneTransform(HumanBodyBones.LeftThumbProximal);
+                leftMiddle = animator.GetBoneTransform(HumanBodyBones.LeftMiddleProximal);
                 rightUpperArm = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
                 rightForearm = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
                 if (hand != null) break;
@@ -693,6 +696,44 @@ namespace Aaris.MapReview
                 (visualRecoilDegrees * 0.008f);
         }
 
+        // Two-bone position IK still leaves one free wrist-twist degree.
+        // Derive a palm basis from actual Humanoid finger bones instead of
+        // assuming any model-local hand axis. The thumb follows the barrel and
+        // the fingers wrap across the handguard; choose the mirrored across-axis
+        // requiring the least wrist correction so different avatars do not flip.
+        private void AlignSupportWristRotation()
+        {
+            if (leftHand == null || leftThumb == null || leftMiddle == null ||
+                weaponRoot == null) return;
+            Vector3 finger = leftMiddle.position - leftHand.position;
+            Vector3 thumb = leftThumb.position - leftHand.position;
+            if (finger.sqrMagnitude < 0.0001f || thumb.sqrMagnitude < 0.0001f)
+                return;
+            finger.Normalize();
+            thumb = Vector3.ProjectOnPlane(thumb, finger);
+            if (thumb.sqrMagnitude < 0.0001f) return;
+            thumb.Normalize();
+
+            Quaternion currentBasis = Quaternion.LookRotation(finger, thumb);
+            Vector3 barrel = weaponRoot.forward;
+            Vector3 across = weaponRoot.right;
+            if (barrel.sqrMagnitude < 0.01f || across.sqrMagnitude < 0.01f)
+                return;
+            barrel.Normalize();
+            across.Normalize();
+
+            Quaternion targetBasisA = Quaternion.LookRotation(across, barrel);
+            Quaternion targetBasisB = Quaternion.LookRotation(-across, barrel);
+            Quaternion targetA = targetBasisA *
+                Quaternion.Inverse(currentBasis) * leftHand.rotation;
+            Quaternion targetB = targetBasisB *
+                Quaternion.Inverse(currentBasis) * leftHand.rotation;
+            Quaternion target = Quaternion.Angle(leftHand.rotation, targetA) <=
+                Quaternion.Angle(leftHand.rotation, targetB) ? targetA : targetB;
+            leftHand.rotation = Quaternion.RotateTowards(
+                leftHand.rotation, target, aiming ? 52f : 38f);
+        }
+
         private void AlignSupportHand()
         {
             if (!HasGun || IsSprintHolstered || hand == null ||
@@ -713,6 +754,7 @@ namespace Aaris.MapReview
             ReachArm(leftUpperArm, leftForearm, leftHand,
                 weaponRoot.TransformPoint(new Vector3(-0.045f, -0.035f, foregrip)),
                 -transform.right);
+            AlignSupportWristRotation();
 
             // Position-only IK can still leave the trigger palm visibly
             // twisted around the receiver. The catalog's handRotation is the
