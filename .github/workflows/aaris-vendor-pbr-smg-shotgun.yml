@@ -1,0 +1,241 @@
+name: Aaris Vendor CC0 PBR SMG and Shotgun
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aaris-vendor-pbr-smg-shotgun.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aaris-vendor-pbr-smg-shotgun
+  cancel-in-progress: false
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: true
+
+      - name: Install deterministic image tooling
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir pillow==11.3.0
+
+      - name: Fetch pinned CC0 source assets and build Android-budget PBR maps
+        shell: bash
+        run: |
+          set -euo pipefail
+          src_commit='8b1f8e0456424aa9e59ec4ef43196197889f171a'
+          src_root="https://raw.githubusercontent.com/Dayan-02/GV_game/$src_commit/Assets/Art/ImportedWeapons/CC0"
+          work="$RUNNER_TEMP/aaris-pbr-source"
+          rm -rf "$work"
+          mkdir -p "$work/GreaseGun" "$work/Shotgun"
+
+          fetch_verified() {
+            local folder="$1" file="$2" blob="$3"
+            local out="$work/$folder/$file"
+            curl -fLsS --retry 4 --connect-timeout 10 --max-time 90               "$src_root/$folder/$file" -o "$out"
+            local actual
+            actual="$(git hash-object "$out")"
+            [[ "$actual" == "$blob" ]] || {
+              echo "::error::$folder/$file Git blob mismatch: $actual != $blob"
+              exit 1
+            }
+          }
+
+          fetch_verified GreaseGun Grease_Gun.fbx ebebfcac66b29eaa9ca64bdbe8bc1106ebf4a97b
+          fetch_verified GreaseGun Grease_Gun_Base_Color.png 2fe079f373675f8e4c02b27aa28689a9a74f7be5
+          fetch_verified GreaseGun Grease_Gun_Normal_DirectX.png a7df72b3eefc11e978a73d65adcd1c4ab4cd02b8
+          fetch_verified GreaseGun Grease_Gun_Metallic.png 00dd74373b4e9762d8f3adc2c74e7f68bae4d818
+          fetch_verified GreaseGun Grease_Gun_Roughness.png 34f04a086a30ce8a6ff60fcd2b8bc9e462682b70
+
+          fetch_verified Shotgun Shotgun.fbx b7acd94e87c909753495ce42465532ac79c0510c
+          fetch_verified Shotgun Shotgun_Base_Color.png f6c1d0b7cc2f918f85847e2550dad6c64479a734
+          fetch_verified Shotgun Shotgun_Normal_DirectX.png 1a2d85c0a4a30c3348e75fc8510741320d27a830
+          fetch_verified Shotgun Shotgun_Metallic.png 14f693ada0f062819bc059679a3cdb3422e03488
+          fetch_verified Shotgun Shotgun_Roughness.png 6f5fc651add9f290e594810566ac5a0079775e96
+
+          python3 - "$work" <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          import hashlib, shutil, sys
+
+          source = Path(sys.argv[1])
+          root = Path("Assets/Resources/AarisWeapons/PBR")
+          specs = [
+              ("GreaseGun", "Grease_Gun"),
+              ("Shotgun", "Shotgun"),
+          ]
+
+          def fit(image, limit):
+              image = image.copy()
+              image.thumbnail((limit, limit), Image.Resampling.LANCZOS)
+              return image
+
+          def guid(path):
+              return hashlib.md5(("aaris-pbr:" + str(path)).encode()).hexdigest()
+
+          def texture_meta(path, size, normal=False, alpha=False):
+              return f"""fileFormatVersion: 2
+          guid: {guid(path)}
+          TextureImporter:
+            internalIDToNameTable: []
+            externalObjects: {{}}
+            serializedVersion: 12
+            mipmaps:
+              mipMapMode: 0
+              enableMipMap: 1
+              sRGBTexture: {0 if normal or alpha else 1}
+              linearTexture: 0
+              fadeOut: 0
+              borderMipMap: 0
+              mipMapsPreserveCoverage: 0
+              alphaTestReferenceValue: 0.5
+              mipMapFadeDistanceStart: 1
+              mipMapFadeDistanceEnd: 3
+            bumpmap:
+              convertToNormalMap: 0
+              externalNormalMap: 0
+              heightScale: 0.25
+              normalMapFilter: 0
+              flipGreenChannel: 0
+            isReadable: 0
+            streamingMipmaps: 1
+            streamingMipmapsPriority: 0
+            vTOnly: 0
+            ignoreMipmapLimit: 0
+            grayScaleToAlpha: 0
+            generateCubemap: 6
+            cubemapConvolution: 0
+            seamlessCubemap: 0
+            textureFormat: 1
+            maxTextureSize: {size}
+            textureSettings:
+              serializedVersion: 2
+              filterMode: 2
+              aniso: 4
+              mipBias: 0
+              wrapU: 0
+              wrapV: 0
+              wrapW: 0
+            nPOTScale: 0
+            lightmap: 0
+            compressionQuality: 75
+            spriteMode: 0
+            spriteExtrude: 1
+            spriteMeshType: 1
+            alignment: 0
+            spritePivot: {{x: 0.5, y: 0.5}}
+            spritePixelsToUnits: 100
+            spriteBorder: {{x: 0, y: 0, z: 0, w: 0}}
+            spriteGenerateFallbackPhysicsShape: 1
+            alphaUsage: {1 if alpha else 0}
+            alphaIsTransparency: 0
+            textureType: {1 if normal else 0}
+            textureShape: 1
+            singleChannelComponent: 0
+            flipbookRows: 1
+            flipbookColumns: 1
+            platformSettings:
+            - serializedVersion: 3
+              buildTarget: DefaultTexturePlatform
+              maxTextureSize: {size}
+              resizeAlgorithm: 0
+              textureFormat: -1
+              textureCompression: 1
+              compressionQuality: 75
+              crunchedCompression: 0
+              allowsAlphaSplitting: 0
+              overridden: 0
+              ignorePlatformSupport: 0
+              androidETC2FallbackOverride: 0
+              forceMaximumCompressionQuality_BC6H_BC7: 0
+            - serializedVersion: 3
+              buildTarget: Android
+              maxTextureSize: {size}
+              resizeAlgorithm: 0
+              textureFormat: -1
+              textureCompression: 1
+              compressionQuality: 75
+              crunchedCompression: 0
+              allowsAlphaSplitting: 0
+              overridden: 1
+              ignorePlatformSupport: 0
+              androidETC2FallbackOverride: 0
+              forceMaximumCompressionQuality_BC6H_BC7: 0
+            userData: ''
+            assetBundleName: ''
+            assetBundleVariant: ''
+          """
+
+          for folder, stem in specs:
+              src = source / folder
+              dst = root / folder
+              dst.mkdir(parents=True, exist_ok=True)
+
+              fbx = dst / f"{stem}.fbx"
+              shutil.copy2(src / f"{stem}.fbx", fbx)
+              (Path(str(fbx) + ".meta")).write_text(
+                  f"fileFormatVersion: 2\nguid: {guid(fbx)}\n", encoding="utf-8")
+
+              base = fit(Image.open(src / f"{stem}_Base_Color.png").convert("RGBA"), 1024)
+              base_path = dst / f"{stem}_Base_Color.png"
+              base.save(base_path, optimize=True)
+              (Path(str(base_path) + ".meta")).write_text(
+                  texture_meta(base_path, 1024), encoding="utf-8")
+
+              normal = fit(Image.open(src / f"{stem}_Normal_DirectX.png").convert("RGBA"), 1024)
+              r, g, b, a = normal.split()
+              normal = Image.merge("RGBA", (r, g.point(lambda value: 255 - value), b, a))
+              normal_path = dst / f"{stem}_Normal.png"
+              normal.save(normal_path, optimize=True)
+              (Path(str(normal_path) + ".meta")).write_text(
+                  texture_meta(normal_path, 1024, normal=True), encoding="utf-8")
+
+              metal = fit(Image.open(src / f"{stem}_Metallic.png").convert("L"), 512)
+              rough = fit(Image.open(src / f"{stem}_Roughness.png").convert("L"), 512)
+              if rough.size != metal.size:
+                  rough = rough.resize(metal.size, Image.Resampling.LANCZOS)
+              smooth = rough.point(lambda value: 255 - value)
+              packed = Image.merge("RGBA", (metal, metal, metal, smooth))
+              packed_path = dst / f"{stem}_MetallicSmoothness.png"
+              packed.save(packed_path, optimize=True)
+              (Path(str(packed_path) + ".meta")).write_text(
+                  texture_meta(packed_path, 512, alpha=True), encoding="utf-8")
+
+              assert fbx.read_bytes().startswith(b"Kaydara FBX Binary")
+              assert max(base.size) <= 1024 and max(normal.size) <= 1024
+              assert max(packed.size) <= 512
+              print(folder, "FBX", fbx.stat().st_size,
+                    "base", base.size, "normal", normal.size, "packed", packed.size)
+          PY
+
+      - name: Commit vendored offline PBR assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- Assets/Resources/AarisWeapons/PBR/GreaseGun                      Assets/Resources/AarisWeapons/PBR/Shotgun
+          if git diff --cached --quiet; then
+            echo 'PBR assets already match the pinned source'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Vendor pinned CC0 PBR Grease Gun and Shotgun assets'
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:refs/heads/main; then
+              exit 0
+            fi
+            git rebase --abort || true
+            sleep $((attempt * 3))
+          done
+          echo '::error::Could not fast-forward vendor assets onto current main'
+          exit 1
