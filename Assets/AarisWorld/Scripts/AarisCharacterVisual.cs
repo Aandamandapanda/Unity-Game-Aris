@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
@@ -33,6 +34,11 @@ namespace Aaris.MapReview
         private MeshRenderer[] placeholderRenderers;
         private Animator animator;
         private Material runtimeSkin;
+        // One local player, one authored material conversion per source slot.
+        // These are shared by all submeshes of this character and destroyed
+        // with the visual adapter; no per-frame or per-renderer material churn.
+        private readonly Dictionary<Material, Material> realisticSkinMaterials =
+            new Dictionary<Material, Material>();
         private PlayableGraph graph;
         private AnimationMixerPlayable mixer;
         private AnimationMixerPlayable weaponUpperMixer;
@@ -283,8 +289,115 @@ namespace Aaris.MapReview
             return true;
         }
 
+        private Material BuildRealisticSoldierMaterial(Material source)
+        {
+            if (source == null) return null;
+            if (realisticSkinMaterials.TryGetValue(source, out Material cached) &&
+                cached != null) return cached;
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            if (shader == null) return source;
+
+            Color sourceColor = Color.white;
+            if (source.HasProperty("_BaseColor"))
+                sourceColor = source.GetColor("_BaseColor");
+            else if (source.HasProperty("_Color"))
+                sourceColor = source.GetColor("_Color");
+            Texture baseMap = source.HasProperty("_BaseMap")
+                ? source.GetTexture("_BaseMap")
+                : source.HasProperty("_MainTex") ? source.GetTexture("_MainTex") : null;
+            Texture normal = source.HasProperty("_BumpMap")
+                ? source.GetTexture("_BumpMap") : null;
+
+            string label = source.name ?? string.Empty;
+            Color colour = sourceColor;
+            float metallic = 0.02f;
+            float smoothness = 0.18f;
+            bool glass = false;
+
+            if (label.IndexOf("Clothes", StringComparison.OrdinalIgnoreCase) >= 0)
+            { colour = new Color(.13f,.16f,.12f,sourceColor.a); metallic = 0f; smoothness = .14f; }
+            else if (label.IndexOf("Fabric", StringComparison.OrdinalIgnoreCase) >= 0)
+            { colour = new Color(.28f,.23f,.15f,sourceColor.a); metallic = 0f; smoothness = .10f; }
+            else if (label.IndexOf("Armor", StringComparison.OrdinalIgnoreCase) >= 0)
+            { colour = new Color(.18f,.17f,.11f,sourceColor.a); metallic = .04f; smoothness = .32f; }
+            else if (label.IndexOf("Elements", StringComparison.OrdinalIgnoreCase) >= 0)
+            { colour = new Color(.06f,.07f,.06f,sourceColor.a); metallic = .06f; smoothness = .35f; }
+            else if (label.IndexOf("Iron", StringComparison.OrdinalIgnoreCase) >= 0)
+            { colour = new Color(.16f,.17f,.16f,sourceColor.a); metallic = .80f; smoothness = .50f; }
+            else if (label.IndexOf("Metal", StringComparison.OrdinalIgnoreCase) >= 0)
+            { colour = new Color(.24f,.25f,.24f,sourceColor.a); metallic = .75f; smoothness = .55f; }
+            else if (label.IndexOf("Flesh", StringComparison.OrdinalIgnoreCase) >= 0)
+            { colour = new Color(.42f,.29f,.20f,sourceColor.a); metallic = 0f; smoothness = .35f; }
+            else if (label.IndexOf("Shoes", StringComparison.OrdinalIgnoreCase) >= 0)
+            { colour = new Color(.05f,.045f,.04f,sourceColor.a); metallic = 0f; smoothness = .18f; }
+            else if (label.IndexOf("Boots", StringComparison.OrdinalIgnoreCase) >= 0)
+            { colour = new Color(.06f,.05f,.04f,sourceColor.a); metallic = 0f; smoothness = .20f; }
+            else if (label.IndexOf("Glass", StringComparison.OrdinalIgnoreCase) >= 0)
+            { colour = new Color(.02f,.03f,.035f,.52f); metallic = .12f; smoothness = .88f; glass = true; }
+            else if (label.IndexOf("Skin", StringComparison.OrdinalIgnoreCase) >= 0)
+            { colour = new Color(.04f,.045f,.04f,sourceColor.a); metallic = 0f; smoothness = .16f; }
+            else if (baseMap == null && Mathf.Min(sourceColor.r,
+                Mathf.Min(sourceColor.g, sourceColor.b)) > .72f)
+            { colour = new Color(.14f,.15f,.13f,sourceColor.a); metallic = .03f; smoothness = .24f; }
+
+            var result = new Material(shader)
+            {
+                name = "Aaris Soldier PBR " + source.name,
+                enableInstancing = true
+            };
+            if (result.HasProperty("_BaseColor")) result.SetColor("_BaseColor", colour);
+            if (baseMap != null && result.HasProperty("_BaseMap"))
+                result.SetTexture("_BaseMap", baseMap);
+            if (normal != null && result.HasProperty("_BumpMap"))
+            {
+                result.SetTexture("_BumpMap", normal);
+                result.EnableKeyword("_NORMALMAP");
+            }
+            if (result.HasProperty("_Metallic")) result.SetFloat("_Metallic", metallic);
+            if (result.HasProperty("_Smoothness")) result.SetFloat("_Smoothness", smoothness);
+            if (glass)
+            {
+                result.SetOverrideTag("RenderType", "Transparent");
+                if (result.HasProperty("_Surface")) result.SetFloat("_Surface", 1f);
+                if (result.HasProperty("_SrcBlend"))
+                    result.SetFloat("_SrcBlend",
+                        (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                if (result.HasProperty("_DstBlend"))
+                    result.SetFloat("_DstBlend",
+                        (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                if (result.HasProperty("_ZWrite")) result.SetFloat("_ZWrite", 0f);
+                result.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                result.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            }
+            realisticSkinMaterials[source] = result;
+            return result;
+        }
+
+        private void ApplyRealisticSoldierMaterials()
+        {
+            foreach (var renderer in visual.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                Material[] source = renderer.sharedMaterials;
+                if (source == null || source.Length == 0) continue;
+                Material[] converted = new Material[source.Length];
+                bool changed = false;
+                for (int i = 0; i < source.Length; i++)
+                {
+                    converted[i] = BuildRealisticSoldierMaterial(source[i]);
+                    if (converted[i] == null) converted[i] = source[i];
+                    changed |= converted[i] != source[i];
+                }
+                if (changed) renderer.sharedMaterials = converted;
+            }
+        }
+
         private void TryApplySkin()
         {
+            if (realisticSoldierLoaded)
+            {
+                ApplyRealisticSoldierMaterials();
+                return;
+            }
             if (primaryLoaded)
             {
                 // The bundled character includes normals, but its untextured body and hair
@@ -1280,6 +1393,9 @@ namespace Aaris.MapReview
             if (graph.IsValid()) graph.Destroy();
             if (upperBodyMask != null) Destroy(upperBodyMask);
             if (runtimeSkin != null) Destroy(runtimeSkin);
+            foreach (var material in realisticSkinMaterials.Values)
+                if (material != null) Destroy(material);
+            realisticSkinMaterials.Clear();
             if (placeholderRenderers != null)
                 foreach (var renderer in placeholderRenderers)
                     if (IsLegacyPlaceholderRenderer(renderer)) renderer.enabled = true;
