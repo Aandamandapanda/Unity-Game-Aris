@@ -416,6 +416,20 @@ def test():
     # Close-contact camera sweep must not interpolate past a detected wall.
     assert "Mathf.Max(0f, nearest - .24f)" in session
     assert "Mathf.Max(.35f, nearest - .24f)" not in session
+    # Real Rigidbody speed opens the chase framing gradually, while the
+    # collision sweep remains final authority and view rotation is damped.
+    assert "car.TotalSpeedMetresPerSecond /" in session
+    assert "car.TopSpeedMetresPerSecond" in session
+    assert "Mathf.Lerp(6.25f, 7.40f, speed01)" in session
+    assert "Mathf.Lerp(2.95f, 3.25f, speed01)" in session
+    assert "Mathf.Lerp(62f, 70f," in session
+    assert "Quaternion.Slerp(" in session
+    assert "Mathf.Clamp(Time.deltaTime, 0f, .05f)" in session
+    for speed01 in (0.0, .25, .5, .75, 1.0):
+        distance = 6.25 + (7.40 - 6.25) * speed01
+        height = 2.95 + (3.25 - 2.95) * speed01
+        assert 6.25 <= distance <= 7.40
+        assert 2.95 <= height <= 3.25
     for contact in (0.0, .05, .1, .2, .24, .3, .35, .45, 1.0, 6.0):
         assert 0 <= max(0.0, contact - .24) <= contact
     disabled = session.split("private void OnDisable()", 1)[1]
