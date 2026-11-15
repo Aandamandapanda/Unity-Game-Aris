@@ -450,7 +450,7 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         self.assertIn("SimulateAirborne(dt);", source)
         self.assertIn("AdvanceDepartingAircraft(dt);", source)
         self.assertIn("AnimatePlaneRotors();", source)
-        self.assertIn("plane.transform.position += plane.transform.forward * planeSpeed * dt;", source)
+        self.assertIn("plane.transform.position += planeFlightDirection * planeSpeed * dt;", source)\n        self.assertIn("ApplyPlaneVisualInertia();", source)
         self.assertIn("Mathf.Min(freefallForwardSpeed, planeSpeed * 0.55f)", source)
         self.assertIn("if (phase == DropPhase.Freefall) UpdateFreefall(stepDt);", source)
         self.assertIn("else if (phase == DropPhase.Opening || phase == DropPhase.Gliding)", source)
