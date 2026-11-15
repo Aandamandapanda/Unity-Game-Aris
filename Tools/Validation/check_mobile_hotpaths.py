@@ -676,6 +676,19 @@ def audit():
                 tint_initialized = True
         assert updates == 3, (fps, updates)
 
+    # Footstep contact spacing must use the exact locomotion ceilings
+    # that drive AarisCharacterVisual. Old 4.4/4.8 m/s caps made sprint
+    # sounds drift against planted feet after the 5.7/6.5 motor upgrade.
+    footfall = audio[audio.index("private float FootfallSpacing("):
+                     audio.index("private void TickFootsteps(")]
+    assert "player.JogSpeedMetresPerSecond" in footfall
+    assert "player.ArmedSprintSpeedMetresPerSecond" in footfall
+    assert "player.UnarmedSprintSpeedMetresPerSecond" in footfall
+    assert "Mathf.Max(jogCeiling * 0.95f," in footfall
+    assert "sprintCeiling * 0.72f" in footfall
+    assert "Mathf.Lerp(2.55f, 3.65f, sprintBlend)" in footfall
+    assert "armed ? 4.4f : 4.8f" not in footfall
+
     # Four listener-relative voices and eight spatial voices share the
     # ORIGINAL total of 12. A world impact must not evict local automatic
     # gunfire, nor should a local footstep cut a world explosion.
@@ -696,7 +709,8 @@ def audit():
     assert "bool idleVoice = !voices[selected].isPlaying;" in one_shot
     assert "for (int offset = 1; offset < count; offset++)" in one_shot
     assert "int candidate = start + (cursor - start + offset) % count;" in one_shot
-    assert "if (voices[candidate].isPlaying) continue;" in one_shot
+    assert "AudioSource candidateVoice = voices[candidate];" in one_shot
+    assert "if (candidateVoice == null || candidateVoice.isPlaying) continue;" in one_shot
     assert "selected = candidate;" in one_shot
     assert "idleVoice = true;" in one_shot
     assert "if (!idleVoice && IsLowPriorityCue(name)) return;" in one_shot
