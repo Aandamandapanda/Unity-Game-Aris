@@ -878,12 +878,13 @@ namespace Aaris.MapReview
                 actions.Stance == AarisBattleActions.PlayerStance.Crouching;
             bool prone = actions != null &&
                 actions.Stance == AarisBattleActions.PlayerStance.Prone;
-            // The collision capsule responds immediately to a stance tap.
-            // Entering a lower pose should catch up promptly, while standing
-            // back up eases slightly longer so shoulders do not snap upward.
-            // Exponential time constants preserve feel from 10 to 120 FPS.
-            float crouchAlpha = 1f - Mathf.Exp(-dt / (crouching ? 0.085f : 0.15f));
-            float proneAlpha = 1f - Mathf.Exp(-dt / (prone ? 0.085f : 0.15f));
+            // The collision capsule responds immediately for safety, while
+            // the rendered body changes stance on human-scale timing. A prone
+            // body needs appreciably longer than a crouch so lying down/getting
+            // up reads as weight transfer instead of an 85 ms pose morph.
+            // Exponential time constants preserve the same feel from 10-120 FPS.
+            float crouchAlpha = 1f - Mathf.Exp(-dt / (crouching ? 0.11f : 0.16f));
+            float proneAlpha = 1f - Mathf.Exp(-dt / (prone ? 0.17f : 0.24f));
             crouchBlend = Mathf.Lerp(crouchBlend, crouching ? 1f : 0f, crouchAlpha);
             proneBlend = Mathf.Lerp(proneBlend, prone ? 1f : 0f, proneAlpha);
 
