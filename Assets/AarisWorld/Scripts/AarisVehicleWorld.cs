@@ -28,6 +28,9 @@ namespace Aaris.MapReview
         // Opt-in for imported car AND wheel prefabs with valid URP Lit PBR materials.
         // Legacy Kenney models still use the shared atlas and unchanged art budget.
         public bool preserveAuthoredUrpMaterials;
+        // Runtime-only: some higher-fidelity FBXs include four separate wheel
+        // objects. They are detached and driven by the existing WheelColliders.
+        [NonSerialized] public bool useEmbeddedAuthoredWheels;
     }
 
     [Serializable]
@@ -78,6 +81,11 @@ namespace Aaris.MapReview
         private int validModels;
         private Material paletteMaterial;
         private Material wheelPaletteMaterial;
+        // Convert each imported source material once, then share it across all
+        // streamed instances. This preserves PBR texture subassets without
+        // per-car material duplication on low-memory Android devices.
+        private readonly Dictionary<Material, Material> authoredMaterialCache =
+            new Dictionary<Material, Material>();
         // Instantiate/Destroy of a complete car can spike a 2 GB Android frame.
         // Bound structural changes per 300 ms poll; retain all 44 authored plans.
         private int spawnBudgetPerPoll = 2;
@@ -208,22 +216,36 @@ namespace Aaris.MapReview
                     item.maxSpeedMetres > 28f) continue;
                 prefabs[i] = Resources.Load<GameObject>(item.modelResource);
                 wheelPrefabs[i] = Resources.Load<GameObject>(item.wheelResource);
-                // Select the body and wheels as one compatible pair. The
-                // original models remain available if an authored import fails.
-                if (!string.IsNullOrEmpty(item.authoredModelResource) &&
-                    !string.IsNullOrEmpty(item.authoredWheelResource))
+                // Select the best local body while keeping the current model
+                // as a fail-safe. Newer FBXs may contain their own four wheel
+                // objects; older authored sedan art uses a separate wheel prefab.
+                if (!string.IsNullOrEmpty(item.authoredModelResource))
                 {
-                    var authoredBody = Resources.Load<GameObject>(item.authoredModelResource);
-                    var authoredWheel = Resources.Load<GameObject>(item.authoredWheelResource);
-                    if (HasCompatibleUrpMaterials(authoredBody) &&
-                        HasCompatibleUrpMaterials(authoredWheel))
+                    var authoredBody =
+                        Resources.Load<GameObject>(item.authoredModelResource);
+                    if (authoredBody != null && HasEmbeddedWheelSet(authoredBody))
                     {
                         prefabs[i] = authoredBody;
-                        wheelPrefabs[i] = authoredWheel;
-                        item.preserveAuthoredUrpMaterials = true;
+                        // Selection code requires a non-null paired resource,
+                        // but Build() will take the four wheels from this body.
+                        wheelPrefabs[i] = authoredBody;
+                        item.useEmbeddedAuthoredWheels = true;
                     }
-                    else
-                        Debug.LogWarning("Aaris vehicles: using legacy art for " + item.id);
+                    else if (!string.IsNullOrEmpty(item.authoredWheelResource))
+                    {
+                        var authoredWheel =
+                            Resources.Load<GameObject>(item.authoredWheelResource);
+                        if (HasCompatibleUrpMaterials(authoredBody) &&
+                            HasCompatibleUrpMaterials(authoredWheel))
+                        {
+                            prefabs[i] = authoredBody;
+                            wheelPrefabs[i] = authoredWheel;
+                            item.preserveAuthoredUrpMaterials = true;
+                        }
+                        else
+                            Debug.LogWarning("Aaris vehicles: using legacy art for " +
+                                item.id);
+                    }
                 }
                 // A valid GameObject without a usable mesh is not a drivable
                 // 3D model. Remove both references so weighted selection
@@ -325,6 +347,111 @@ namespace Aaris.MapReview
                 " hubs=45 authoredCandidates=" + file.candidates.Length +
                 " sectorCoverage=" + sectors.Count + " (physics validated when nearby)");
             return plans.Count >= 18;
+        }
+
+        private static bool HasEmbeddedWheelSet(GameObject source)
+        {
+            if (source == null) return false;
+            bool fl = false, fr = false, rl = false, rr = false;
+            foreach (var t in source.GetComponentsInChildren<Transform>(true))
+            {
+                if (t == null) continue;
+                string n = t.name.ToLowerInvariant();
+                fl |= n.Contains("wheel_fl");
+                fr |= n.Contains("wheel_fr");
+                rl |= n.Contains("wheel_rl");
+                rr |= n.Contains("wheel_rr");
+            }
+            return fl && fr && rl && rr;
+        }
+
+        private Material AuthoredUrpMaterial(Material source)
+        {
+            if (source == null) return paletteMaterial;
+            if (source.shader != null &&
+                source.shader.name == "Universal Render Pipeline/Lit")
+                return source;
+            if (authoredMaterialCache.TryGetValue(source, out Material cached) &&
+                cached != null) return cached;
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            if (shader == null) return paletteMaterial;
+            var result = new Material(shader)
+            {
+                name = "Aaris Authored URP " + source.name,
+                enableInstancing = true
+            };
+            Color baseColor = Color.white;
+            if (source.HasProperty("_BaseColor"))
+                baseColor = source.GetColor("_BaseColor");
+            else if (source.HasProperty("_Color"))
+                baseColor = source.GetColor("_Color");
+            Texture baseMap = source.HasProperty("_BaseMap")
+                ? source.GetTexture("_BaseMap") :
+                source.HasProperty("_MainTex") ? source.GetTexture("_MainTex") : null;
+            if (result.HasProperty("_BaseColor")) result.SetColor("_BaseColor", baseColor);
+            if (baseMap != null && result.HasProperty("_BaseMap"))
+                result.SetTexture("_BaseMap", baseMap);
+
+            Texture normal = source.HasProperty("_BumpMap")
+                ? source.GetTexture("_BumpMap") : null;
+            if (normal != null && result.HasProperty("_BumpMap"))
+            {
+                result.SetTexture("_BumpMap", normal);
+                result.EnableKeyword("_NORMALMAP");
+            }
+            Texture metallicMap = source.HasProperty("_MetallicGlossMap")
+                ? source.GetTexture("_MetallicGlossMap") : null;
+            if (metallicMap != null && result.HasProperty("_MetallicGlossMap"))
+            {
+                result.SetTexture("_MetallicGlossMap", metallicMap);
+                result.EnableKeyword("_METALLICSPECGLOSSMAP");
+            }
+            float metallic = source.HasProperty("_Metallic")
+                ? source.GetFloat("_Metallic") : .12f;
+            float smoothness = source.HasProperty("_Smoothness")
+                ? source.GetFloat("_Smoothness") :
+                source.HasProperty("_Glossiness")
+                    ? source.GetFloat("_Glossiness") : .38f;
+            if (result.HasProperty("_Metallic"))
+                result.SetFloat("_Metallic", Mathf.Clamp01(metallic));
+            if (result.HasProperty("_Smoothness"))
+                result.SetFloat("_Smoothness", Mathf.Clamp01(smoothness));
+
+            string label = source.name.ToLowerInvariant();
+            bool glass = label.Contains("glass") || label.Contains("window");
+            if (glass)
+            {
+                baseColor.a = Mathf.Min(baseColor.a, .42f);
+                result.SetColor("_BaseColor", baseColor);
+                result.SetOverrideTag("RenderType", "Transparent");
+                if (result.HasProperty("_Surface")) result.SetFloat("_Surface", 1f);
+                if (result.HasProperty("_SrcBlend"))
+                    result.SetFloat("_SrcBlend",
+                        (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                if (result.HasProperty("_DstBlend"))
+                    result.SetFloat("_DstBlend",
+                        (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                if (result.HasProperty("_ZWrite")) result.SetFloat("_ZWrite", 0f);
+                result.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                result.renderQueue =
+                    (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            }
+            authoredMaterialCache[source] = result;
+            return result;
+        }
+
+        private void ApplyAuthoredMaterials(Renderer[] renderers)
+        {
+            foreach (var renderer in renderers)
+            {
+                if (renderer == null) continue;
+                Material[] source = renderer.sharedMaterials;
+                if (source == null || source.Length == 0) continue;
+                Material[] converted = new Material[source.Length];
+                for (int i = 0; i < source.Length; i++)
+                    converted[i] = AuthoredUrpMaterial(source[i]);
+                renderer.sharedMaterials = converted;
+            }
         }
 
         // One import-time check per model, never a frame-loop allocation.
@@ -562,7 +689,8 @@ namespace Aaris.MapReview
             root.transform.SetParent(transform, false);
             root.transform.SetPositionAndRotation(pos, record.rotation);
             var mesh = Instantiate(source, root.transform, false);
-            mesh.name = record.type.preserveAuthoredUrpMaterials
+            mesh.name = record.type.preserveAuthoredUrpMaterials ||
+                record.type.useEmbeddedAuthoredWheels
                 ? "Authored Vehicle Body" : "Local CC0 Car Model";
             foreach (var collider in mesh.GetComponentsInChildren<Collider>(true))
                 collider.enabled = false;
@@ -571,7 +699,11 @@ namespace Aaris.MapReview
             // Kenney Car Kit uses one UV palette atlas. Share ONE URP Lit
             // material across streamed instances; never instantiate new
             // materials per car/per frame.
-            if (!record.type.preserveAuthoredUrpMaterials)
+            if (record.type.useEmbeddedAuthoredWheels)
+            {
+                ApplyAuthoredMaterials(renderers);
+            }
+            else if (!record.type.preserveAuthoredUrpMaterials)
             {
                 foreach (var renderer in renderers)
                 {
@@ -604,8 +736,11 @@ namespace Aaris.MapReview
             // and wheels to the visible type instead of a generic sedan.
             motor.FitShellAndWheelbase(new Bounds(new Vector3(0f, .48f, 0f),
                 bounds.size));
-            if (!motor.AttachWheelModels(wheelSource, wheelPaletteMaterial,
-                record.type.preserveAuthoredUrpMaterials))
+            bool wheelsAttached = record.type.useEmbeddedAuthoredWheels
+                ? motor.AttachEmbeddedWheelModels(mesh.transform)
+                : motor.AttachWheelModels(wheelSource, wheelPaletteMaterial,
+                    record.type.preserveAuthoredUrpMaterials);
+            if (!wheelsAttached)
             {
                 Destroy(root);
                 return false;
