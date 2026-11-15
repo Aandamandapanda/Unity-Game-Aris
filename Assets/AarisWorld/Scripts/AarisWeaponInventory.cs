@@ -803,6 +803,23 @@ namespace Aaris.MapReview
                 (visualRecoilDegrees * 0.008f);
         }
 
+        // Preserve the reviewed 30 FPS grip response in wall-clock time.
+        // Fixed degrees-per-frame makes 60/90 FPS phones snap the wrists and
+        // fingers much faster than 30 FPS devices. Clamp hitch contribution so
+        // a resume/GC spike cannot teleport the hand through the weapon.
+        private static float GripFrameScale()
+        {
+            return 30f * Mathf.Clamp(Time.deltaTime, 0f, 0.05f);
+        }
+
+        private static float GripBlendAlpha(float alphaAt30Fps)
+        {
+            // Convert a reviewed per-30Hz-frame blend to the same exponential
+            // wall-clock response at any render rate.
+            float remaining = 1f - Mathf.Clamp01(alphaAt30Fps);
+            return 1f - Mathf.Pow(remaining, GripFrameScale());
+        }
+
         // Two-bone position IK still leaves one free wrist-twist degree.
         // Derive a palm basis from actual Humanoid finger bones instead of
         // assuming any model-local hand axis. The thumb follows the barrel and
@@ -837,8 +854,9 @@ namespace Aaris.MapReview
                 Quaternion.Inverse(currentBasis) * leftHand.rotation;
             Quaternion target = Quaternion.Angle(leftHand.rotation, targetA) <=
                 Quaternion.Angle(leftHand.rotation, targetB) ? targetA : targetB;
+            float frameScale = GripFrameScale();
             leftHand.rotation = Quaternion.RotateTowards(
-                leftHand.rotation, target, aiming ? 52f : 38f);
+                leftHand.rotation, target, (aiming ? 52f : 38f) * frameScale);
         }
 
         private static void BendDigitTowardGrip(Transform[] digits,
@@ -846,6 +864,7 @@ namespace Aaris.MapReview
             float middleDegrees)
         {
             if (digits == null || offset < 0 || offset + 2 >= digits.Length) return;
+            float frameScale = GripFrameScale();
             Transform proximal = digits[offset], middle = digits[offset + 1],
                 distal = digits[offset + 2];
             if (proximal == null || middle == null || distal == null) return;
@@ -858,7 +877,7 @@ namespace Aaris.MapReview
                 Quaternion target = Quaternion.FromToRotation(
                     first.normalized, desired) * proximal.rotation;
                 proximal.rotation = Quaternion.RotateTowards(
-                    proximal.rotation, target, proximalDegrees);
+                    proximal.rotation, target, proximalDegrees * frameScale);
             }
             Vector3 second = distal.position - middle.position;
             Vector3 towardSecond = gripTarget - distal.position;
@@ -869,7 +888,7 @@ namespace Aaris.MapReview
                 Quaternion target = Quaternion.FromToRotation(
                     second.normalized, desired) * middle.rotation;
                 middle.rotation = Quaternion.RotateTowards(
-                    middle.rotation, target, middleDegrees);
+                    middle.rotation, target, middleDegrees * frameScale);
             }
         }
 
@@ -928,7 +947,7 @@ namespace Aaris.MapReview
             Quaternion grip = Quaternion.Euler(equipped.Spec.handRotation);
             Quaternion desiredWrist = weaponRoot.rotation * Quaternion.Inverse(grip);
             hand.rotation = Quaternion.Slerp(hand.rotation, desiredWrist,
-                aiming ? 0.92f : 0.76f);
+                GripBlendAlpha(aiming ? 0.92f : 0.76f));
             ApplyFingerGrip(foregrip);
         }
 
