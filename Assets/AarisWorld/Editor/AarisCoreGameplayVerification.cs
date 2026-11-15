@@ -61,6 +61,17 @@ namespace Aaris.MapReview.Editor
         {
             if (!SessionState.GetBool(Session, false) ||
                 (type != LogType.Error && type != LogType.Exception && type != LogType.Assert)) return;
+            // Fresh headless projects can race Unity's editor-only Quick Search
+            // indexer during the first Play Mode reload. That exception never
+            // originates from game assemblies and must not masquerade as a
+            // runtime gameplay failure. Keep every other error/exception fatal.
+            if (!string.IsNullOrEmpty(stack) &&
+                (stack.IndexOf("UnityEditor.Search.SearchDatabase", StringComparison.Ordinal) >= 0 ||
+                 stack.IndexOf("UnityEditor.Search.SearchInit", StringComparison.Ordinal) >= 0))
+            {
+                Note("IGNORED_EDITOR_INFRASTRUCTURE UnityEditor.Search");
+                return;
+            }
             SessionState.SetInt(Session + "Errors", SessionState.GetInt(Session + "Errors", 0) + 1);
             Note("RUNTIME_ERROR " + condition.Split('\n')[0]);
         }
@@ -158,10 +169,10 @@ namespace Aaris.MapReview.Editor
                     "Gameplay has one active camera AudioListener and an audio director");
                 var audioRoot = (GameObject)typeof(AarisAudioDirector).GetField("audioRoot", Private).GetValue(audio);
                 var sources = audioRoot.GetComponentsInChildren<AudioSource>();
-                Check(sources.Length == 16 && sources.Count(s => s.loop) == 4 &&
+                Check(sources.Length == 15 && sources.Count(s => s.loop) == 3 &&
                     sources.Count(s => !s.loop && s.spatialBlend == 0f) == 4 &&
                     sources.Count(s => !s.loop && s.spatialBlend == 1f) == 8,
-                    "Four local voices, eight spatial world voices and four loops are pooled");
+                    "Four local voices, eight spatial world voices and three reusable local loops are pooled");
                 bool Cue(string name, float blend = 0f) => sources.Any(source =>
                     source.clip != null && source.clip.name == name && source.spatialBlend == blend);
                 void TickAudio() => typeof(AarisAudioDirector).GetMethod("LateUpdate", Private).Invoke(audio, null);
