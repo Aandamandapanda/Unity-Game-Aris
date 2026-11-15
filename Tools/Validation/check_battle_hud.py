@@ -248,7 +248,6 @@ def check() -> None:
     required = {
         "walk": "Walking_A",
         "run": "Running_A",
-        "sprint": "Running_B",
         "crouch": "Crouching",
         "crouch_walk": "Crouching",
         "prone": "Crawling",
@@ -257,9 +256,21 @@ def check() -> None:
     }
     base = ROOT / "Assets/Resources/AarisCharacters/Primary/Animations"
     assert set(kaykit["clips"]) == set(required)
+    assert "sprint" not in kaykit["clips"]
     for clip, action in required.items():
         assert kaykit["clips"][clip]["source_action"] == action, (clip, action)
-    for clip in tuple(source) + tuple(required):
+
+    provenance = json.loads((ROOT / "Assets/Resources/AarisCharacters/Primary/asset-source.json")
+                            .read_text(encoding="utf-8"))
+    sprint = provenance["sprint_animation"]
+    assert sprint["source_action"] == "Sprint_Loop_Armature"
+    assert sprint["license"] == "CC0-1.0"
+    assert sprint["output_sha256"] == "ced84d553b95742e7e27b161985a08561a6a11397bacc2f187b373fdd4a6d99e"
+    sprint_pointer = (base / "sprint.fbx").read_text(encoding="utf-8")
+    assert "oid sha256:" + sprint["output_sha256"] in sprint_pointer
+    assert "size 394796" in sprint_pointer
+
+    for clip in tuple(source) + tuple(required) + ("sprint",):
         assert (base / (clip + ".fbx")).is_file(), f"Missing local {clip} FBX"
         assert (base / (clip + ".fbx.meta")).is_file(), f"Missing Unity GUID for {clip}"
 
