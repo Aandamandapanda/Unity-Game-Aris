@@ -2,12 +2,21 @@
 
 ## Installed binary weapon assets
 
-Five CC0 Pichuliru East pack rigged FBXs are committed locally in
-`Assets/Resources/AarisWeapons/Models/`; no live download URL is used
-by the game. Download hashes and rights are documented in
-`Docs/WEAPON_ASSETS_LICENSE_AND_SOURCE.md`. Models are **game-ready
-flat-shaded, not yet photorealistic**; URP appearance/hand grip requires
-a genuine Unity Editor visual check.
+All five active firearm classes now resolve to **locally committed PBR
+assets** under `Assets/Resources/AarisWeapons/PBR/`; the shipped game
+performs no runtime asset download. AssaultRifle uses the pinned M4A1
+set, SMG uses the CC0 Grease Gun, Shotgun uses the CC0 pump shotgun,
+and BattleRifle/Sniper use deterministic mobile derivatives of pinned
+CC0 source meshes with separate finish/drum and finish/optic materials.
+Source URLs, hashes, licenses and Android texture conversion rules are
+documented in `Docs/WEAPON_ASSETS_LICENSE_AND_SOURCE.md` and
+`Docs/WEAPON_PBR_BATTLE_SNIPER_SOURCE.md`.
+
+The older Pichuliru FBXs remain in the repository as historical/fallback
+art, but they are no longer the active catalog models. Source integrity,
+PBR binding and size budgets are CI-verified; final orientation, hand fit,
+shading and animation still require genuine Unity/Android visual QA before
+calling the result photorealistic.
 
 ## Data-driven magazine, recoil and scope rules
 
