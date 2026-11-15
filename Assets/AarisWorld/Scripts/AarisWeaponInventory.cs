@@ -321,6 +321,13 @@ namespace Aaris.MapReview
         public void RequestPickup() { if (lootWorld != null) lootWorld.RequestPickup(); }
         public bool DropCurrent() => lootWorld != null && lootWorld.TryDropEquipped();
 
+        private static void SetHierarchyLayer(GameObject root, int layer)
+        {
+            if (root == null) return;
+            foreach (Transform node in root.GetComponentsInChildren<Transform>(true))
+                node.gameObject.layer = layer;
+        }
+
         /// <summary>
         /// An atomic exchange. Preload the incoming FBX before detaching the
         /// existing gun. The previous gun is returned as a complete state
@@ -337,6 +344,12 @@ namespace Aaris.MapReview
             var root = new GameObject("Aaris Equipped " + incoming.Spec.id);
             root.transform.SetParent(transform, false);
             var visible = Instantiate(prefab, root.transform);
+            // Held/back-stowed weapons are visual children of this player.
+            // Keep their render layer with the owner so player-only cameras
+            // (portrait QA, scoped player passes) cannot silently cull the gun.
+            // Imported weapon colliders are disabled immediately below, so
+            // this does not make the visual participate in player collision.
+            SetHierarchyLayer(root, gameObject.layer);
             // A multi-mesh FBX needs the bounds of ALL rendered parts.
             // Get the renderers once; this runs only when a weapon is picked up.
             var renderers = visible.GetComponentsInChildren<Renderer>(true);
