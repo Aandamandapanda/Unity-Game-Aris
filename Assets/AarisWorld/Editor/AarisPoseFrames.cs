@@ -48,6 +48,7 @@ foreach(var f in Directory.GetFiles(Dir,"*.jpg"))File.Delete(f);
 File.WriteAllText(Dir+"/report.txt","REAL_UNITY_CAMERA_TEST\n");
 SessionState.SetString("pose.state","start");SessionState.SetFloat("pose.time",(float)Now);
 SessionState.SetInt("pose.step",-1);SessionState.SetInt("pose.count",0);SessionState.SetInt("pose.warp",0);
+SessionState.SetFloat("pose.air",-1f);
 EditorApplication.isPlaying=true;
 }
 // Editor QA only: same open terrain coordinate on every run, not
@@ -204,8 +205,11 @@ double age=Now-SessionState.GetFloat("pose.time",(float)Now);
 if(n<0){
 if(d.Phase==AarisOfflineDrop.DropPhase.InPlane&&age>1.6){
 d.OnAction();SessionState.SetFloat("pose.air",(float)Now);}
-if(d.Phase==AarisOfflineDrop.DropPhase.Freefall&&
-Now-SessionState.GetFloat("pose.air",(float)Now)>.9)d.OnAction();
+if(d.Phase==AarisOfflineDrop.DropPhase.Freefall){
+float airStarted=SessionState.GetFloat("pose.air",-1f);
+if(airStarted<0f){SessionState.SetFloat("pose.air",(float)Now);}
+else if(Now-airStarted>.9)d.OnAction();
+}
 if(d.Phase==AarisOfflineDrop.DropPhase.Gliding&&age>3.5&&
 SessionState.GetInt("pose.warp",0)==0){
 SessionState.SetInt("pose.warp",1);
