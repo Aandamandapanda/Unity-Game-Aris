@@ -63,6 +63,13 @@ namespace Aaris.MapReview
         private Transform muzzleFlashTransform;
         private float muzzleFlashUntil;
         private static Material sharedMuzzleFlashMaterial;
+        // One recycled shell visual per weapon. This deliberately avoids
+        // Rigidbody/collider shell storms at 780 RPM on 2 GB Android phones.
+        private Renderer casingRenderer;
+        private Transform casingTransform;
+        private Vector3 casingVelocity, casingAngularVelocity;
+        private float casingUntil, casingEjectAt = -1f;
+        private static Material sharedBrassMaterial, sharedShotgunShellMaterial;
         public bool Configured => spec != null;
         public bool Automatic => spec != null && spec.automatic;
         public float SecondsBetweenShots => spec != null ? spec.ShotInterval : 1f;
@@ -93,6 +100,7 @@ namespace Aaris.MapReview
             reloadUntil = state.ReloadUntil;
             reloading = state.Reloading;
             EnsureMuzzleFlash();
+            EnsureCasingVisual();
             RefreshReload();
         }
 
@@ -182,18 +190,144 @@ namespace Aaris.MapReview
             muzzleFlashRenderer.enabled = true;
         }
 
+        private static Material CasingMaterial(bool shotgun)
+        {
+            Material cached = shotgun ? sharedShotgunShellMaterial : sharedBrassMaterial;
+            if (cached != null) return cached;
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Simple Lit");
+            if (shader == null) shader = Shader.Find("Standard");
+            if (shader == null) return null;
+            var material = new Material(shader)
+            {
+                name = shotgun ? "Aaris Shared Shotgun Shell" : "Aaris Shared Brass Casing",
+                enableInstancing = true
+            };
+            Color baseColor = shotgun
+                ? new Color(0.38f, 0.035f, 0.025f, 1f)
+                : new Color(0.55f, 0.34f, 0.075f, 1f);
+            if (material.HasProperty("_BaseColor"))
+                material.SetColor("_BaseColor", baseColor);
+            else if (material.HasProperty("_Color"))
+                material.SetColor("_Color", baseColor);
+            if (material.HasProperty("_Metallic"))
+                material.SetFloat("_Metallic", shotgun ? 0.12f : 0.78f);
+            if (material.HasProperty("_Smoothness"))
+                material.SetFloat("_Smoothness", shotgun ? 0.24f : 0.42f);
+            if (shotgun) sharedShotgunShellMaterial = material;
+            else sharedBrassMaterial = material;
+            return material;
+        }
+
+        private void EnsureCasingVisual()
+        {
+            if (casingRenderer != null || spec == null) return;
+            bool shotgun = spec.category == "Shotgun";
+            Material material = CasingMaterial(shotgun);
+            if (material == null) return;
+            GameObject casing = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            casing.name = shotgun ? "Aaris Pooled Shotgun Shell" :
+                "Aaris Pooled Brass Casing";
+            casing.transform.SetParent(transform, false);
+            casing.transform.localPosition = Vector3.zero;
+            casing.transform.localRotation = Quaternion.identity;
+            casing.transform.localScale = shotgun
+                ? new Vector3(0.009f, 0.024f, 0.009f)
+                : new Vector3(0.006f, 0.015f, 0.006f);
+            Collider shellCollider = casing.GetComponent<Collider>();
+            if (shellCollider != null)
+            {
+                shellCollider.enabled = false;
+                Destroy(shellCollider);
+            }
+            casingRenderer = casing.GetComponent<Renderer>();
+            casingTransform = casing.transform;
+            casingRenderer.sharedMaterial = material;
+            casingRenderer.shadowCastingMode =
+                UnityEngine.Rendering.ShadowCastingMode.Off;
+            casingRenderer.receiveShadows = false;
+            casingRenderer.enabled = false;
+        }
+
+        private void ScheduleCasingEjection()
+        {
+            if (casingRenderer == null || spec == null) return;
+            float delay = spec.category == "Shotgun" ? 0.31f :
+                spec.category == "Sniper" ? 0.29f : 0.025f;
+            casingEjectAt = Time.time + delay;
+        }
+
+        private void EjectCasingNow()
+        {
+            casingEjectAt = -1f;
+            if (casingRenderer == null || casingTransform == null || spec == null)
+                return;
+            // The weapon root uses local +Z as the barrel axis. The ejection
+            // port sits just right/up of the receiver, well behind the muzzle.
+            Vector3 port = transform.TransformPoint(new Vector3(
+                0.052f, 0.032f, spec.presentationLengthMetres * 0.14f));
+            casingTransform.SetParent(null, true);
+            casingTransform.position = port;
+            casingTransform.rotation = transform.rotation *
+                Quaternion.Euler(90f, UnityEngine.Random.Range(0f, 360f), 0f);
+            float sideSpeed = UnityEngine.Random.Range(2.2f, 3.2f);
+            float upSpeed = UnityEngine.Random.Range(1.15f, 1.75f);
+            float backSpeed = UnityEngine.Random.Range(0.12f, 0.48f);
+            casingVelocity = transform.right * sideSpeed +
+                transform.up * upSpeed - transform.forward * backSpeed;
+            casingAngularVelocity = new Vector3(
+                UnityEngine.Random.Range(520f, 980f),
+                UnityEngine.Random.Range(760f, 1320f),
+                UnityEngine.Random.Range(420f, 860f));
+            casingUntil = Time.time +
+                (spec.category == "Shotgun" ? 0.42f : 0.32f);
+            casingRenderer.enabled = true;
+        }
+
+        private void HideCasing()
+        {
+            casingEjectAt = -1f;
+            if (casingRenderer != null) casingRenderer.enabled = false;
+            if (casingTransform != null && casingTransform.parent != transform)
+            {
+                casingTransform.SetParent(transform, false);
+                casingTransform.localPosition = Vector3.zero;
+                casingTransform.localRotation = Quaternion.identity;
+            }
+        }
+
         private void Update()
         {
             RefreshReload();
             if (muzzleFlashRenderer != null && muzzleFlashRenderer.enabled &&
                 Time.time >= muzzleFlashUntil)
                 muzzleFlashRenderer.enabled = false;
+            if (casingEjectAt >= 0f && Time.time >= casingEjectAt)
+                EjectCasingNow();
+            if (casingRenderer != null && casingRenderer.enabled &&
+                casingTransform != null)
+            {
+                float dt = Mathf.Min(Time.deltaTime, 0.05f);
+                casingVelocity += Physics.gravity * dt;
+                casingTransform.position += casingVelocity * dt;
+                casingTransform.Rotate(casingAngularVelocity * dt, Space.World);
+                if (Time.time >= casingUntil) HideCasing();
+            }
         }
 
         private void OnDisable()
         {
             if (muzzleFlashRenderer != null)
                 muzzleFlashRenderer.enabled = false;
+            HideCasing();
+        }
+
+        private void OnDestroy()
+        {
+            // Active casings are temporarily detached into world space. Do not
+            // leave that pooled visual behind if its owning gun is destroyed.
+            if (casingTransform != null && casingTransform.parent != transform)
+                Destroy(casingTransform.gameObject);
         }
 
         // Even an unequipped weapon must complete its reload on schedule.
@@ -271,6 +405,7 @@ namespace Aaris.MapReview
             magazine--;
             nextFire = Time.time + spec.ShotInterval;
             TriggerMuzzleFlash();
+            ScheduleCasingEjection();
             if (cachedOwner != owner)
             {
                 cachedOwner = owner;
