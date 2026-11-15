@@ -456,8 +456,10 @@ assert 'float ankleRigWeight = !visuallyAirborne && graphReady' in visual
 assert 'Mathf.Clamp01(totalRigWeight) : 0f;' in visual
 assert 'float proneShare = proneRigWeight / Mathf.Max(totalRigWeight, 0.0001f);' in visual
 assert 'Mathf.Lerp(PlantedAnkleMetres,' in visual
-assert 'SupportedAnkleY(leftFootBone, ankleClearance)' in visual
-assert 'SupportedAnkleY(rightFootBone, ankleClearance)' in visual
+assert 'float leftAnkleY = SupportedAnkleY(leftFootBone,' in visual
+assert 'float rightAnkleY = SupportedAnkleY(rightFootBone,' in visual
+assert 'ankleClearance, out Vector3 leftSupportNormal);' in visual
+assert 'ankleClearance, out Vector3 rightSupportNormal);' in visual
 for authored in (False, True):
     for i in range(11):
         for j in range(11):
