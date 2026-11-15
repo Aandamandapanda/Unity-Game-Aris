@@ -77,6 +77,7 @@ namespace Aaris.MapReview
         private GameObject[] wheelPrefabs;
         private int validModels;
         private Material paletteMaterial;
+        private Material wheelPaletteMaterial;
         // Instantiate/Destroy of a complete car can spike a 2 GB Android frame.
         // Bound structural changes per 300 ms poll; retain all 44 authored plans.
         private int spawnBudgetPerPoll = 2;
@@ -268,11 +269,25 @@ namespace Aaris.MapReview
                 Debug.LogError("Aaris vehicles: verified URP palette/shader missing, refusing white or pink placeholder cars.");
                 return false;
             }
-            paletteMaterial = new Material(shader) { name = "Aaris CC0 Kenney Car Palette" };
+            // Legacy Kenney bodies and wheels share the same UV atlas but
+            // should not share the same BRDF. Painted sheet metal benefits
+            // from tighter reflections; tyres/rims must stay visibly rough.
+            // These are two shared materials for the whole match, not per-car
+            // instances, so the visual upgrade does not scale allocations with
+            // the streamed vehicle count.
+            paletteMaterial = new Material(shader) { name = "Aaris CC0 Kenney Car Body" };
             paletteMaterial.SetTexture("_BaseMap", palette);
             paletteMaterial.SetColor("_BaseColor", Color.white);
-            paletteMaterial.SetFloat("_Metallic", .08f);
-            paletteMaterial.SetFloat("_Smoothness", .35f);
+            paletteMaterial.SetFloat("_Metallic", .18f);
+            paletteMaterial.SetFloat("_Smoothness", .55f);
+            paletteMaterial.enableInstancing = true;
+
+            wheelPaletteMaterial = new Material(shader) { name = "Aaris CC0 Kenney Wheel Rubber" };
+            wheelPaletteMaterial.SetTexture("_BaseMap", palette);
+            wheelPaletteMaterial.SetColor("_BaseColor", Color.white);
+            wheelPaletteMaterial.SetFloat("_Metallic", 0f);
+            wheelPaletteMaterial.SetFloat("_Smoothness", .18f);
+            wheelPaletteMaterial.enableInstancing = true;
 
             // Stable per-match plan. A multiplayer server can later provide
             // this seed to clients; local standalone has no server authority.
@@ -589,7 +604,7 @@ namespace Aaris.MapReview
             // and wheels to the visible type instead of a generic sedan.
             motor.FitShellAndWheelbase(new Bounds(new Vector3(0f, .48f, 0f),
                 bounds.size));
-            if (!motor.AttachWheelModels(wheelSource, paletteMaterial,
+            if (!motor.AttachWheelModels(wheelSource, wheelPaletteMaterial,
                 record.type.preserveAuthoredUrpMaterials))
             {
                 Destroy(root);
@@ -654,6 +669,7 @@ namespace Aaris.MapReview
         private void OnDestroy()
         {
             if (paletteMaterial != null) Destroy(paletteMaterial);
+            if (wheelPaletteMaterial != null) Destroy(wheelPaletteMaterial);
         }
 
         public AarisVehicleMotor NearestAvailable(Vector3 origin, float maxDistance)
