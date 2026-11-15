@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Aaris.MapReview
@@ -34,6 +35,11 @@ namespace Aaris.MapReview
         private float lastVisualShotTime = -10f;
         private static Material smgFinish, assaultFinish, battleFinish,
             sniperFinish, shotgunFinish;
+        // One converted URP material per imported flat-shaded source slot.
+        // Reused by every pickup/equip instance so extra visual separation
+        // does not become per-gun memory churn.
+        private static readonly Dictionary<Material, Material> weaponFinishCache =
+            new Dictionary<Material, Material>();
         public bool IsSprintHolstered { get; private set; }
 
         public AarisEquippedGun Current => equipped;
@@ -96,12 +102,65 @@ namespace Aaris.MapReview
                 new Color(.105f, .115f, .115f), .55f, .29f);
         }
 
+        private static Material ConvertedWeaponFinish(
+            AarisWeaponSpec spec, Material source)
+        {
+            if (source == null) return WeaponFinish(spec);
+            if (HasAuthoredTexture(source)) return source;
+            if (weaponFinishCache.TryGetValue(source, out Material cached) &&
+                cached != null) return cached;
+
+            Material fallback = WeaponFinish(spec);
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            if (shader == null) shader =
+                Shader.Find("Universal Render Pipeline/Simple Lit");
+            if (shader == null) return fallback;
+
+            Color authored = Color.white;
+            if (source.HasProperty("_BaseColor"))
+                authored = source.GetColor("_BaseColor");
+            else if (source.HasProperty("_Color"))
+                authored = source.GetColor("_Color");
+            float spread = Mathf.Max(authored.r, Mathf.Max(authored.g, authored.b)) -
+                Mathf.Min(authored.r, Mathf.Min(authored.g, authored.b));
+            float brightness = Mathf.Max(authored.r,
+                Mathf.Max(authored.g, authored.b));
+            Color baseColor = (spread > .025f || brightness < .82f)
+                ? authored : fallback != null && fallback.HasProperty("_BaseColor")
+                    ? fallback.GetColor("_BaseColor") : new Color(.11f,.12f,.12f,1f);
+
+            string label = source.name.ToLowerInvariant();
+            bool polymer = label.Contains("grip") || label.Contains("stock") ||
+                label.Contains("poly") || label.Contains("rubber") ||
+                label.Contains("plastic");
+            bool optic = label.Contains("scope") || label.Contains("glass") ||
+                label.Contains("lens");
+            bool metal = label.Contains("metal") || label.Contains("barrel") ||
+                label.Contains("receiver") || label.Contains("rail") ||
+                label.Contains("bolt") || label.Contains("trigger");
+            float metallic = polymer ? .03f : optic ? .12f : metal ? .68f : .42f;
+            float smoothness = polymer ? .20f : optic ? .70f : metal ? .30f : .26f;
+
+            var result = new Material(shader)
+            {
+                name = "AarisWeaponSlot_" + source.name,
+                enableInstancing = true
+            };
+            if (result.HasProperty("_BaseColor"))
+                result.SetColor("_BaseColor", baseColor);
+            else result.color = baseColor;
+            if (result.HasProperty("_Metallic"))
+                result.SetFloat("_Metallic", metallic);
+            if (result.HasProperty("_Smoothness"))
+                result.SetFloat("_Smoothness", smoothness);
+            weaponFinishCache[source] = result;
+            return result;
+        }
+
         private static void ApplyTextureAwareWeaponFinish(AarisWeaponSpec spec,
             Renderer[] renderers)
         {
             if (renderers == null || renderers.Length == 0) return;
-            Material fallback = WeaponFinish(spec);
-            if (fallback == null) return;
             foreach (Renderer renderer in renderers)
             {
                 if (renderer == null) continue;
@@ -109,8 +168,9 @@ namespace Aaris.MapReview
                 bool changed = false;
                 for (int i = 0; i < source.Length; i++)
                 {
-                    if (HasAuthoredTexture(source[i])) continue;
-                    source[i] = fallback;
+                    Material converted = ConvertedWeaponFinish(spec, source[i]);
+                    if (converted == null || converted == source[i]) continue;
+                    source[i] = converted;
                     changed = true;
                 }
                 if (changed) renderer.sharedMaterials = source;
