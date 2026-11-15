@@ -592,6 +592,13 @@ namespace Aaris.MapReview
         // motor-bottom height this works on bridge and sloped terrain.
         private float SupportedAnkleY(Transform foot, float clearance)
         {
+            return SupportedAnkleY(foot, clearance, out _);
+        }
+
+        private float SupportedAnkleY(Transform foot, float clearance,
+            out Vector3 supportNormal)
+        {
+            supportNormal = Vector3.up;
             float fallback = transform.position.y + clearance;
             if (foot == null) return fallback;
             Vector3 origin = foot.position + Vector3.up * 0.70f;
@@ -608,6 +615,7 @@ namespace Aaris.MapReview
                     hit.distance >= closest) continue;
                 closest = hit.distance;
                 floor = hit.point.y + clearance;
+                supportNormal = hit.normal;
             }
             return floor;
         }
@@ -624,7 +632,8 @@ namespace Aaris.MapReview
         {
             if (thigh == null || shin == null || foot == null ||
                 uprightWeight <= 0.001f) return;
-            float supportY = SupportedAnkleY(foot, UprightAnkleClearanceMetres);
+            float supportY = SupportedAnkleY(foot,
+                UprightAnkleClearanceMetres, out Vector3 supportNormal);
             float gap = foot.position.y - supportY;
             // Always recover penetration. When the ankle is above the floor,
             // engage only through the final 14 cm of a step so a swing foot
@@ -641,8 +650,23 @@ namespace Aaris.MapReview
             // still-above-ground contact blend is reduced to preserve authored
             // stride; a sole already below support must recover completely.
             float solveWeight = gap <= 0f ? 1f : speedWeight;
+            float finalWeight = contactWeight * solveWeight *
+                Mathf.Clamp01(uprightWeight);
             PlantCrouchLeg(thigh, shin, foot, supportY, transform.forward,
-                contactWeight * solveWeight * Mathf.Clamp01(uprightWeight));
+                finalWeight);
+            // Height-only planting still makes a boot look pasted flat across
+            // sloped terrain. Reuse the same support hit normal (no extra
+            // raycast) and add a bounded world-space tilt after the leg solve.
+            // Preserve the authored toe/heel animation underneath the slope.
+            if (supportNormal.y < 0.999f && finalWeight > 0.001f)
+            {
+                Quaternion slopeTilt = Quaternion.FromToRotation(
+                    transform.up, supportNormal);
+                slopeTilt = Quaternion.RotateTowards(
+                    Quaternion.identity, slopeTilt, 32f);
+                foot.rotation = Quaternion.Slerp(foot.rotation,
+                    slopeTilt * foot.rotation, Mathf.Clamp01(finalWeight * 0.85f));
+            }
         }
 
         private static void LoopPlayable(AnimationClipPlayable playable, AnimationClip clip, double cycle)
