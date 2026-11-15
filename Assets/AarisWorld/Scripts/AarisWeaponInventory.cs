@@ -24,6 +24,14 @@ namespace Aaris.MapReview
         private CharacterController capsule;
         private float nextRigSearch;
         private bool aiming, fistMode;
+        // Lightweight third-person weapon inertia. These are visual-only
+        // values: hitscan authority stays camera-aligned and no Rigidbody or
+        // Animation Rigging graph is added for the local player's firearm.
+        private Quaternion previousAimRotation;
+        private bool weaponMotionReady;
+        private Vector3 smoothedWeaponSway;
+        private float visualRecoilDegrees;
+        private float lastVisualShotTime = -10f;
         private static Material smgFinish, assaultFinish, battleFinish,
             sniperFinish, shotgunFinish;
         public bool IsSprintHolstered { get; private set; }
@@ -478,6 +486,77 @@ namespace Aaris.MapReview
                 Mathf.Max(minimumForegripZ, minimumReachableZ), maximumReachableZ);
         }
 
+        private void ApplyProceduralWeaponMotion()
+        {
+            if (!HasGun || IsSprintHolstered || weaponRoot == null)
+            {
+                weaponMotionReady = false;
+                smoothedWeaponSway = Vector3.zero;
+                visualRecoilDegrees = 0f;
+                return;
+            }
+
+            float dt = Mathf.Clamp(Time.deltaTime, 0.001f, 0.10f);
+            Camera view = motor != null ? motor.AimCamera : null;
+            Quaternion currentAim = view != null
+                ? view.transform.rotation : transform.rotation;
+            Vector3 targetSway = Vector3.zero;
+            if (weaponMotionReady)
+            {
+                Quaternion delta = currentAim * Quaternion.Inverse(previousAimRotation);
+                delta.ToAngleAxis(out float angle, out Vector3 axis);
+                if (angle > 180f) angle -= 360f;
+                // Ignore discontinuities from respawn/camera hand-off. Normal
+                // human look motion is far below 75 degrees in one render frame.
+                if (Mathf.Abs(angle) < 75f && axis.sqrMagnitude > 0.0001f)
+                {
+                    Vector3 localAxis = transform.InverseTransformDirection(axis.normalized);
+                    float angularRate = angle / dt;
+                    float weightScale = equipped != null && equipped.Spec != null
+                        ? Mathf.Lerp(1.12f, 0.72f,
+                            Mathf.InverseLerp(2f, 8f, equipped.Spec.weight))
+                        : 1f;
+                    float adsScale = aiming ? 0.34f : 1f;
+                    targetSway.x = Mathf.Clamp(-localAxis.x * angularRate * 0.010f,
+                        -1.8f, 1.8f) * weightScale * adsScale;
+                    targetSway.y = Mathf.Clamp(-localAxis.y * angularRate * 0.012f,
+                        -2.2f, 2.2f) * weightScale * adsScale;
+                    float lateralSpeed = capsule != null
+                        ? Vector3.Dot(capsule.velocity, transform.right) : 0f;
+                    targetSway.z = Mathf.Clamp(-lateralSpeed * 0.32f,
+                        -1.5f, 1.5f) * weightScale * adsScale;
+                }
+            }
+            previousAimRotation = currentAim;
+            weaponMotionReady = true;
+
+            float swayAlpha = 1f - Mathf.Exp(-dt / (aiming ? 0.055f : 0.080f));
+            smoothedWeaponSway = Vector3.Lerp(
+                smoothedWeaponSway, targetSway, swayAlpha);
+
+            // Couple a small receiver kick to the real accepted shot time.
+            // Damage/aim remain untouched; this only prevents a visually
+            // weightless gun from staying perfectly rigid while firing.
+            if (combat != null && equipped != null && equipped.Spec != null &&
+                combat.LastShootTime > lastVisualShotTime &&
+                combat.LastShootTime > 0f &&
+                Time.time - combat.LastShootTime < 0.12f)
+            {
+                float kick = Mathf.Clamp(
+                    equipped.Spec.recoilPitchDegrees * 0.18f, 0.65f, 2.8f);
+                visualRecoilDegrees = Mathf.Max(visualRecoilDegrees, kick);
+                lastVisualShotTime = combat.LastShootTime;
+            }
+            visualRecoilDegrees = Mathf.MoveTowards(
+                visualRecoilDegrees, 0f, 24f * dt);
+
+            weaponRoot.rotation *= Quaternion.Euler(
+                smoothedWeaponSway.x - visualRecoilDegrees,
+                smoothedWeaponSway.y, smoothedWeaponSway.z);
+            weaponRoot.position -= weaponRoot.forward *
+                (visualRecoilDegrees * 0.008f);
+        }
+
         private void AlignSupportHand()
         {
             if (!HasGun || IsSprintHolstered || hand == null ||
@@ -531,6 +610,9 @@ namespace Aaris.MapReview
                 capsule != null && capsule.isGrounded &&
                 sprintIntent && planarSpeedSqr > 3.75f * 3.75f;
             AttachModelsToSockets();
+            // Apply inertia before solving both arms so the palms follow the
+            // final visually displaced receiver/foregrip, not yesterday's pose.
+            ApplyProceduralWeaponMotion();
             AlignSupportHand();
         }
 
@@ -549,6 +631,9 @@ namespace Aaris.MapReview
         private void OnDisable()
         {
             aiming = false;
+            weaponMotionReady = false;
+            smoothedWeaponSway = Vector3.zero;
+            visualRecoilDegrees = 0f;
             if (motor != null) motor.SetWeaponAimFov(-1f);
             if (combat != null) combat.SetFireHeld(false);
         }
