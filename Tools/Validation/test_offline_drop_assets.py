@@ -292,6 +292,12 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         self.assertIn("WriteWeightIfChanged(mixer, lastBaseWeights, 10, baseWeight * proneWeight", source)
         self.assertIn("WriteWeightIfChanged(mixer, lastBaseWeights, 11, baseWeight * proneWeight", source)
         self.assertIn("LoopPlayable(crawlPlayable, crawlClip, crawlPhase);", source)
+        # Upright foot planting stays allocation-free normally, but a saturated
+        # unordered NonAlloc result must fall back to a complete query so dense
+        # props/bridge colliders cannot hide the nearest walkable surface.
+        self.assertIn("if (count >= ankleSupportHits.Length)", source)
+        self.assertIn("hits = Physics.RaycastAll(ray, 1.70f, worldMask,", source)
+        self.assertIn("RaycastHit hit = hits[i];", source)
         self.assertIn("LoopPlayable(runPlayable, runClip, locomotionPhase + runPhaseOffset);", source)
         self.assertIn("LoopPlayable(sprintPlayable, sprintClip, locomotionPhase + sprintPhaseOffset);", source)
         # Authored prone is entirely clip driven. The old bone-pulse hack must
