@@ -372,6 +372,10 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         self.assertIn('("calf_l", "LeftLowerLeg")', importer)
         self.assertIn('string.Equals(clipName, "sprint", StringComparison.Ordinal)', importer)
         self.assertIn('assetPath.EndsWith("sprint.fbx", StringComparison.OrdinalIgnoreCase)', importer)
+        self.assertIn("humanoid.hasTranslationDoF = preserveTranslationDof;", importer)
+        for motion in ("walk", "run", "sprint", "crouch_walk", "crawl"):
+            meta = (folder / "Animations" / (motion + ".fbx.meta")).read_text("utf-8")
+            self.assertIn("hasTranslationDoF: 1", meta, motion)
 
     def test_weapon_fps_swap_and_damage_gc_regression(self):
         catalog = (SCRIPTS / "AarisWeaponCatalog.cs").read_text("utf-8")
