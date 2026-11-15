@@ -459,12 +459,20 @@ namespace Aaris.MapReview
                 gearPhase * 0.31f + Mathf.Abs(car.ThrottleInput) * 0.09f,
                 0.8f, 2f);
             AdjustLoop(engineLoop, Mathf.Lerp(0.4f, 0.85f, normalized), targetPitch, dt);
-            bool hardBrake = speed > 9f &&
-                (car.ThrottleInput < -0.8f || car.LateralSlipMetresPerSecond > 3.5f);
-            if (hardBrake && Time.time - lastSkidAt >= 0.95f)
+            // WheelCollider already calculates a slip-based tyre model.
+            // Use its real contact slip rather than chassis lateral velocity:
+            // a fast lane change with gripping tyres should not sound like a
+            // drift, while a locked/braking or sideways-sliding tyre should.
+            float tyreSlip = car.TyreSlip;
+            float slipBlend = Mathf.InverseLerp(0.24f, 0.90f, tyreSlip);
+            bool tyreSkidding = speed > 4f && tyreSlip > 0.24f;
+            float skidCadence = Mathf.Lerp(0.82f, 0.38f, slipBlend);
+            if (tyreSkidding && Time.time - lastSkidAt >= skidCadence)
             {
                 lastSkidAt = Time.time;
-                OneShot("tire_skid", car.transform.position, 0.56f);
+                OneShot("tire_skid", car.transform.position,
+                    Mathf.Lerp(0.28f, 0.68f, slipBlend),
+                    Mathf.Lerp(0.94f, 1.06f, slipBlend));
             }
         }
 
