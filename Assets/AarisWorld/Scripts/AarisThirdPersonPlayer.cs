@@ -165,24 +165,19 @@ namespace Aaris.MapReview
             if (held) RequestJump();
         }
 
-        // Old scenes may retain obsolete pace values. Clamp once to the
-        // reviewed BR locomotion profile so motor speed, animation cadence
-        // and traversal timing use one deterministic ceiling on every device.
+        // Saved scenes may retain the previous slower serialized values.
+        // Runtime gameplay uses one reviewed BR profile so motor speed,
+        // animation cadence and traversal timing cannot drift by scene age.
         private void EnforceNaturalLocomotionPace()
         {
-            walkSpeed = Mathf.Min(walkSpeed <= 0f ? 4.2f : walkSpeed, 4.2f);
-            runSpeed = Mathf.Min(runSpeed <= 0f ? 6.5f : runSpeed, 6.5f);
-            unarmedSprintSpeed = Mathf.Min(
-                unarmedSprintSpeed <= 0f ? 6.5f : unarmedSprintSpeed, 6.5f);
-            armedSprintSpeed = Mathf.Min(
-                armedSprintSpeed <= 0f ? 5.7f : armedSprintSpeed, 5.7f);
-            crouchMoveSpeed = Mathf.Min(
-                crouchMoveSpeed <= 0f ? 2.4f : crouchMoveSpeed, 2.4f);
-            proneMoveSpeed = Mathf.Min(
-                proneMoveSpeed <= 0f ? 1.1f : proneMoveSpeed, 1.1f);
-            combatMoveSpeed = Mathf.Min(
-                combatMoveSpeed <= 0f ? 2.0f : combatMoveSpeed, 2.0f);
-            adsMoveSpeed = Mathf.Min(adsMoveSpeed <= 0f ? 2.2f : adsMoveSpeed, 2.2f);
+            walkSpeed = 4.2f;
+            runSpeed = 6.5f;
+            unarmedSprintSpeed = 6.5f;
+            armedSprintSpeed = 5.7f;
+            crouchMoveSpeed = 2.4f;
+            proneMoveSpeed = 1.1f;
+            combatMoveSpeed = 2.0f;
+            adsMoveSpeed = 2.2f;
         }
 
         private void Awake()
