@@ -182,6 +182,12 @@ def test():
     # visible before the player reaches a road. Preserve the 10-car cap and
     # separate 160m unload hysteresis; the old 42m expectation was stale.
     assert "LoadRadius = 105f" in world and "UnloadRadius = 160f" in world
+    assert "AuthoredPrewarmRadius = 150f" in world
+    assert world.index("AuthoredPrewarmRadius = 150f") < world.index("UnloadRadius = 160f")
+    assert "Resources.LoadAsync<GameObject>(item.authoredModelResource)" in world
+    assert "fallback.priority = -1;" in world and "request.priority = -1;" in world
+    assert "int authoredStarts = 0;" in world and "authoredStarts >= 1" in world
+    assert "PumpAuthoredBodyLoads();" in world
     assert "MaximumNearbyVehicles = 10" in world
     # Car models stream at 105 m but authored wall colliders stream at 55 m.
     # Never approve a parking volume only because nearby physics is inactive.
