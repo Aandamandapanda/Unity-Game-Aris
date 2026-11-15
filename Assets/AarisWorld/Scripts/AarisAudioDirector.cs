@@ -351,10 +351,14 @@ namespace Aaris.MapReview
 
         private void LateUpdate()
         {
-            float dt = Mathf.Clamp(Time.deltaTime, 0f, 0.15f);
+            // Use real simulation time for velocity measurement. Only cap the
+            // audio smoothing step; otherwise a long frame divides the same
+            // displacement by a shorter dt and invents an exaggerated wind speed.
+            float motionDt = Time.deltaTime;
+            float dt = Mathf.Clamp(motionDt, 0f, 0.15f);
             Vector3 pos = transform.position;
-            float fallSpeed = dt > 0.001f
-                ? Mathf.Clamp((previousY - pos.y) / dt, 0f, 65f) : 0f;
+            float fallSpeed = motionDt > 0.001f
+                ? Mathf.Clamp((previousY - pos.y) / motionDt, 0f, 65f) : 0f;
             previousY = pos.y;
             PlayScheduled();
             // Optional gameplay components can be attached after Awake.
