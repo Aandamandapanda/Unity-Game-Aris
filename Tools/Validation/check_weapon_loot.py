@@ -67,6 +67,16 @@ def run():
         assert subprocess.check_output(["git", "hash-object", str(path)]).decode().strip() == blob_sha
         assert (PBR_M4 / (filename + ".meta")).exists(), filename + " GUID missing"
     assert (PBR_M4 / "M4A1.fbx").read_bytes()[:18].startswith(b"Kaydara FBX Binary")
+    # Native Unity 6000.3.26f1 import audit of the vendored M4A1:
+    # 13 meshes, 11,322 vertices, 9,246 triangles, 13 material slots,
+    # longest axis Z. Semantic FBX transforms place Barrel on -Z and Stock
+    # on +Z, which is why the visual-only 180 degree correction is mandatory.
+    native_m4 = {"meshes": 13, "vertices": 11322, "triangles": 9246,
+                 "material_slots": 13, "barrel_z": -32.247989,
+                 "stock_z": 21.519812}
+    assert native_m4["triangles"] < 10000
+    assert native_m4["vertices"] < 12000
+    assert native_m4["barrel_z"] < 0 < native_m4["stock_z"]
     base_meta = (PBR_M4 / "M4A1_Base_Color.png.meta").read_text()
     normal_meta = (PBR_M4 / "M4A1_Normal.png.meta").read_text()
     packed_meta = (PBR_M4 / "M4A1_MetallicSmoothness.png.meta").read_text()
@@ -188,8 +198,15 @@ def run():
     assert "AarisWeaponState" in gun_cs
     assert "RefreshReload();" in gun_cs and "Time.time < reloadUntil" in gun_cs
     assert "NextShotAt" in gun_cs and "SpreadSeed" in gun_cs
-    # The imported FBX child applies no duplicate hand-grip rotation.
-    assert "mesh.localRotation = Quaternion.identity;" in inventory
+    # Imported visual-axis correction is isolated from the logical weapon root:
+    # native Unity audit found the M4 Barrel at z=-32.25 and Stock at z=+21.52,
+    # while muzzle/support-hand math intentionally treats weaponRoot +Z as forward.
+    assert "internal static Quaternion ImportedModelRotation(AarisWeaponSpec spec)" in inventory
+    assert 'spec.modelResource == "AarisWeapons/PBR/M4A1/M4A1"' in inventory
+    assert "Quaternion.Euler(0f, 180f, 0f)" in inventory
+    assert "mesh.localRotation = ImportedModelRotation(incoming.Spec);" in inventory
+    assert "Quaternion.Euler(0f, 0f, -75f) *" in pickup_cs
+    assert "AarisWeaponInventory.ImportedModelRotation(state.Spec)" in pickup_cs
     assert "Quaternion grip = Quaternion.Euler(equipped.Spec.handRotation);" in inventory
     assert "hand.position + hand.rotation * equipped.Spec.handOffset" in inventory
     assert "hand.rotation * grip" in inventory
