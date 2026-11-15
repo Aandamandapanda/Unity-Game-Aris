@@ -43,7 +43,7 @@ namespace Aaris.MapReview
         // The cache is keyed by Resources folder and is reused by every held,
         // stowed and floor instance; no per-pickup material copies are made.
         private static readonly Dictionary<string, Material> pbrFinishCache =
-            new Dictionary<string, Material>(5, System.StringComparer.Ordinal);
+            new Dictionary<string, Material>(8, System.StringComparer.Ordinal);
         // One converted URP material per imported flat-shaded source slot.
         // Reused by every pickup/equip instance so extra visual separation
         // does not become per-gun memory churn.
@@ -96,7 +96,8 @@ namespace Aaris.MapReview
         {
             if (string.IsNullOrEmpty(resourceFolder) || string.IsNullOrEmpty(stem))
                 return null;
-            if (pbrFinishCache.TryGetValue(resourceFolder, out Material cached) &&
+            string cacheKey = resourceFolder + "/" + stem;
+            if (pbrFinishCache.TryGetValue(cacheKey, out Material cached) &&
                 cached != null)
                 return cached;
 
@@ -143,14 +144,16 @@ namespace Aaris.MapReview
             }
             if (material.HasProperty("_WorkflowMode"))
                 material.SetFloat("_WorkflowMode", 1f);
-            pbrFinishCache[resourceFolder] = material;
+            pbrFinishCache[cacheKey] = material;
             return material;
         }
 
-        private static Material AuthoredPbrFinish(AarisWeaponSpec spec)
+        private static Material AuthoredPbrFinish(AarisWeaponSpec spec,
+            Material source)
         {
             if (spec == null || string.IsNullOrEmpty(spec.modelResource))
                 return null;
+            string sourceName = source != null ? source.name : string.Empty;
             switch (spec.modelResource)
             {
                 case "AarisWeapons/PBR/M4A1/M4A1":
@@ -162,6 +165,20 @@ namespace Aaris.MapReview
                 case "AarisWeapons/PBR/Shotgun/Shotgun":
                     return CreatePbrFinish("Shotgun",
                         "AarisWeapons/PBR/Shotgun", "Shotgun");
+                case "AarisWeapons/PBR/BattleRifle/BattleRifle":
+                    bool drum = sourceName.IndexOf("Drum",
+                        System.StringComparison.OrdinalIgnoreCase) >= 0;
+                    return CreatePbrFinish(drum ? "BattleRifle Drum" :
+                            "BattleRifle Finish",
+                        "AarisWeapons/PBR/BattleRifle",
+                        drum ? "BattleRifle_Drum" : "BattleRifle_Finish");
+                case "AarisWeapons/PBR/Sniper/Sniper":
+                    bool optic = sourceName.IndexOf("Optic",
+                        System.StringComparison.OrdinalIgnoreCase) >= 0;
+                    return CreatePbrFinish(optic ? "Sniper Optic" :
+                            "Sniper Finish",
+                        "AarisWeapons/PBR/Sniper",
+                        optic ? "Sniper_Optic" : "Sniper_Finish");
                 default:
                     return null;
             }
@@ -255,7 +272,9 @@ namespace Aaris.MapReview
             bool reverseForward = spec != null &&
                 (spec.modelResource == "AarisWeapons/PBR/M4A1/M4A1" ||
                  spec.modelResource == "AarisWeapons/PBR/GreaseGun/Grease_Gun" ||
-                 spec.modelResource == "AarisWeapons/PBR/Shotgun/Shotgun");
+                 spec.modelResource == "AarisWeapons/PBR/Shotgun/Shotgun" ||
+                 spec.modelResource == "AarisWeapons/PBR/BattleRifle/BattleRifle" ||
+                 spec.modelResource == "AarisWeapons/PBR/Sniper/Sniper");
             return reverseForward
                 ? Quaternion.Euler(0f, 180f, 0f)
                 : Quaternion.identity;
@@ -265,7 +284,6 @@ namespace Aaris.MapReview
             Renderer[] renderers)
         {
             if (renderers == null || renderers.Length == 0) return;
-            Material authoredPbr = AuthoredPbrFinish(spec);
             foreach (Renderer renderer in renderers)
             {
                 if (renderer == null) continue;
@@ -273,6 +291,7 @@ namespace Aaris.MapReview
                 bool changed = false;
                 for (int i = 0; i < source.Length; i++)
                 {
+                    Material authoredPbr = AuthoredPbrFinish(spec, source[i]);
                     if (authoredPbr != null)
                     {
                         if (source[i] != authoredPbr)
