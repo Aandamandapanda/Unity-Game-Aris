@@ -407,14 +407,14 @@ DISPLAY=:99 xdpyinfo >/dev/null 2>&1 || {
 mkdir -p "$BASE/UnityTemp" "$BASE/Build"
 rm -f "$BASE/Build/AarisGame.apk" "$BASE/build-report.json"
 ANDROID="$(dirname "$EDITOR")/Data/PlaybackEngines/AndroidPlayer"
-COMPILE_SDK=
-# The bundled SDK can lack API 33. Keep the manifest target at 33 and use
-# installed API 34 for compilation when the ordinary main builder needs it.
-if test "$MODE" = build && ! test -s "$ANDROID/SDK/platforms/android-33/android.jar"; then
-  test -s "$ANDROID/SDK/platforms/android-34/android.jar" || {
-    echo APK_ANDROID_COMPILE_PLATFORM_MISSING; exit 29;
-  }
-  COMPILE_SDK=34
+# The Editor build script requires both platform APIs and the bundled NDK.
+export AARIS_ANDROID_SDK_ROOT="$ANDROID/SDK"
+export AARIS_ANDROID_NDK_ROOT="$ANDROID/NDK"
+if ! test -s "$AARIS_ANDROID_SDK_ROOT/platforms/android-33/android.jar" ||
+   ! test -s "$AARIS_ANDROID_SDK_ROOT/platforms/android-35/android.jar" ||
+   ! test -r "$AARIS_ANDROID_NDK_ROOT/source.properties"; then
+  echo APK_REQUIRED_ANDROID_SDK_OR_NDK_FILES_MISSING
+  exit 29
 fi
 echo APK_NATIVE_UNITY_BUILD_STARTED
 # -buildTarget Android is required BEFORE executeMethod to avoid broken
@@ -424,7 +424,7 @@ echo APK_NATIVE_UNITY_BUILD_STARTED
 set +e
 APK_UNITY_STARTED="$(date +%s)"
 timeout --signal=TERM 12000 env DISPLAY=:99 LIBGL_ALWAYS_SOFTWARE=1 \
-  AARIS_ANDROID_COMPILE_SDK="$COMPILE_SDK" TMPDIR="$BASE/UnityTemp" \
+  TMPDIR="$BASE/UnityTemp" \
   "$EDITOR" -batchmode -quit -force-glcore -job-worker-count 2 \
   -projectPath "$PROJECT" -buildTarget Android \
   -executeMethod Aaris.MapReview.Editor.AarisCodespaceAndroidBuild.BuildTestApk \

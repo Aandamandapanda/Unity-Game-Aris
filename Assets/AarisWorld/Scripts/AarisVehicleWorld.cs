@@ -625,8 +625,8 @@ namespace Aaris.MapReview
             int inFlight = 0;
             for (int j = 0; j < authoredBodyRequests.Length; j++)
             {
-                ResourceRequest request = authoredBodyRequests[j];
-                if (request != null && !request.isDone) inFlight++;
+                ResourceRequest pendingRequest = authoredBodyRequests[j];
+                if (pendingRequest != null && !pendingRequest.isDone) inFlight++;
             }
             if (inFlight >= maxConcurrentAuthoredLoads) return false;
             var item = vehicleTypes[i];
