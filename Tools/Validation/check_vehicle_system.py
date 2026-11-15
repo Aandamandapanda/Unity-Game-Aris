@@ -68,6 +68,23 @@ def test():
         "wheel-default","wheel-racing","wheel-truck"}
     assert all(8<=x["maxSpeedMetres"]<=28 and 800<x["massKg"]<2400
                and x["weight"]>0 for x in types)
+    # The new sedan art replaces one catalog presentation, keeping the
+    # existing FBX pair available as a unit if its authored import fails.
+    sedan = next(x for x in types if x["id"] == "Sedan")
+    assert sedan["modelResource"] == "AarisVehicles/Models/sedan"
+    assert sedan["wheelResource"] == "AarisVehicles/Models/wheel-default"
+    for key, mesh, maximum in (("authoredModelResource", "AarisCivilSedan", 1700),
+                               ("authoredWheelResource", "AarisCivilWheel", 300)):
+        prefab = ROOT / "Assets/Resources" / (sedan[key] + ".prefab")
+        assert prefab.is_file() and prefab.with_suffix(".prefab.meta").is_file()
+        path = RES / "Authored" / (mesh + ".obj")
+        lines = path.read_text().splitlines()
+        assert 100 < sum(line.startswith("f ") for line in lines) <= maximum
+        assert [line for line in lines if line.startswith("usemtl ")] == ["usemtl SedanSurface"]
+        assert path.with_suffix(".obj.meta").is_file()
+    for texture in ("SedanSurface", "SedanMetalSmoothness"):
+        png = (RES / "Authored" / (texture + ".png")).read_bytes()
+        assert int.from_bytes(png[16:20], "big") == int.from_bytes(png[20:24], "big") == 128
     for n,(expected,size) in HASHES.items():
         p=RES/"Models"/(n+".fbx")
         assert p.is_file() and p.stat().st_size==size,("real FBX missing",n)
