@@ -199,12 +199,17 @@ namespace Aaris.MapReview.Editor
                 // those real event edges and let LateUpdate consume them exactly
                 // as gameplay does.
                 var motorType = typeof(AarisThirdPersonPlayer);
-                motorType.GetField("lastJumpStarted", Private).SetValue(player, Time.unscaledTime);
+                motorType.GetField("lastJumpStarted", Private).SetValue(player,
+                    Mathf.Max(Time.unscaledTime, player.LastJumpStartedTime + 0.01f));
                 TickAudio();
                 Check(Cue("jump_start"), "Ground jump uses the local feedback pool");
                 foreach (var source in sources)
                     if (!source.loop) source.Stop();
-                motorType.GetField("lastLanding", Private).SetValue(player, Time.unscaledTime);
+                // Parachute touchdown intentionally consumes the current
+                // landing timestamp to suppress a duplicate generic thud.
+                // Advance by a strict edge so this verifies the NEXT landing.
+                motorType.GetField("lastLanding", Private).SetValue(player,
+                    Mathf.Max(Time.unscaledTime, player.LastLandingTime + 0.01f));
                 TickAudio();
                 Check(Cue("land_thud"), "Ground landing uses the local feedback pool");
                 AarisAudioDirector.GunShot("SMG", "", player.transform.position);
