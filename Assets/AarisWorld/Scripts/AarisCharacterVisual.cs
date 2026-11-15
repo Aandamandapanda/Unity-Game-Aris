@@ -801,13 +801,17 @@ namespace Aaris.MapReview
             // floated 0.75m while capsule bottom was only 0.035m above the
             // terrain. The static import fit cannot calibrate animated poses.
             // Only the reviewed soldier gets this one-time runtime scale fit.
-            bool stableSoldier = realisticSoldierLoaded && graphReady &&
+            bool uprightGroundedSoldier = realisticSoldierLoaded && graphReady &&
                 groundedNow && !visuallyAirborne &&
                 (aerialDrop == null || aerialDrop.HasLanded) &&
                 actions != null &&
                 actions.Stance == AarisBattleActions.PlayerStance.Standing &&
                 effectiveCrouchBlend < 0.01f &&
-                effectiveProneBlend < 0.01f && planar < 0.15f;
+                effectiveProneBlend < 0.01f;
+            // Bone-span scale calibration still waits for a true idle pose.
+            // Vertical shoe grounding below is safe while moving because it
+            // samples the lower (stance) foot against the actual world floor.
+            bool stableSoldier = uprightGroundedSoldier && planar < 0.15f;
             if (!groundedRigCalibrated && stableSoldier && bodySkin != null &&
                 proneHeadBone != null && leftFootBone != null &&
                 rightFootBone != null)
@@ -851,21 +855,31 @@ namespace Aaris.MapReview
                     proneLowering + standingShoeOffset * uprightWeight, 0f);
             if (visualRoot.localPosition != desiredPosition)
                 visualRoot.localPosition = desiredPosition;
-            if (groundedRigCalibrated && stableSoldier &&
+            if (uprightGroundedSoldier &&
                 leftFootBone != null && rightFootBone != null)
             {
-                float lowestAnkle = Mathf.Min(leftFootBone.position.y,
-                    rightFootBone.position.y);
-                float error = transform.position.y + 0.045f - lowestAnkle;
-                float adjustment = Mathf.Clamp(error, -0.35f, 0.18f) *
-                    Mathf.Clamp01(dt * 14f);
-                float corrected = Mathf.Clamp(
-                    standingShoeOffset + adjustment, -1.4f, 0.30f);
-                if (Mathf.Abs(corrected - standingShoeOffset) > 0.00025f)
+                // Coarse whole-rig recovery must not wait for an idle frame.
+                // A player who runs immediately after landing can otherwise
+                // keep a 20-40cm floating Humanoid forever. Use the lower
+                // stance foot, sample the real Terrain/MeshCollider beneath
+                // it, and only move the whole rig for a clearly global error.
+                Transform stanceFoot = leftFootBone.position.y <= rightFootBone.position.y
+                    ? leftFootBone : rightFootBone;
+                float supportY = SupportedAnkleY(stanceFoot, PlantedAnkleMetres);
+                float stanceGap = stanceFoot.position.y - supportY;
+                if (Mathf.Abs(stanceGap) > 0.07f)
                 {
-                    visualRoot.localPosition += Vector3.up *
-                        (corrected - standingShoeOffset);
-                    standingShoeOffset = corrected;
+                    float error = -stanceGap;
+                    float adjustment = Mathf.Clamp(error, -0.35f, 0.18f) *
+                        Mathf.Clamp01(dt * 14f);
+                    float corrected = Mathf.Clamp(
+                        standingShoeOffset + adjustment, -1.4f, 0.30f);
+                    if (Mathf.Abs(corrected - standingShoeOffset) > 0.00025f)
+                    {
+                        visualRoot.localPosition += Vector3.up *
+                            (corrected - standingShoeOffset);
+                        standingShoeOffset = corrected;
+                    }
                 }
             }
             // Match the stance headroom to the physical 1.14m/0.62m
