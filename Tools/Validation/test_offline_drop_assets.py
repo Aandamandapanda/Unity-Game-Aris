@@ -318,13 +318,14 @@ class OfflineCombatAssetChecks(unittest.TestCase):
                             self.assertAlmostEqual(standing+air+crouch_idle+
                                 crouch_walk+prone_idle+crawl,1.,places=7)
 
-    def test_kaykit_cc0_motion_provenance_and_guid_pairs(self):
+    def test_cc0_motion_provenance_and_guid_pairs(self):
         folder = ASSETS / "AarisCharacters" / "Primary"
         clips = json.loads((folder / "Animations" / "kaykit-clip-sources.json").read_text("utf-8"))
         self.assertEqual(clips["license"], "CC0-1.0")
         self.assertIn("CC0", (folder / "LICENSE-KAYKIT-ANIMATIONS.txt").read_text("utf-8"))
-        motions = ("walk", "run", "sprint", "crouch", "crouch_walk", "prone", "crawl", "punch")
+        motions = ("walk", "run", "crouch", "crouch_walk", "prone", "crawl", "punch")
         self.assertEqual(set(clips["clips"]), set(motions))
+        self.assertNotIn("sprint", clips["clips"])
         for motion in motions:
             fbx = folder / "Animations" / (motion + ".fbx")
             meta = folder / "Animations" / (motion + ".fbx.meta")
@@ -336,6 +337,28 @@ class OfflineCombatAssetChecks(unittest.TestCase):
                 oid = re.search(rb"(?m)^oid sha256:([0-9a-f]{64})$", pointer)
                 self.assertIsNotNone(oid, motion)
                 self.assertEqual(oid.group(1).decode(), clips["clips"][motion]["sha256"])
+
+        provenance = json.loads((folder / "asset-source.json").read_text("utf-8"))
+        sprint = provenance["sprint_animation"]
+        self.assertEqual(sprint["source_action"], "Sprint_Loop_Armature")
+        self.assertEqual(sprint["license"], "CC0-1.0")
+        self.assertEqual(sprint["output_sha256"],
+                         "ced84d553b95742e7e27b161985a08561a6a11397bacc2f187b373fdd4a6d99e")
+        sprint_fbx = folder / "Animations" / "sprint.fbx"
+        sprint_meta = folder / "Animations" / "sprint.fbx.meta"
+        self.assertTrue(sprint_fbx.is_file())
+        self.assertTrue(sprint_meta.is_file())
+        pointer = sprint_fbx.read_text("utf-8")
+        self.assertIn("oid sha256:" + sprint["output_sha256"], pointer)
+        self.assertIn("size 394796", pointer)
+
+        importer = (ROOT / "Assets/AarisWorld/Editor/AarisCharacterImport.cs").read_text("utf-8")
+        self.assertIn("private static readonly (string bone, string human)[] QuaterniusHumanoid", importer)
+        self.assertIn('("pelvis", "Hips")', importer)
+        self.assertIn('("thigh_l", "LeftUpperLeg")', importer)
+        self.assertIn('("calf_l", "LeftLowerLeg")', importer)
+        self.assertIn('string.Equals(clipName, "sprint", StringComparison.Ordinal)', importer)
+        self.assertIn('assetPath.EndsWith("sprint.fbx", StringComparison.OrdinalIgnoreCase)', importer)
 
     def test_weapon_fps_swap_and_damage_gc_regression(self):
         catalog = (SCRIPTS / "AarisWeaponCatalog.cs").read_text("utf-8")
