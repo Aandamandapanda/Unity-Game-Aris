@@ -124,7 +124,7 @@ def test():
     }
     for vehicle_id, (resource, mesh, max_faces, expected_size) in realistic.items():
         item = next(x for x in types if x["id"] == vehicle_id)
-        assert item["authoredModelResource"] == resource
+        assert item["fallbackAuthoredModelResource"] == resource
         path = RES / "Authored" / (mesh + ".obj")
         assert path.is_file() and path.with_suffix(".obj.meta").is_file()
         lines = path.read_text().splitlines()
@@ -239,6 +239,9 @@ def test():
     assert "Resources.Load<GameObject>(item.modelResource)" in world
     assert "convertAuthoredBodyMaterials" in world
     assert "authoredBody.GetComponentInChildren<Renderer>(true) != null" in world
+    assert "fallbackAuthoredModelResource" in world
+    assert "Resources.Load<GameObject>(" in world
+
     assert "record.type.convertAuthoredBodyMaterials" in world
     assert "ApplyAuthoredMaterials(renderers);" in world
     for semantic in ("headlight", "taillight", "darkTrim", "glass"):
