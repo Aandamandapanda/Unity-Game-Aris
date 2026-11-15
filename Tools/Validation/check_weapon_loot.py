@@ -115,6 +115,19 @@ def run():
     assert "CreatePrimitive" not in fire_block
     assert "new GameObject" not in fire_block
     assert "ParticleSystem" not in fire_block
+    # One reusable, collider-free visual casing gives shell motion without
+    # spawning Rigidbody debris on every automatic round.
+    assert "private Renderer casingRenderer;" in gun_cs
+    assert "GameObject.CreatePrimitive(PrimitiveType.Cylinder)" in gun_cs
+    assert "private void ScheduleCasingEjection()" in gun_cs
+    assert "private void EjectCasingNow()" in gun_cs
+    assert "casingVelocity += Physics.gravity * dt;" in gun_cs
+    assert "ScheduleCasingEjection();" in fire_block
+    assert fire_block.index("magazine--;") < fire_block.index("ScheduleCasingEjection();")
+    assert "PrimitiveType.Cylinder" not in fire_block
+    assert "AddComponent<Rigidbody>" not in gun_cs
+    assert "Rigidbody" not in gun_cs
+    assert "private void HideCasing()" in gun_cs
     assert "BeginReload()" in gun_cs and "reloading" in gun_cs
     assert "semiShotQueued" in action and "equippedGun.Automatic" in action
     # One held weapon, one genuinely visible back-stowed weapon, no third slot.
