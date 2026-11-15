@@ -425,13 +425,14 @@ namespace Aaris.MapReview
             sprintPlayable = AnimationClipPlayable.Create(graph, sprintClip);
             pronePlayable = AnimationClipPlayable.Create(graph, proneClip ?? crouchClip);
             crawlPlayable = AnimationClipPlayable.Create(graph, crawlClip ?? crouchWalkClip);
-            // Only the locally vendored Pistol_Shoot action currently exists:
-            // sample its early aiming pose as a modest weapon-ready visual
-            // fallback. A dedicated rifle idle/reload clip is still needed
-            // for true production-quality grip and left-hand support.
-            readyHoldPlayable = AnimationClipPlayable.Create(graph, shootClip);
+            // Do not contaminate rifle carry with a frozen Pistol_Shoot
+            // shoulder pose. The analytic two-arm solver runs after this graph
+            // and already places both hands on the real weapon. Use a neutral
+            // authored idle sample only to steady the upper body; the actual
+            // shoot clip remains isolated to real shot events below.
+            readyHoldPlayable = AnimationClipPlayable.Create(graph, idleClip);
             readyHoldPlayable.SetSpeed(0d);
-            readyHoldPlayable.SetTime(shootClip.length * 0.16d);
+            readyHoldPlayable.SetTime(0d);
             // Keep one-shot clips short enough to react promptly to attacks
             // without blending over multiple shots in the same hold.
             punchPlayable.SetSpeed(0d);
