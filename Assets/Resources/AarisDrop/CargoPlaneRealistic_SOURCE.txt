@@ -1,0 +1,19 @@
+AARIS REALISTIC CARGO PLANE SOURCE
+Retrieved: 2026-11-15
+Source: 3DAssets.dev - Ramp Utility Transport (Aircraft Fleet and Airfield)
+Asset ID: 32587
+Asset page: https://3dassets.dev/assets/aircraft-fleet-and-airfield-utility-transport-92771a0b
+Source GLB: https://cdn.3dassets.dev/assets/32587/v1/model.glb
+License: CC0 1.0 Universal (public domain dedication; attribution not required)
+License URL: https://creativecommons.org/publicdomain/zero/1.0/
+Source GLB SHA-256: 4fc998fda721e47fef83e5615a11a62eddb947486ae87baecabb9ed1e8623da4
+Converted OBJ SHA-256: e8be17599956157d4304bfe6f083d27428f900ddfb79ab52da5aed5057148ae8
+Converted MTL SHA-256: b62720c659950faa5461d3672362097bc197024d5a62782f62b928deedc67510
+
+Offline/mobile conversion:
+- Converted the CC0 GLB to a static Unity OBJ with no runtime network dependency.
+- Removed parked-state wheel meshes, source propeller blades, and duplicate source nav-light meshes.
+- Retained the detailed fuselage, high wing, control surfaces, ramp, cockpit/glass and structural detail.
+- Recentered the visual around the airborne fuselage.
+- Existing AARIS shared URP materials, nav lights and animated high-RPM propellers are reused at runtime.
+- Original gameplay flight path, ejection momentum, camera authority and collision logic are unchanged.
