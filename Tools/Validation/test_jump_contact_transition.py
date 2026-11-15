@@ -4,6 +4,7 @@
 This models movement/controller state transitions independently; native Unity
 collision and landing footage still need Editor/Android verification.
 """
+import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -129,7 +130,6 @@ for fps in (10, 15, 30, 60, 120):
 
 # Real capsule acceleration and shortest-angle yaw should inform *visual* lean
 # without affecting the authoritative movement controller or prone collision.
-import math
 assert "private bool motionHistoryReady;" in visual
 assert "if (motionHistoryReady && motionDt > 0.0001f)" in visual
 assert "(planarVelocity - lastPlanarVelocity) / motionDt" in visual
