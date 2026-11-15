@@ -73,7 +73,7 @@ namespace Aaris.MapReview
         private Transform leftThigh, leftShin, leftFootBone;
         private Transform rightThigh, rightShin, rightFootBone;
         private Transform proneChestBone, proneHeadBone;
-        private Transform balanceSpineBone;
+        private Transform balanceSpineBone, locomotionHipsBone;
         private const float ProneChestCorrectionMaxDegrees = 24f;
         private const float ProneHeadColliderInset = 0.10f;
         // The imported soldier's animated standing bounds are shorter than
@@ -105,6 +105,9 @@ namespace Aaris.MapReview
         // No physics probes, animation allocations or root-motion ownership changes.
         private float smoothedAccelerationPitch;
         private float smoothedTurnBank;
+        // Lightweight orientation warping: turn the pelvis toward real capsule
+        // travel while the upper body keeps weapon/camera-facing authority.
+        private float smoothedOrientationWarpYaw;
         private Vector3 lastPlanarVelocity;
         private float lastFacingYaw;
         private bool motionHistoryReady;
@@ -183,6 +186,7 @@ namespace Aaris.MapReview
             proneChestBone = animator.GetBoneTransform(HumanBodyBones.Chest);
             proneHeadBone = animator.GetBoneTransform(HumanBodyBones.Head);
             balanceSpineBone = animator.GetBoneTransform(HumanBodyBones.Spine);
+            locomotionHipsBone = animator.GetBoneTransform(HumanBodyBones.Hips);
             animator.applyRootMotion = false;
             animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             SetupAnimations();
@@ -954,6 +958,7 @@ namespace Aaris.MapReview
                 motionHistoryReady = false;
                 smoothedAccelerationPitch = 0f;
                 smoothedTurnBank = 0f;
+                smoothedOrientationWarpYaw = 0f;
                 // A respawn or vehicle hand-off must also drop the previous
                 // lateral strafe lean. Otherwise the new stationary pose can
                 // remain banked for several frames despite zero local motion.
@@ -989,6 +994,29 @@ namespace Aaris.MapReview
                 accelerationPitchTarget, 1f - Mathf.Exp(-dt / 0.10f));
             smoothedTurnBank = Mathf.Lerp(smoothedTurnBank,
                 turnBankTarget, 1f - Mathf.Exp(-dt / 0.13f));
+
+            // Orientation warping fills the largest remaining gap of a
+            // forward-only locomotion set: sideways combat movement. Bend the
+            // lower body toward the ACTUAL capsule velocity, not stick intent.
+            // Backpedal keeps the existing reversed gait instead of twisting
+            // the pelvis nearly 180 degrees. Sprint is already forward-only.
+            float orientationWarpTarget = 0f;
+            if (standingShare > 0.001f && planar > 0.15f)
+            {
+                float travelForward = Vector3.Dot(planarVelocity, transform.forward);
+                float travelSide = Vector3.Dot(planarVelocity, transform.right);
+                float travelAngle = Mathf.Atan2(travelSide, travelForward) *
+                    Mathf.Rad2Deg;
+                float absTravelAngle = Mathf.Abs(travelAngle);
+                float backwardFade = 1f - Mathf.SmoothStep(0f, 1f,
+                    Mathf.InverseLerp(110f, 170f, absTravelAngle));
+                orientationWarpTarget = Mathf.Clamp(
+                    travelAngle * 0.50f, -44f, 44f) *
+                    backwardFade * standingShare;
+            }
+            smoothedOrientationWarpYaw = Mathf.Lerp(
+                smoothedOrientationWarpYaw, orientationWarpTarget,
+                1f - Mathf.Exp(-dt / 0.085f));
             // Keep the grounded mesh root upright. Pitching the entire rig
             // pivots the feet away from the terrain, especially on slopes.
             // The standing balance lean is applied to the humanoid spine below.
@@ -1122,6 +1150,17 @@ namespace Aaris.MapReview
                     visualRoot.localPosition += Vector3.down *
                         Mathf.Min(excess, 0.45f) * lowPose;
             }
+            // Rotate the lower-body parent before terrain planting. The
+            // existing analytic leg solve then restores exact shoe contact on
+            // slopes/steps, so orientation compensation cannot introduce float.
+            if (!visuallyAirborne && graphReady && locomotionHipsBone != null &&
+                Mathf.Abs(smoothedOrientationWarpYaw) > 0.01f)
+            {
+                locomotionHipsBone.rotation =
+                    Quaternion.AngleAxis(smoothedOrientationWarpYaw, transform.up) *
+                    locomotionHipsBone.rotation;
+            }
+
             // Resolve each knee once when crouch and prone blend together.
             // Previously the second pass twisted an already-solved lower leg,
             // causing foot jitter and bent knees during rapid stance switching.
@@ -1207,6 +1246,12 @@ namespace Aaris.MapReview
                     -8f, 8f) * standingShare;
                 float bodyRoll = Mathf.Clamp(smoothedStrafeBank + smoothedTurnBank,
                     -6f, 6f) * standingShare;
+                // Counter most pelvis yaw in world-up space so rifle/ADS and
+                // camera-facing torso stay stable while legs travel laterally.
+                if (Mathf.Abs(smoothedOrientationWarpYaw) > 0.01f)
+                    balanceSpineBone.rotation =
+                        Quaternion.AngleAxis(-smoothedOrientationWarpYaw * 0.78f,
+                            transform.up) * balanceSpineBone.rotation;
                 balanceSpineBone.localRotation *= Quaternion.Euler(bodyPitch, 0f, bodyRoll);
             }
 
