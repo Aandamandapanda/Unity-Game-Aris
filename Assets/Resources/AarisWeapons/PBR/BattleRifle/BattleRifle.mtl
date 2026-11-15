@@ -1,0 +1,15 @@
+# Stable material names are used by runtime slot-aware URP binding.
+
+newmtl BattleRifle_Finish
+Ka 0 0 0
+Kd 1 1 1
+Ks 0.25 0.25 0.25
+Ns 64
+map_Kd BattleRifle_Finish_Base_Color.png
+
+newmtl BattleRifle_Drum
+Ka 0 0 0
+Kd 1 1 1
+Ks 0.25 0.25 0.25
+Ns 64
+map_Kd BattleRifle_Drum_Base_Color.png
