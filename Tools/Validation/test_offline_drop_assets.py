@@ -560,19 +560,21 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         late = source.split("private void LateUpdate()", 1)[1].split(
             "private void RestoreFootControls()", 1)[0]
         self.assertIn("phase = DropPhase.InPlane;", start)
-        self.assertIn("Vector3 initialPosition = plane.transform.position + orbit * 28f +", start)
+        self.assertIn("GetPlaneCameraPose(out Vector3 initialPosition,", start)
         self.assertIn("view.transform.SetPositionAndRotation(initialPosition,", start)
         self.assertLess(start.index("phase = DropPhase.InPlane;"),
                         start.index("view.transform.SetPositionAndRotation(initialPosition,"))
         # Plane visual gust/bank must remain visible on the model without
         # making the chase camera inherit that perturbed forward axis.
-        self.assertIn(
-            "Vector3 focus = plane.transform.position + planeFlightDirection * 4f;",
-            start)
-        self.assertIn(
-            "focus = plane.transform.position + planeFlightDirection * 4f;",
-            late)
-        self.assertNotIn("plane.transform.forward * 4f", start + late)
+        camera_pose = source.split("private void GetPlaneCameraPose(", 1)[1].split(
+            "private Vector3 CameraSafePosition(", 1)[0]
+        self.assertIn("orbit * 25.5f", camera_pose)
+        self.assertIn("Vector3.up * 13.5f", camera_pose)
+        self.assertIn("shoulder * 3.8f", camera_pose)
+        self.assertIn("planeFlightDirection * 2.8f", camera_pose)
+        self.assertIn("Vector3.up * 0.8f", camera_pose)
+        self.assertIn("GetPlaneCameraPose(out pos, out focus);", late)
+        self.assertNotIn("plane.transform.forward", camera_pose)
         self.assertIn("ApplyPlaneVisualInertia();", source)
         self.assertIn("if (phase != DropPhase.InPlane) pos = CameraSafePosition(focus, pos);", late)
         self.assertIn("if (phase != DropPhase.InPlane &&", late)
