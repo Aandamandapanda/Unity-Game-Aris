@@ -236,6 +236,11 @@ namespace Aaris.MapReview.Editor
                 Physics.SyncTransforms();
                 Check(capsule != null && capsule.enabled && capsule.isGrounded,
                     "Player is physically grounded before stance pose checks");
+                // Stance geometry is a settled-pose assertion, not a landing
+                // transition assertion. Expire the one-shot motor edges so the
+                // 280 ms touchdown playable cannot mask crouch/prone weights.
+                jumpField.SetValue(player, -10f);
+                landingField.SetValue(player, -10f);
 
                 float Pose(float crouch, float prone)
                 {
