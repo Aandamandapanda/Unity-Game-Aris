@@ -525,6 +525,8 @@ namespace Aaris.MapReview
         private static void WriteWeightIfChanged(AnimationMixerPlayable output,
             float[] previous, int index, float requested)
         {
+            if (!output.IsValid() || previous == null || index < 0 ||
+                index >= previous.Length || index >= output.GetInputCount()) return;
             float weight = requested <= WeightWriteEpsilon ? 0f : Mathf.Clamp01(requested);
             if (Mathf.Abs(previous[index] - weight) <= WeightWriteEpsilon) return;
             output.SetInputWeight(index, weight);
@@ -533,6 +535,7 @@ namespace Aaris.MapReview
 
         private void WriteLayerWeightIfChanged(float requested)
         {
+            if (!layered.IsValid() || layered.GetInputCount() <= 1) return;
             float weight = requested <= WeightWriteEpsilon ? 0f : Mathf.Clamp01(requested);
             if (Mathf.Abs(lastLayerWeight - weight) <= WeightWriteEpsilon) return;
             layered.SetInputWeight(1, weight);
@@ -638,7 +641,7 @@ namespace Aaris.MapReview
 
         private static void LoopPlayable(AnimationClipPlayable playable, AnimationClip clip, double cycle)
         {
-            if (clip == null || clip.length < 0.02f) return;
+            if (!playable.IsValid() || clip == null || clip.length < 0.02f) return;
             double seconds = cycle * clip.length;
             playable.SetTime(seconds - Math.Floor(seconds / clip.length) * clip.length);
         }

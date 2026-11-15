@@ -195,6 +195,9 @@ namespace Aaris.MapReview
         {
             if (canvas == null || !canvas.isActiveAndEnabled) return;
             UpdateArea(false);
+            // Script/domain reload can leave this HUD partially rebuilt for one frame.
+            // Never index a caption until all six authored controls exist.
+            if (captions.Count < 6) return;
             bool armed = inventory != null && inventory.HasGun;
             // The gun hint is refreshed at most once per 1.25s, never by a
             // scene-wide search or during each mobile HUD frame.
@@ -218,18 +221,18 @@ namespace Aaris.MapReview
                     buttons[i].gameObject.SetActive(show);
             }
             string fistLabel = inventory != null && inventory.FistMode ? "DRAW" : "FIST";
-            if (captions[5].text != fistLabel) captions[5].text = fistLabel;
+            if (captions.Count > 5 && captions[5] != null && captions[5].text != fistLabel) captions[5].text = fistLabel;
             if (!armed)
             {
                 // A drop while aiming must not retain stale ADS text or
                 // cached ammo when another weapon is picked up.
-                if (captions[0].text != "ADS") captions[0].text = "ADS";
+                if (captions.Count > 0 && captions[0] != null && captions[0].text != "ADS") captions[0].text = "ADS";
                 shownMagazine = shownReserve = -1;
                 shownReloading = false;
                 return;
             }
             string aimCaption = inventory.Aiming ? "ADS ON" : "ADS";
-            if (captions[0].text != aimCaption)
+            if (captions.Count > 0 && captions[0] != null && captions[0].text != aimCaption)
                 captions[0].text = aimCaption;
             var gun = inventory.Current;
             if (shownMagazine != gun.Magazine || shownReserve != gun.Reserve || shownReloading != gun.Reloading)

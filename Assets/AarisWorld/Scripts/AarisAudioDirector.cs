@@ -168,13 +168,16 @@ namespace Aaris.MapReview
             int count = local ? LocalVoiceCount : VoiceCount - LocalVoiceCount;
             int cursor = local ? nextLocalVoice : nextWorldVoice;
             int selected = cursor;
+            // Editor domain reload can transiently clear nonserialized pooled AudioSource references.
+            if (selected < start || selected >= start + count || voices[selected] == null) return;
             bool idleVoice = !voices[selected].isPlaying;
             if (!idleVoice)
             {
                 for (int offset = 1; offset < count; offset++)
                 {
                     int candidate = start + (cursor - start + offset) % count;
-                    if (voices[candidate].isPlaying) continue;
+                    AudioSource candidateVoice = voices[candidate];
+                    if (candidateVoice == null || candidateVoice.isPlaying) continue;
                     selected = candidate;
                     idleVoice = true;
                     break;
@@ -185,6 +188,7 @@ namespace Aaris.MapReview
             // all-busy round-robin preemption behaviour.
             if (!idleVoice && IsLowPriorityCue(name)) return;
             AudioSource voice = voices[selected];
+            if (voice == null) return;
             if (local)
                 nextLocalVoice = start + (selected - start + 1) % count;
             else
