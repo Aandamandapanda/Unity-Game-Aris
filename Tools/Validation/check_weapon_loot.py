@@ -13,19 +13,39 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MODELS = ROOT / "Assets/Resources/AarisWeapons/Models"
-PBR_M4 = ROOT / "Assets/Resources/AarisWeapons/PBR/M4A1"
+PBR_ROOT = ROOT / "Assets/Resources/AarisWeapons/PBR"
+PBR_M4 = PBR_ROOT / "M4A1"
 EXPECTED = {
-    "SMG": (70348, "2fadbba99ac6d3373b8f6b04786374c42c54394f"),
+    "SMG": None,
     "AssaultRifle": None,
     "BattleRifle": (91644, "24f2bfee4166e2208cb070b3de273f0989fafc9d"),
     "Sniper": (86636, "a743e79ea184966021aba937d30cb6876e2cbaba"),
-    "Shotgun": (60604, "3590c4b06c378037190edd870ca0c24fdaf5ae8a"),
+    "Shotgun": None,
 }
-PBR_M4_FILES = {
-    "M4A1.fbx": (278384, "e3afbe0d4e42530fb0b5fb33445e8043eccd9941"),
-    "M4A1_Base_Color.png": (253551, "2f9a44b109d17244de072c238eccc007cd2d228d"),
-    "M4A1_Normal.png": (455779, "5a6ee12b1e8c3b194de256403652f1fd63a4e49c"),
-    "M4A1_MetallicSmoothness.png": (310787, "9109237e8c2928dd9a34ba969c2b24ea1655b169"),
+PBR_RESOURCES = {
+    "SMG": ("GreaseGun", "Grease_Gun", "AarisWeapons/PBR/GreaseGun/Grease_Gun"),
+    "AssaultRifle": ("M4A1", "M4A1", "AarisWeapons/PBR/M4A1/M4A1"),
+    "Shotgun": ("Shotgun", "Shotgun", "AarisWeapons/PBR/Shotgun/Shotgun"),
+}
+PBR_FILES = {
+    "AssaultRifle": {
+        "M4A1.fbx": (278384, "e3afbe0d4e42530fb0b5fb33445e8043eccd9941"),
+        "M4A1_Base_Color.png": (253551, "2f9a44b109d17244de072c238eccc007cd2d228d"),
+        "M4A1_Normal.png": (455779, "5a6ee12b1e8c3b194de256403652f1fd63a4e49c"),
+        "M4A1_MetallicSmoothness.png": (310787, "9109237e8c2928dd9a34ba969c2b24ea1655b169"),
+    },
+    "SMG": {
+        "Grease_Gun.fbx": (247072, "ebebfcac66b29eaa9ca64bdbe8bc1106ebf4a97b"),
+        "Grease_Gun_Base_Color.png": (464915, "76c9170e6ec37ac3f688c405ad2767632c13e803"),
+        "Grease_Gun_Normal.png": (623141, "2729172a61fe732a5f004f1d3abb6021e6ea871a"),
+        "Grease_Gun_MetallicSmoothness.png": (179473, "2fe7ea4385950a8109601ad9ace28cb5845b295c"),
+    },
+    "Shotgun": {
+        "Shotgun.fbx": (78336, "b7acd94e87c909753495ce42465532ac79c0510c"),
+        "Shotgun_Base_Color.png": (699591, "529d9684847e565cf917dde1b665f0a8d6296d91"),
+        "Shotgun_Normal.png": (483453, "ec3a8d0ea8bdbf4d3504646e51646e659ea0e4d3"),
+        "Shotgun_MetallicSmoothness.png": (153276, "86491aca9f869e556db68a659012ed9d9acb8184"),
+    },
 }
 SCRIPTS = ROOT / "Assets/AarisWorld/Scripts"
 
@@ -40,15 +60,15 @@ def run():
     assert lengths["SMG"] < lengths["AssaultRifle"] < lengths["Sniper"]
     for gun in catalog["weapons"]:
         name = gun["id"]
-        expected_resource = ("AarisWeapons/PBR/M4A1/M4A1"
-                             if name == "AssaultRifle"
+        expected_resource = (PBR_RESOURCES[name][2]
+                             if name in PBR_RESOURCES
                              else "AarisWeapons/Models/" + name)
         assert gun["modelResource"] == expected_resource
         assert 20 <= gun["rpm"] <= 1300 and gun["magazineSize"] > 0
         assert gun["reserveAmmo"] >= 0 and gun["reloadSeconds"] > 0
         assert gun["pellets"] >= 1 and gun["damage"] > 0 and gun["weight"] > 0
         assert gun["adsFov"] >= 8 and gun["adsFov"] <= 65
-        if name == "AssaultRifle":
+        if name in PBR_RESOURCES:
             continue
         path = MODELS / (name + ".fbx")
         assert path.exists(), "Real local mesh is missing: " + str(path)
@@ -57,15 +77,30 @@ def run():
         assert subprocess.check_output(["git", "hash-object", str(path)]).decode().strip() == EXPECTED[name][1]
         assert (MODELS / (name + ".fbx.meta")).exists(), name + " GUID missing"
 
-    # Assault rifle is the first high-fidelity PBR replacement. Its source
-    # geometry and mobile textures are committed locally, never downloaded at
-    # runtime. Base/normal stay 1024; the packed metal/smoothness map is 512.
-    for filename, (size, blob_sha) in PBR_M4_FILES.items():
-        path = PBR_M4 / filename
-        assert path.exists(), "Missing PBR M4A1 asset: " + filename
-        assert path.stat().st_size == size, (filename, path.stat().st_size, size)
-        assert subprocess.check_output(["git", "hash-object", str(path)]).decode().strip() == blob_sha
-        assert (PBR_M4 / (filename + ".meta")).exists(), filename + " GUID missing"
+    # Three held-gun classes now use locally committed, pinned CC0 PBR art.
+    # Base/normal stay <=1024 and packed metallic/smoothness <=512 with mip
+    # streaming, keeping near-camera detail while bounding Android residency.
+    for weapon_id, files in PBR_FILES.items():
+        folder, stem, _ = PBR_RESOURCES[weapon_id]
+        root = PBR_ROOT / folder
+        for filename, (size, blob_sha) in files.items():
+            asset = root / filename
+            assert asset.exists(), "Missing PBR asset: " + str(asset)
+            assert asset.stat().st_size == size, (filename, asset.stat().st_size, size)
+            actual = subprocess.check_output(["git", "hash-object", str(asset)]).decode().strip()
+            assert actual == blob_sha, (filename, actual, blob_sha)
+            assert (root / (filename + ".meta")).exists(), filename + " GUID missing"
+        assert (root / (stem + ".fbx")).read_bytes()[:18].startswith(b"Kaydara FBX Binary")
+        base_meta = (root / (stem + "_Base_Color.png.meta")).read_text()
+        normal_meta = (root / (stem + "_Normal.png.meta")).read_text()
+        packed_meta = (root / (stem + "_MetallicSmoothness.png.meta")).read_text()
+        assert "sRGBTexture: 1" in base_meta and "streamingMipmaps: 1" in base_meta
+        assert base_meta.count("maxTextureSize: 1024") >= 2
+        assert "sRGBTexture: 0" in normal_meta and "textureType: 1" in normal_meta
+        assert "streamingMipmaps: 1" in normal_meta
+        assert normal_meta.count("maxTextureSize: 1024") >= 2
+        assert "sRGBTexture: 0" in packed_meta and "streamingMipmaps: 1" in packed_meta
+        assert packed_meta.count("maxTextureSize: 512") >= 2
     assert (PBR_M4 / "M4A1.fbx").read_bytes()[:18].startswith(b"Kaydara FBX Binary")
     # Native Unity 6000.3.26f1 import audit of the vendored M4A1:
     # 13 meshes, 11,322 vertices, 9,246 triangles, 13 material slots,
@@ -202,7 +237,12 @@ def run():
     # native Unity audit found the M4 Barrel at z=-32.25 and Stock at z=+21.52,
     # while muzzle/support-hand math intentionally treats weaponRoot +Z as forward.
     assert "internal static Quaternion ImportedModelRotation(AarisWeaponSpec spec)" in inventory
-    assert 'spec.modelResource == "AarisWeapons/PBR/M4A1/M4A1"' in inventory
+    for resource in (
+        "AarisWeapons/PBR/M4A1/M4A1",
+        "AarisWeapons/PBR/GreaseGun/Grease_Gun",
+        "AarisWeapons/PBR/Shotgun/Shotgun",
+    ):
+        assert resource in inventory
     assert "Quaternion.Euler(0f, 180f, 0f)" in inventory
     assert "mesh.localRotation = ImportedModelRotation(incoming.Spec);" in inventory
     assert "Quaternion.Euler(0f, 0f, -75f) *" in pickup_cs
@@ -390,14 +430,22 @@ def run():
     assert 'label.Contains("bole")' in inventory
     assert 'private static readonly Dictionary<Material, Material> weaponFinishCache' in inventory
     assert 'weaponFinishCache[source] = result;' in inventory
-    assert 'private static Material CreateM4PbrFinish()' in inventory
-    assert '"AarisWeapons/PBR/M4A1/M4A1_Base_Color"' in inventory
-    assert '"AarisWeapons/PBR/M4A1/M4A1_Normal"' in inventory
-    assert '"AarisWeapons/PBR/M4A1/M4A1_MetallicSmoothness"' in inventory
-    assert 'name = "AarisWeaponPBR_M4A1"' in inventory
+    assert 'private static readonly Dictionary<string, Material> pbrFinishCache' in inventory
+    assert 'private static Material CreatePbrFinish(string label,' in inventory
+    assert 'private static Material AuthoredPbrFinish(AarisWeaponSpec spec)' in inventory
+    for resource in (
+        "AarisWeapons/PBR/M4A1/M4A1",
+        "AarisWeapons/PBR/GreaseGun/Grease_Gun",
+        "AarisWeapons/PBR/Shotgun/Shotgun",
+    ):
+        assert resource in inventory
+    assert 'resourceFolder + "/" + stem + "_Base_Color"' in inventory
+    assert 'resourceFolder + "/" + stem + "_Normal"' in inventory
+    assert 'resourceFolder + "/" + stem + "_MetallicSmoothness"' in inventory
+    assert 'pbrFinishCache[resourceFolder] = material;' in inventory
     assert 'EnableKeyword("_NORMALMAP")' in inventory
     assert 'EnableKeyword("_METALLICSPECGLOSSMAP")' in inventory
-    assert 'spec.modelResource == "AarisWeapons/PBR/M4A1/M4A1"' in inventory
+    assert 'Material authoredPbr = AuthoredPbrFinish(spec);' in inventory
     assert 'internal static void ApplyTextureAwareWeaponFinish' in inventory
     assert "AarisWeaponInventory.ApplyTextureAwareWeaponFinish(" in pickup_cs
     # Gun models do not all have the same length; a fixed long-barrel
