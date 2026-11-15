@@ -637,8 +637,12 @@ namespace Aaris.MapReview
             // still preventing visible sole penetration on the contact foot.
             float speedWeight = Mathf.Lerp(0.95f, 0.62f,
                 Mathf.InverseLerp(0.8f, fullRunSpeed, planarSpeed));
+            // Never soften actual ground penetration at sprint speed. Only a
+            // still-above-ground contact blend is reduced to preserve authored
+            // stride; a sole already below support must recover completely.
+            float solveWeight = gap <= 0f ? 1f : speedWeight;
             PlantCrouchLeg(thigh, shin, foot, supportY, transform.forward,
-                contactWeight * speedWeight * Mathf.Clamp01(uprightWeight));
+                contactWeight * solveWeight * Mathf.Clamp01(uprightWeight));
         }
 
         private static void LoopPlayable(AnimationClipPlayable playable, AnimationClip clip, double cycle)
