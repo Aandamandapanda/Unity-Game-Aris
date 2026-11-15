@@ -87,6 +87,11 @@ namespace Aaris.MapReview
             CreateWheel(1, .84f, 1.38f);
             CreateWheel(2, -.84f, -1.38f);
             CreateWheel(3, .84f, -1.38f);
+            // Two/three PhysX vehicle substeps stabilize tyre/suspension forces
+            // without reducing the project's global fixed timestep. Sleeping
+            // parked cars remain asleep, so the mobile cost stays bounded.
+            if (wheels[0] != null)
+                wheels[0].ConfigureVehicleSubsteps(12f, 3, 2);
         }
 
         private void CreateWheel(int index, float x, float z)
@@ -99,9 +104,17 @@ namespace Aaris.MapReview
             wheel.mass = 24f;
             wheel.suspensionDistance = .24f;
             wheel.wheelDampingRate = .32f;
+            // Keep suspension response consistent across the 850-2300 kg
+            // vehicle catalog. Unity's WheelCollider spring/damper forces are
+            // mass-proportional; fixed values make light cars harsh and heavy
+            // cars float/bounce. Scale only once at construction time.
+            float massScale = Mathf.Clamp(
+                body != null ? body.mass / 1500f : 1f, .55f, 1.55f);
             wheel.suspensionSpring = new JointSpring
             {
-                spring = 32000f, damper = 4200f, targetPosition = .5f
+                spring = 32000f * massScale,
+                damper = 4200f * massScale,
+                targetPosition = .5f
             };
             WheelFrictionCurve forwardGrip = wheel.forwardFriction;
             forwardGrip.extremumSlip = .36f;
@@ -158,6 +171,11 @@ namespace Aaris.MapReview
                     (i & 1) == 0 ? -halfTrack : halfTrack,
                     -.10f, i < 2 ? halfWheelbase : -halfWheelbase);
             }
+            // PhysX distributes chassis mass between wheels from their
+            // positions and center of mass. Recalculate after changing axle
+            // spacing so hatchbacks, sedans and longer bodies do not inherit
+            // the generic sedan's old front/rear load split.
+            if (wheels[0] != null) wheels[0].ResetSprungMasses();
         }
 
         /// <summary>
