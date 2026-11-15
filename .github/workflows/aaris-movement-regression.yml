@@ -1,0 +1,38 @@
+name: Aaris Movement Regression
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/aaris-movement-regression.yml"
+      - "Assets/AarisWorld/Scripts/AarisThirdPersonPlayer.cs"
+      - "Assets/AarisWorld/Scripts/AarisCharacterVisual.cs"
+      - "Assets/AarisWorld/Scripts/AarisBattleActions.cs"
+      - "Tools/Validation/simulate_battle_feel.py"
+      - "Tools/Validation/check_battle_hardening.py"
+      - "Tools/Validation/test_offline_drop_assets.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aaris-movement-regression-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  movement-static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          lfs: false
+      - name: Compile movement validators
+        run: |
+          python3 -m py_compile             Tools/Validation/simulate_battle_feel.py             Tools/Validation/check_battle_hardening.py             Tools/Validation/test_offline_drop_assets.py
+      - name: Simulate 10-120 FPS movement and weighted jump
+        run: python3 Tools/Validation/simulate_battle_feel.py
+      - name: Validate stance and movement hardening
+        run: python3 Tools/Validation/check_battle_hardening.py
