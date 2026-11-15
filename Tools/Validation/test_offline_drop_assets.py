@@ -271,8 +271,9 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         self.assertIn("if (groundedBeforeStand) lastGrounded = Time.unscaledTime;", motor)
         self.assertIn("ProneWallSlide(horizontalVelocity, dt)", motor)
         self.assertIn("SafeFooting(next) && battle.CanAdvanceProne(next, test)", motor)
-        self.assertIn("private float jumpHeight = 1.35f, gravity = 18.5f;", motor)
-        self.assertIn("private float earlyJumpReleaseGravity = 1.35f;", motor)
+        self.assertIn("private float jumpHeight = 0.90f, gravity = 21.5f;", motor)
+        self.assertIn("private float earlyJumpReleaseGravity = 1.65f;", motor)
+        self.assertIn("private float minimumJumpAscentSeconds = 0.09f;", motor)
         self.assertIn("stance == PlayerStance.Crouching ? 0.18f : 0.075f", stance)
         self.assertIn("if (height > capsule.height && !HasRoomAbove(height)) return false;", stance)
 
