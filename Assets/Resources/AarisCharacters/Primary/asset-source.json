@@ -25,11 +25,21 @@
     "Animations/jump.fbx",
     "Animations/jump_land.fbx",
     "Animations/jump_start.fbx",
-    "Animations/shoot.fbx"
+    "Animations/shoot.fbx",
+    "Animations/sprint.fbx"
   ],
   "runtime_network_required": false,
   "kaykit_animations": {
     "manifest": "Animations/kaykit-clip-sources.json",
     "license_notice": "LICENSE-KAYKIT-ANIMATIONS.txt"
+  },
+  "sprint_animation": {
+    "file": "Animations/sprint.fbx",
+    "source_action": "Sprint_Loop_Armature",
+    "source_library": "universal-animation-library.glb",
+    "source_sha256": "4c748767741a3e495d89667b9a218b690ba9810b9517a12e960780e3ca72c4e9",
+    "output_sha256": "ced84d553b95742e7e27b161985a08561a6a11397bacc2f187b373fdd4a6d99e",
+    "output_size": 394796,
+    "license": "CC0-1.0"
   }
 }
