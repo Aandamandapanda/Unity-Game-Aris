@@ -1,0 +1,36 @@
+# CC0 source palette; runtime replaces these with shared URP/Lit materials.
+newmtl HulledMetal
+Kd 0.36 0.39 0.38
+Ks 0.25 0.25 0.25
+Ns 48
+d 1
+illum 2
+
+newmtl DarkCockpit
+Kd 0.06 0.1 0.13
+Ks 0.25 0.25 0.25
+Ns 48
+d 1
+illum 2
+
+newmtl WingPanels
+Kd 0.46 0.48 0.48
+Ks 0.25 0.25 0.25
+Ns 48
+d 1
+illum 2
+
+newmtl EngineDark
+Kd 0.08 0.09 0.1
+Ks 0.25 0.25 0.25
+Ns 48
+d 1
+illum 2
+
+newmtl SafetyAccent
+Kd 0.18 0.28 0.42
+Ks 0.25 0.25 0.25
+Ns 48
+d 1
+illum 2
+
