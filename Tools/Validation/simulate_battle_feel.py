@@ -51,12 +51,12 @@ def jump(fps: int, release_after_seconds: float | None) -> tuple[float, float]:
 
 
 def assert_regression() -> None:
-    assert setting("unarmedSprintSpeed") == 4.8
-    assert setting("armedSprintSpeed") == 4.4
-    assert setting("walkSpeed") == 3.4
-    assert setting("crouchMoveSpeed") == 2.0
-    assert setting("proneMoveSpeed") == 1.0
-    assert setting("combatMoveSpeed") == 1.8
+    assert setting("unarmedSprintSpeed") == 6.5
+    assert setting("armedSprintSpeed") == 5.7
+    assert setting("walkSpeed") == 4.2
+    assert setting("crouchMoveSpeed") == 2.4
+    assert setting("proneMoveSpeed") == 1.1
+    assert setting("combatMoveSpeed") == 2.0
     acc = setting("horizontalAcceleration")
     brake = setting("horizontalBraking")
 
@@ -66,8 +66,8 @@ def assert_regression() -> None:
         dt = 1.0 / fps
         s = 0.0
         for _ in range(math.ceil(0.55 * fps)):
-            s = approach(s, 4.8, acc, dt)
-        assert 4.79 <= s <= 4.81, (fps, "sprint acceleration", s)
+            s = approach(s, 6.5, acc, dt)
+        assert 6.49 <= s <= 6.51, (fps, "sprint acceleration", s)
         for _ in range(math.ceil(0.4 * fps)):
             s = approach(s, 0.0, brake, dt)
         assert 0.0 <= s <= 0.01, (fps, "braking", s)
@@ -75,11 +75,11 @@ def assert_regression() -> None:
         full_apex, full_time = jump(fps, None)
         short_apex, short_time = jump(fps, 0.10)
         quick_tap_apex, quick_tap_time = jump(fps, 0.0)
-        assert 1.16 <= quick_tap_apex <= 1.28, (fps, "quick tap from stair", quick_tap_apex)
-        assert quick_tap_time > 0.35, (fps, "quick tap must not instantly land")
-        assert 1.33 <= full_apex <= 1.36, (fps, "frame-independent full jump height", full_apex)
-        assert 1.12 <= short_apex < full_apex - 0.08, (fps, "short jump", short_apex)
-        assert 0.61 <= short_time < full_time <= 0.86, (fps, "jump timings", short_time, full_time)
+        assert 0.70 <= quick_tap_apex <= 0.80, (fps, "quick tap from stair", quick_tap_apex)
+        assert quick_tap_time > 0.43, (fps, "quick tap must not instantly land")
+        assert 0.89 <= full_apex <= 0.91, (fps, "frame-independent full jump height", full_apex)
+        assert 0.73 <= short_apex < full_apex - 0.08, (fps, "short jump", short_apex)
+        assert 0.46 <= short_time < full_time <= 0.62, (fps, "jump timings", short_time, full_time)
 
     assert MOTOR.count("controller.Move(") == 1, "Duplicate motor/controller update"
     assert "jumpUntil = Time.unscaledTime + 0.20f" in MOTOR
@@ -145,7 +145,7 @@ def assert_regression() -> None:
     assert "sprintForwardLeanDegrees" in VISUAL
     assert "controller.Move(" not in VISUAL
     assert "animator.applyRootMotion = false" in VISUAL
-    print("PASS: 10–120 FPS sprint, braking, stair tap/hold jump arc, coyote/buffer, " +
+    print("PASS: 10–120 FPS 6.5m/s sprint, braking, weighted 0.9m tap/hold jump arc, coyote/buffer, " +
           "downhill probe, stance clearance, combat occlusion and in-place animation contracts")
 
 
