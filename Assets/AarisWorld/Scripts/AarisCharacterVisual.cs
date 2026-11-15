@@ -616,13 +616,24 @@ namespace Aaris.MapReview
             if (foot == null) return fallback;
             Vector3 origin = foot.position + Vector3.up * 0.70f;
             int worldMask = Physics.DefaultRaycastLayers & ~(1 << gameObject.layer);
-            int count = Physics.RaycastNonAlloc(new Ray(origin, Vector3.down),
+            Ray ray = new Ray(origin, Vector3.down);
+            int count = Physics.RaycastNonAlloc(ray,
                 ankleSupportHits, 1.70f, worldMask, QueryTriggerInteraction.Ignore);
+            RaycastHit[] hits = ankleSupportHits;
+            if (count >= ankleSupportHits.Length)
+            {
+                // A full NonAlloc buffer is unordered and may omit the nearest
+                // bridge/step surface. Allocate only on rare saturation rather
+                // than letting a crowded prop cluster make the boot float.
+                hits = Physics.RaycastAll(ray, 1.70f, worldMask,
+                    QueryTriggerInteraction.Ignore);
+                count = hits.Length;
+            }
             float closest = float.PositiveInfinity;
             float floor = fallback;
             for (int i = 0; i < count; i++)
             {
-                RaycastHit hit = ankleSupportHits[i];
+                RaycastHit hit = hits[i];
                 if (hit.collider == null || hit.normal.y < 0.55f ||
                     hit.collider.transform.IsChildOf(transform) ||
                     hit.distance >= closest) continue;
