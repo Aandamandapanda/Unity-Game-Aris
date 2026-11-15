@@ -565,7 +565,19 @@ namespace Aaris.MapReview
             float distance = Mathf.Clamp(actualDistance,
                 Mathf.Abs(upper - lower) + 0.005f, upper + lower - 0.005f);
             Vector3 axis = line / actualDistance;
-            Vector3 bend = Vector3.ProjectOnPlane(forward, axis);
+            // Preserve the authored knee plane as the implicit IK hint.
+            // A fixed body-forward pole makes both knees converge toward the
+            // same plane during strafes, backpedal and rapid stance changes,
+            // which reads as robotic even when the ankle target is correct.
+            // The current FK knee already carries the animator's intended bend
+            // direction, so project that vector onto the new hip-ankle plane.
+            Vector3 currentKnee = knee - hip;
+            Vector3 bend = currentKnee -
+                axis * Vector3.Dot(currentKnee, axis);
+            // Near a fully straight limb the authored hint becomes unstable;
+            // fall back to the anatomical forward pole, then world-up.
+            if (bend.sqrMagnitude < 0.0001f)
+                bend = Vector3.ProjectOnPlane(forward, axis);
             if (bend.sqrMagnitude < 0.0001f)
                 bend = Vector3.ProjectOnPlane(Vector3.up, axis);
             if (bend.sqrMagnitude < 0.0001f) return;
