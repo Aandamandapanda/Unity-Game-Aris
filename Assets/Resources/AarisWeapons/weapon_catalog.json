@@ -63,7 +63,7 @@
     {
       "id": "BattleRifle",
       "displayName": "Heavy Battle Rifle",
-      "modelResource": "AarisWeapons/Models/BattleRifle",
+      "modelResource": "AarisWeapons/PBR/BattleRifle/BattleRifle",
       "category": "AR",
       "automatic": true,
       "rpm": 520,
@@ -88,12 +88,12 @@
         "z": 0
       },
       "handScale": 1,
-      "presentationLengthMetres": 1.06
+      "presentationLengthMetres": 1.02
     },
     {
       "id": "Sniper",
       "displayName": "Bolt Sniper",
-      "modelResource": "AarisWeapons/Models/Sniper",
+      "modelResource": "AarisWeapons/PBR/Sniper/Sniper",
       "category": "Sniper",
       "automatic": false,
       "rpm": 48,
