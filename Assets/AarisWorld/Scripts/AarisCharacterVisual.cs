@@ -371,14 +371,15 @@ namespace Aaris.MapReview
             runClip = FindClip("run", "run");
             walkClip = FindClip("walk", "walk") ?? runClip;
             sprintClip = FindClip("sprint", "sprint") ?? runClip;
-            // The primary gait clips start at slightly different foot contacts.
-            // Unity humanoid preview sampling aligned run two samples earlier
-            // and sprint one sample later in a 60-sample cycle. Keep shared
-            // fallback clips at one sample time and leave other rigs unshifted.
+            // KayKit Running_A starts two preview samples later than walk,
+            // while the restored Quaternius Sprint_Loop was authored/exported
+            // from its reviewed frame-zero contact. Keep only the KayKit run
+            // correction; do not carry the old Running_B +1/60 offset onto the
+            // different Quaternius skeleton.
             if (primaryLoaded && walkClip != runClip)
             {
                 runPhaseOffset = -2f / 60f;
-                sprintPhaseOffset = sprintClip == runClip ? runPhaseOffset : 1f / 60f;
+                sprintPhaseOffset = sprintClip == runClip ? runPhaseOffset : 0f;
             }
             proneClip = FindClip("prone", "prone");
             crawlClip = FindClip("crawl", "crawl");
