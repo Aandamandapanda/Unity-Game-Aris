@@ -58,6 +58,7 @@ namespace Aaris.MapReview
         private float stepDistance, lastSkidAt = -10f, lastCrashAt = -10f;
         private AarisBattleActions.PlayerStance lastFootstepStance = AarisBattleActions.PlayerStance.Standing;
         private int nextLocalVoice, nextWorldVoice = LocalVoiceCount;
+        private int vehicleGear = 1;
         private Vector3 previousPosition;
         private float nextOptionalComponentRefresh;
 
@@ -440,6 +441,7 @@ namespace Aaris.MapReview
             if (car == null)
             {
                 if (wasDriving) wasDriving = false;
+                vehicleGear = 1;
                 AdjustLoop(engineLoop, 0f, 0.85f, dt);
                 return;
             }
@@ -447,18 +449,39 @@ namespace Aaris.MapReview
             {
                 OneShot("car_start", car.transform.position, 0.8f);
                 BeginLoop(engineLoop, GetClip("car_engine_loop"));
+                vehicleGear = 1;
                 wasDriving = true;
             }
             float speed = Mathf.Abs(car.SpeedMetresPerSecond);
             float normalized = Mathf.Clamp01(speed /
                 Mathf.Max(1f, car.TopSpeedMetresPerSecond));
-            // Four smooth synthesized gear bands. Audio only: real physics
-            // still owns RPM, WheelColliders, traction and torque.
-            float gearPhase = Mathf.Repeat(normalized * 4f, 1f);
-            float targetPitch = Mathf.Clamp(0.84f + normalized * 0.62f +
-                gearPhase * 0.31f + Mathf.Abs(car.ThrottleInput) * 0.09f,
-                0.8f, 2f);
-            AdjustLoop(engineLoop, Mathf.Lerp(0.4f, 0.85f, normalized), targetPitch, dt);
+            // Four synthesized forward gears with hysteresis. The former
+            // Mathf.Repeat band snapped between low/high pitch whenever road
+            // speed hovered on a 25% boundary, producing audible gear chatter.
+            // Audio only: WheelColliders/torque remain the physics authority.
+            float signedSpeed = car.SpeedMetresPerSecond;
+            if (signedSpeed < -0.2f)
+                vehicleGear = 1;
+            else
+            {
+                float upshift = vehicleGear * 0.25f + 0.015f;
+                float downshift = (vehicleGear - 1) * 0.25f - 0.055f;
+                if (vehicleGear < 4 && normalized > upshift)
+                    vehicleGear++;
+                else if (vehicleGear > 1 && normalized < downshift)
+                    vehicleGear--;
+            }
+            float gearLow = (vehicleGear - 1) * 0.25f;
+            float gearHigh = vehicleGear * 0.25f;
+            float gearPhase = signedSpeed < -0.2f
+                ? Mathf.Clamp01(speed / 7f)
+                : Mathf.InverseLerp(gearLow, gearHigh, normalized);
+            float engineLoad = Mathf.Abs(car.ThrottleInput);
+            float targetPitch = Mathf.Clamp(0.82f + gearPhase * 0.58f +
+                engineLoad * 0.11f, 0.78f, 1.58f);
+            float engineVolume = Mathf.Clamp01(0.36f + normalized * 0.42f +
+                engineLoad * 0.13f);
+            AdjustLoop(engineLoop, engineVolume, targetPitch, dt);
             // WheelCollider already calculates a slip-based tyre model.
             // Use its real contact slip rather than chassis lateral velocity:
             // a fast lane change with gripping tyres should not sound like a
@@ -575,6 +598,7 @@ namespace Aaris.MapReview
             Array.Clear(scheduled, 0, scheduled.Length);
             nextScheduledAt = float.PositiveInfinity;
             hasDropPhase = wasDriving = false;
+            vehicleGear = 1;
             stepDistance = 0f;
         }
 
