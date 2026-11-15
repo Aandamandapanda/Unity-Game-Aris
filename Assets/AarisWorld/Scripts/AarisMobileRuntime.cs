@@ -107,6 +107,7 @@ namespace Aaris.MapReview
             // rather than changing the four native TerrainData assets or
             // forcing a platform-specific renderer/material substitution.
             yield return null; // Let URP initialize its first terrain frame.
+            ConfigureTerrainInstanceRenderer();
 #if UNITY_ANDROID && !UNITY_EDITOR
             ConfigureAndroidQuality();
 #endif
@@ -114,6 +115,24 @@ namespace Aaris.MapReview
                 Debug.LogWarning("AARIS_TERRAIN_PAINT_RELEASE_DISABLED: preserve original alphamap GPU uploads.");
             AuditNativeTerrain();
             Record("terrain-render-audit");
+        }
+
+        private void ConfigureTerrainInstanceRenderer()
+        {
+            // Unity 6 defaults Terrain.drawInstanced to false. Enabling the
+            // built-in instance renderer preserves authored heightmaps/layers
+            // while moving the four native tiles onto the instanced terrain
+            // path. This is runtime-only and never dirties TerrainData assets.
+            if (!SystemInfo.supportsInstancing) return;
+            if (terrains == null || terrains.Length == 0)
+                terrains = Terrain.activeTerrains;
+            if (terrains == null) return;
+            for (int i = 0; i < terrains.Length; i++)
+            {
+                Terrain tile = terrains[i];
+                if (tile != null && !tile.drawInstanced)
+                    tile.drawInstanced = true;
+            }
         }
 
         private void AuditNativeTerrain()
@@ -151,6 +170,8 @@ namespace Aaris.MapReview
                 " alphamaps=" + alphamapCount +
                 " invalid_materials=" + invalidTerrainMaterials +
                 " urp_terrain_lit=" + (terrainLitAvailable ? "supported" : "missing") +
+                " instancing=" + (terrains != null && Array.TrueForAll(terrains,
+                    t => t == null || t.drawInstanced) ? "enabled" : "partial") +
                 " api=" + SystemInfo.graphicsDeviceType);
         }
 
