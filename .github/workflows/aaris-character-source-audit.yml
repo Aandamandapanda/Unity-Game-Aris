@@ -139,4 +139,23 @@ jobs:
           assert any(n.startswith("mocap_crouch") for n in mocap_names)
           print("AARIS_100STYLE_MOCAP_SOURCE_OK", len(mocap_names))
           print("mocap_animation_names", mocap_names)
+          accessors = motion_doc.get("accessors", [])
+          durations = {}
+          for anim in motion_doc.get("animations", []):
+              name = anim.get("name","")
+              if name not in mocap_names:
+                  continue
+              lo, hi = None, None
+              for sampler in anim.get("samplers", []):
+                  acc = accessors[sampler["input"]]
+                  amin = float((acc.get("min") or [0.0])[0])
+                  amax = float((acc.get("max") or [0.0])[0])
+                  lo = amin if lo is None else min(lo, amin)
+                  hi = amax if hi is None else max(hi, amax)
+              durations[name] = (lo or 0.0, hi or 0.0, (hi or 0.0) - (lo or 0.0))
+          selected = ["mocap_walk_F@1.1733", "mocap_jog_F@1.7529",
+                      "mocap_run_F@2.8652", "mocap_crouch_F@0.6906"]
+          for name in selected:
+              assert name in durations and durations[name][2] > 0.15, (name, durations)
+          print("mocap_selected_durations", {name: durations[name] for name in selected})
           PY
