@@ -1,123 +1,73 @@
 #!/usr/bin/env bash
-# Review only the original user's running Unity Editor in the original Codespace.
-# Play Mode is ALWAYS toggled off in an EXIT trap; source, scenes and Git
-# working files are never deliberately edited, stashed, reset or cleaned.
+# Ground-only real Unity pose QA in the user's existing Codespace Editor.
+# Delegates flight/landing/stance authority to AarisPoseFrames; never fabricates
+# walk/sprint labels from an aerial Game view. Source/scenes/Git are not edited.
 set -Eeuo pipefail
 umask 077
 export DISPLAY=:99
 ROOT=/workspaces/Unity-Game-Aris
-OUT=/tmp/aaris-codespaces/live-humanoid-review
-mkdir -p "$OUT"
-test -d "$ROOT/.git" || { echo 'LIVE_REVIEW_WRONG_PROJECT'; exit 11; }
+POSE=/tmp/aaris-codespaces/motion-frames
+REQ="$POSE/capture.request"
+REPORT="$POSE/report.txt"
+PHASE="$POSE/phase.txt"
+test -d "$ROOT/.git" || { echo LIVE_REVIEW_WRONG_PROJECT; exit 11; }
 cd "$ROOT"
-command -v xdotool >/dev/null || { echo 'LIVE_REVIEW_XDOTOOL_MISSING'; exit 12; }
-command -v scrot >/dev/null || { echo 'LIVE_REVIEW_SCROT_MISSING'; exit 13; }
-DISPLAY=:99 xdpyinfo >/dev/null 2>&1 || { echo 'LIVE_REVIEW_XDISPLAY_MISSING'; exit 14; }
-pgrep -f '[E]ditor/Unity.*-projectPath' >/dev/null || { echo 'LIVE_REVIEW_EDITOR_NOT_RUNNING'; exit 15; }
-
-WIN=""
-while IFS= read -r candidate; do
-  name="$(xdotool getwindowname "$candidate" 2>/dev/null || true)"
-  if [[ "$name" == "Unity - Unity-Game-Aris - "* ]]; then
-    WIN="$candidate"
-    break
-  fi
-done < <(xdotool search --onlyvisible --name 'Unity - Unity-Game-Aris' 2>/dev/null || true)
-test -n "$WIN" || { echo 'LIVE_REVIEW_UNITY_WINDOW_NOT_FOUND'; exit 16; }
-GEOM="$(xdotool getwindowgeometry --shell "$WIN")"
-WIDTH="$(awk -F= '$1=="WIDTH"{print $2}' <<< "$GEOM")"
-HEIGHT="$(awk -F= '$1=="HEIGHT"{print $2}' <<< "$GEOM")"
-[[ "$WIDTH" =~ ^[0-9]+$ && "$HEIGHT" =~ ^[0-9]+$ ]] || exit 17
-test "$WIDTH" -ge 1000 && test "$HEIGHT" -ge 600 || { echo 'LIVE_REVIEW_UNEXPECTED_WINDOW_SIZE'; exit 18; }
+pgrep -f '[E]ditor/Unity.*-projectPath' >/dev/null || { echo LIVE_REVIEW_EDITOR_NOT_RUNNING; exit 15; }
 HEAD="$(git rev-parse --short HEAD)"
 BEFORE="$(git status --porcelain=v1 --untracked-files=no | sha256sum | cut -d ' ' -f1)"
-started=0
-mkdir -p "$OUT/screens"
-rm -f "$OUT/screens/"*.png
-shot() {
-  local label="$1"
-  xdotool windowactivate --sync "$WIN" >/dev/null
-  scrot -o "$OUT/screens/$label.png" >/dev/null 2>&1
-  test -s "$OUT/screens/$label.png"
+mkdir -p "$POSE"
+rm -f "$REQ" "$POSE"/01_*.jpg "$POSE"/02_*.jpg "$POSE"/03_*.jpg "$POSE"/04_*.jpg "$POSE"/05_*.jpg "$POSE"/06_*.jpg
+printf 'ground-pose-review\n' >"$REQ"
+# AarisPoseFrames owns Play Mode, drop transition, QA-only touchdown fast-forward,
+# fixed flat survey teleport and camera restoration. Do not inject movement keys.
+for _ in $(seq 1 190); do
+  if [[ -f "$PHASE" ]] && grep -qx '07_COMPLETE' "$PHASE" 2>/dev/null; then break; fi
+  sleep .5
+done
+[[ -f "$PHASE" ]] && grep -qx '07_COMPLETE' "$PHASE" || {
+  echo LIVE_REVIEW_POSE_TIMEOUT
+  [[ -f "$PHASE" ]] && printf 'LIVE_REVIEW_LAST_PHASE=%s\n' "$(cat "$PHASE")"
+  exit 31
 }
-cleanup() {
-  # Leave the editor in Edit Mode even when Play Mode or motion tests fail.
-  DISPLAY=:99 xdotool keyup --clearmodifiers w Shift_L Control_L b 2>/dev/null || true
-  if test "$started" = 1; then
-    DISPLAY=:99 xdotool windowactivate "$WIN" >/dev/null 2>&1 || true
-    DISPLAY=:99 xdotool key --clearmodifiers ctrl+p >/dev/null 2>&1 || true
-    sleep 2
-  fi
+[[ -f "$REPORT" ]] || { echo LIVE_REVIEW_REPORT_MISSING; exit 32; }
+grep -q 'SUCCESS_18_REAL_FRAMES' "$REPORT" || {
+  echo LIVE_REVIEW_POSE_FAILED
+  tail -n 24 "$REPORT"
+  exit 33
 }
-trap cleanup EXIT
-xdotool windowactivate --sync "$WIN"
-shot '00-before'
-# The initial scene screenshot is checked independently before this test.
-# Explicit UI condition: do not start if another agent already has Play Mode on.
-# The screenshot at this Codespace showed the non-blue toolbar in Edit Mode.
-xdotool key --clearmodifiers ctrl+p
-started=1
-sleep 11
-# Select the existing Game tab: coordinates relative to the 1207x740 Unity
-# editor window are stable in the inspected, unchanged workspace layout.
-xdotool mousemove --window "$WIN" 334 96 click 1
-sleep 3
-shot '01-play-idle'
-xdotool keydown w
-sleep 2
-shot '02-walk'
-xdotool keyup w
-xdotool keydown Shift_L
-xdotool keydown w
-sleep 2
-shot '03-sprint'
-xdotool keyup w Shift_L
-xdotool key c
-sleep 2
-xdotool keydown w
-sleep 2
-shot '04-crouch-walk'
-xdotool keyup w
-xdotool key z
-sleep 2
-xdotool keydown w
-sleep 2
-shot '05-prone-crawl'
-xdotool keyup w
-xdotool key z
-sleep 1
-xdotool keydown Control_L
-sleep 1
-shot '06-punch'
-xdotool keyup Control_L
-xdotool keydown b
-sleep 1
-xdotool keyup b
-sleep 2
-shot '07-gloo-wall'
-# Check nonblank screenshot output and whether actual Game frames changed.
-python3 - "$OUT/screens" <<'PY'
+python3 - "$POSE" <<'PY'
 from pathlib import Path
-import sys,struct,hashlib
-p=Path(sys.argv[1])
-expected=[p/f'{i:02d}-{name}.png' for i,name in enumerate(
-    ('before','play-idle','walk','sprint','crouch-walk','prone-crawl','punch','gloo-wall'))]
-for f in expected:
-    if not f.is_file() or f.stat().st_size < 10000: raise SystemExit('LIVE_REVIEW_FRAME_MISSING')
-sizes=[]
-for f in expected:
-    header=f.open('rb').read(24)
-    if len(header)!=24 or header[:8]!=bytes((137,80,78,71,13,10,26,10)):
-        raise SystemExit('LIVE_REVIEW_NOT_PNG')
-    sizes.append(struct.unpack('>II',header[16:24]))
-if len(set(sizes))!=1:raise SystemExit('LIVE_REVIEW_SCREEN_SIZE_CHANGED')
-if len({hashlib.sha256(f.read_bytes()).digest() for f in expected})<3:raise SystemExit('LIVE_REVIEW_TOO_FEW_UNIQUE_FRAMES')
-print('LIVE_REVIEW_EIGHT_FRAMES_CAPTURED')
-print('LIVE_REVIEW_SCREEN_DIMS='+str(sizes[0][0])+'x'+str(sizes[0][1]))
+import re,sys
+p=Path(sys.argv[1]); report=(p/'report.txt').read_text(errors='replace')
+names=('01_Standing','02_Crouch','03_Prone','04_Walk','05_Sprint','06_Jump')
+for name in names:
+    frames=sorted(p.glob(name+'_f*.jpg'))
+    if len(frames)!=3 or any(f.stat().st_size<4000 for f in frames):
+        raise SystemExit('LIVE_REVIEW_FRAME_SET_INVALID_'+name)
+# Ground locomotion proof must actually be post-touchdown. Jump is intentionally
+# allowed airborne frames, but standing through sprint may never be aerial.
+for name in names[:5]:
+    lines=[x for x in report.splitlines() if ('FRAME '+name+' ') in x]
+    if len(lines)!=3 or any('air=False' not in x for x in lines):
+        raise SystemExit('LIVE_REVIEW_NOT_GROUNDED_'+name)
+if 'EDITOR_ONLY_FAST_FORWARD_TO_TOUCHDOWN' not in report:
+    raise SystemExit('LIVE_REVIEW_TOUCHDOWN_NOT_PROVEN')
+if 'EDITOR_ONLY_FIXED_SURVEY_LOCATION' not in report:
+    raise SystemExit('LIVE_REVIEW_SURVEY_NOT_PROVEN')
+measures=[x for x in report.splitlines() if x.startswith('MEASURE stance=')]
+if len(measures)<5:
+    raise SystemExit('LIVE_REVIEW_PHYSICAL_MEASUREMENTS_MISSING')
+print('LIVE_REVIEW_18_GROUND_POSE_FRAMES_CAPTURED')
+print('LIVE_REVIEW_GROUND_STATES_VERIFIED=Standing,Crouch,Prone,Walk,Sprint')
+print('LIVE_REVIEW_PHYSICAL_MEASUREMENTS='+str(len(measures)))
 PY
 AFTER="$(git status --porcelain=v1 --untracked-files=no | sha256sum | cut -d ' ' -f1)"
-if test "$BEFORE" = "$AFTER"; then echo 'LIVE_REVIEW_TRACKED_WORKTREE_UNCHANGED'; else echo 'LIVE_REVIEW_TRACKED_WORKTREE_CHANGED_REVIEW_REQUIRED'; fi
+if [[ "$BEFORE" == "$AFTER" ]]; then
+  echo LIVE_REVIEW_TRACKED_WORKTREE_UNCHANGED
+else
+  echo LIVE_REVIEW_TRACKED_WORKTREE_CHANGED_REVIEW_REQUIRED
+  exit 34
+fi
 printf 'LIVE_REVIEW_SOURCE_HEAD=%s\n' "$HEAD"
-# No full editor logs, auth URLs or Unity credentials are copied into artifacts.
-tar -C "$OUT" -czf "$OUT/gameplay-frames.tar.gz" screens
-echo 'LIVE_REVIEW_SCREENSHOTS_READY_FOR_MANUAL_POSE_INSPECTION'
+tar -C "$POSE" -czf "$POSE/ground-pose-frames.tar.gz" ./*.jpg report.txt phase.txt
+echo LIVE_REVIEW_GROUND_EVIDENCE_READY
