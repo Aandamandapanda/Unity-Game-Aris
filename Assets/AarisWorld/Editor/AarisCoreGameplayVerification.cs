@@ -243,8 +243,13 @@ namespace Aaris.MapReview.Editor
                     type.GetField("crouchBlend", Private).SetValue(visual, crouch);
                     type.GetField("proneBlend", Private).SetValue(visual, prone);
                     type.GetField("airborneBlend", Private).SetValue(visual, 0f);
-                    type.GetMethod("LateUpdate", Private).Invoke(visual, null);
+                    var lateUpdate = type.GetMethod("LateUpdate", Private);
+                    lateUpdate.Invoke(visual, null);
+                    // Evaluate the newly requested mixer pose, then run the
+                    // same LateUpdate post-pass Unity uses after animation:
+                    // foot planting, capsule headroom and prone chest correction.
                     ((PlayableGraph)type.GetField("graph", Private).GetValue(visual)).Evaluate(0f);
+                    lateUpdate.Invoke(visual, null);
                     return HeadHeight();
                 }
                 var standing = Pose(0f, 0f);
