@@ -70,6 +70,11 @@ namespace Aaris.MapReview
         private Vector3 casingVelocity, casingAngularVelocity;
         private float casingUntil, casingEjectAt = -1f;
         private static Material sharedBrassMaterial, sharedShotgunShellMaterial;
+        // One pre-created impact emitter per equipped gun. Emit() reuses the
+        // native particle buffer; automatic fire never creates impact objects.
+        private ParticleSystem impactParticles;
+        private Transform impactTransform;
+        private static Material sharedImpactParticleMaterial;
         public bool Configured => spec != null;
         public bool Automatic => spec != null && spec.automatic;
         public float SecondsBetweenShots => spec != null ? spec.ShotInterval : 1f;
@@ -101,6 +106,7 @@ namespace Aaris.MapReview
             reloading = state.Reloading;
             EnsureMuzzleFlash();
             EnsureCasingVisual();
+            EnsureImpactParticles();
             RefreshReload();
         }
 
@@ -296,6 +302,91 @@ namespace Aaris.MapReview
             }
         }
 
+        private static Material ImpactParticleMaterial()
+        {
+            if (sharedImpactParticleMaterial != null)
+                return sharedImpactParticleMaterial;
+            Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null) shader = Shader.Find("Unlit/Color");
+            if (shader == null) return null;
+            var material = new Material(shader)
+            {
+                name = "Aaris Shared Bullet Impact Spark",
+                enableInstancing = true
+            };
+            Color spark = new Color(1f, 0.72f, 0.34f, 0.78f);
+            if (material.HasProperty("_BaseColor"))
+                material.SetColor("_BaseColor", spark);
+            if (material.HasProperty("_Color"))
+                material.SetColor("_Color", spark);
+            material.SetOverrideTag("RenderType", "Transparent");
+            if (material.HasProperty("_Surface")) material.SetFloat("_Surface", 1f);
+            if (material.HasProperty("_SrcBlend"))
+                material.SetFloat("_SrcBlend",
+                    (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (material.HasProperty("_DstBlend"))
+                material.SetFloat("_DstBlend",
+                    (float)UnityEngine.Rendering.BlendMode.One);
+            if (material.HasProperty("_ZWrite")) material.SetFloat("_ZWrite", 0f);
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            sharedImpactParticleMaterial = material;
+            return material;
+        }
+
+        private void EnsureImpactParticles()
+        {
+            if (impactParticles != null) return;
+            Material material = ImpactParticleMaterial();
+            if (material == null) return;
+            GameObject fx = new GameObject("Aaris Pooled Bullet Impact");
+            fx.transform.SetParent(transform, false);
+            impactTransform = fx.transform;
+            impactParticles = fx.AddComponent<ParticleSystem>();
+            var main = impactParticles.main;
+            main.loop = false;
+            main.playOnAwake = false;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.maxParticles = 12;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.055f, 0.12f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(1.3f, 2.6f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.012f, 0.028f);
+            main.startColor = new ParticleSystem.MinMaxGradient(
+                new Color(1f, .82f, .45f, .88f),
+                new Color(.62f, .58f, .50f, .22f));
+            main.gravityModifier = 0.35f;
+            var emission = impactParticles.emission;
+            emission.enabled = false;
+            var shape = impactParticles.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 34f;
+            shape.radius = 0.008f;
+            var renderer = fx.GetComponent<ParticleSystemRenderer>();
+            renderer.renderMode = ParticleSystemRenderMode.Stretch;
+            renderer.velocityScale = 0.08f;
+            renderer.lengthScale = 0.22f;
+            renderer.shadowCastingMode =
+                UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.sharedMaterial = material;
+            impactParticles.Play(false);
+        }
+
+        private void TriggerImpactParticles(Vector3 point, Vector3 normal)
+        {
+            if (impactParticles == null || impactTransform == null) return;
+            if (normal.sqrMagnitude < 0.5f) normal = Vector3.up;
+            normal.Normalize();
+            Vector3 referenceUp = Mathf.Abs(Vector3.Dot(normal, Vector3.up)) > 0.92f
+                ? Vector3.forward : Vector3.up;
+            impactTransform.SetPositionAndRotation(point + normal * 0.012f,
+                Quaternion.LookRotation(normal, referenceUp));
+            if (!impactParticles.isPlaying) impactParticles.Play(false);
+            impactParticles.Emit(spec != null && spec.pellets > 1 ? 5 : 3);
+        }
+
         private void Update()
         {
             RefreshReload();
@@ -455,6 +546,7 @@ namespace Aaris.MapReview
                     if (!impactSoundEmitted)
                     {
                         AarisAudioDirector.BulletImpact(target.point);
+                        TriggerImpactParticles(target.point, target.normal);
                         impactSoundEmitted = true;
                     }
                     ApplyDamage(target.collider, spec.damage, owner);
