@@ -471,20 +471,28 @@ namespace Aaris.MapReview
         // One sound per alternate foot contact, not one sound per arbitrary
         // elapsed second. Mirror AarisCharacterVisual's distance-driven clip
         // cycles: each forward/crouch/crawl cycle contains two ground contacts.
-        // In particular, 5.4 m/s is unreachable with the current 4.8/4.4
-        // sprint caps and previously played walking footsteps while sprinting.
-        private static float FootfallSpacing(float metresPerSecond, bool armed,
+        // Read the same authoritative motor ceilings as the animation system;
+        // stale 4.4/4.8 m/s thresholds made sprint audio drift from planted feet.
+        private float FootfallSpacing(float metresPerSecond, bool armed,
             AarisBattleActions.PlayerStance stance)
         {
             if (stance == AarisBattleActions.PlayerStance.Prone) return 0.45f;
             if (stance == AarisBattleActions.PlayerStance.Crouching) return 0.70f;
-            // Keep contact spacing exactly synchronized with the character's
-            // earlier walk-to-jog crossfade, even on low-FPS Android devices.
-            float runBlend = Mathf.InverseLerp(2.0f, 3.4f, metresPerSecond);
-            float sprintBlend = Mathf.InverseLerp(4.0f,
-                armed ? 4.4f : 4.8f, metresPerSecond);
+            float jogCeiling = player != null
+                ? player.JogSpeedMetresPerSecond : 4.2f;
+            float sprintCeiling = player != null
+                ? (armed ? player.ArmedSprintSpeedMetresPerSecond :
+                    player.UnarmedSprintSpeedMetresPerSecond)
+                : (armed ? 5.7f : 6.5f);
+            float runStart = Mathf.Max(1.8f, jogCeiling * 0.55f);
+            float sprintStart = Mathf.Max(jogCeiling * 0.95f,
+                sprintCeiling * 0.72f);
+            float walkRunBlend = Mathf.InverseLerp(
+                runStart, jogCeiling, metresPerSecond);
+            float sprintBlend = Mathf.InverseLerp(
+                sprintStart, sprintCeiling, metresPerSecond);
             float cycleDistance = Mathf.Lerp(1.25f,
-                Mathf.Lerp(2.55f, 3.65f, sprintBlend), runBlend);
+                Mathf.Lerp(2.55f, 3.65f, sprintBlend), walkRunBlend);
             return cycleDistance * 0.5f;
         }
 
