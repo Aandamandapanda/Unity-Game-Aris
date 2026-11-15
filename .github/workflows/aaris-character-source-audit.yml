@@ -105,4 +105,38 @@ jobs:
           print("images", len(imgs), mime)
           print("skinned_nodes", [(n.get("name",""), n.get("mesh"), n.get("skin")) for n in skinned_nodes])
           print("humanoid_joint_names", joint_names)
+
+          # Audit the upstream animation source separately. Its soldier.glb
+          # carries retargeted 100STYLE CC-BY mocap plus fallback library clips.
+          mocap_url = "https://raw.githubusercontent.com/cktang88/3d-fps/main/public/assets/models/characters/soldier.glb"
+          mocap_size = 3094592
+          mocap_git_blob = "b00ed33108f2579880c82cd27d10f9237ff3a219"
+          req = urllib.request.Request(mocap_url, headers={"User-Agent":"AarisCharacterAudit/1.0"})
+          motion_data = urllib.request.urlopen(req, timeout=60).read()
+          assert len(motion_data) == mocap_size, len(motion_data)
+          import hashlib
+          got_blob = hashlib.sha1(
+              b"blob " + str(len(motion_data)).encode() + b"\0" + motion_data
+          ).hexdigest()
+          assert got_blob == mocap_git_blob, got_blob
+          off = 12
+          motion_doc = None
+          while off + 8 <= len(motion_data):
+              n, kind = struct.unpack_from("<II", motion_data, off)
+              off += 8
+              chunk = motion_data[off:off+n]
+              off += n
+              if kind == 0x4E4F534A:
+                  motion_doc = json.loads(
+                      chunk.rstrip(b"\x00 \t\r\n").decode("utf-8")
+                  )
+          assert motion_doc is not None
+          motion_names = [a.get("name","") for a in motion_doc.get("animations",[])]
+          mocap_names = sorted(n for n in motion_names if n.startswith("mocap_"))
+          assert len(mocap_names) >= 8, mocap_names
+          assert any(n.startswith("mocap_walk_") for n in mocap_names)
+          assert any(n.startswith("mocap_run_") for n in mocap_names)
+          assert any(n.startswith("mocap_crouch") for n in mocap_names)
+          print("AARIS_100STYLE_MOCAP_SOURCE_OK", len(mocap_names))
+          print("mocap_animation_names", mocap_names)
           PY
