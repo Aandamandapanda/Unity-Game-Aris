@@ -338,10 +338,18 @@ namespace Aaris.MapReview
         {
             if (car == null || followCamera == null) return;
             var vehicle = car.transform;
-            Vector3 aim = vehicle.position + Vector3.up * 1.65f;
+            float speed01 = Mathf.Clamp01(car.TotalSpeedMetresPerSecond /
+                Mathf.Max(1f, car.TopSpeedMetresPerSecond));
+            // A fixed chase rig makes a 90 km/h car read like a slow toy.
+            // Open the framing gradually with real Rigidbody speed only;
+            // collision handling below still owns the final camera position.
+            float chaseDistance = Mathf.Lerp(6.25f, 7.40f, speed01);
+            float chaseHeight = Mathf.Lerp(2.95f, 3.25f, speed01);
+            Vector3 aim = vehicle.position + Vector3.up *
+                Mathf.Lerp(1.58f, 1.74f, speed01);
             Vector3 start = aim + Vector3.up * .85f;
-            Vector3 requested = vehicle.position - vehicle.forward * 6.7f +
-                Vector3.up * 3.1f;
+            Vector3 requested = vehicle.position - vehicle.forward * chaseDistance +
+                Vector3.up * chaseHeight;
             // Smooth the intended orbit first, then collision-test the camera's
             // actual rendered position. Clamping the goal before SmoothDamp
             // allowed interpolation to cross walls on sharp vehicle turns.
@@ -405,9 +413,17 @@ namespace Aaris.MapReview
             followCamera.transform.position = next;
             Vector3 look = aim - followCamera.transform.position;
             if (look.sqrMagnitude > .001f)
-                followCamera.transform.rotation = Quaternion.LookRotation(look);
+            {
+                Quaternion targetRotation = Quaternion.LookRotation(look);
+                float rotationAlpha = 1f - Mathf.Exp(-10f *
+                    Mathf.Clamp(Time.deltaTime, 0f, .05f));
+                followCamera.transform.rotation = Quaternion.Slerp(
+                    followCamera.transform.rotation, targetRotation, rotationAlpha);
+            }
+            float targetFov = Mathf.Lerp(62f, 70f,
+                Mathf.SmoothStep(0f, 1f, speed01));
             followCamera.fieldOfView = Mathf.Lerp(followCamera.fieldOfView,
-                65f, 1f - Mathf.Exp(-5f * Time.deltaTime));
+                targetFov, 1f - Mathf.Exp(-5f * Time.deltaTime));
         }
 
         private void OnDisable()
