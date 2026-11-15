@@ -24,11 +24,11 @@ assert 'jumpStartPlayable.SetSpeed(Mathf.Clamp' in visual
 # shift only the contact points of distinct primary run and sprint clips.
 assert 'if (primaryLoaded && walkClip != runClip)' in visual
 assert 'runPhaseOffset = -2f / 60f;' in visual
-assert 'sprintPhaseOffset = sprintClip == runClip ? runPhaseOffset : 1f / 60f;' in visual
+assert 'sprintPhaseOffset = sprintClip == runClip ? runPhaseOffset : 0f;' in visual
 assert 'LoopPlayable(runPlayable, runClip, locomotionPhase + runPhaseOffset);' in visual
 assert 'LoopPlayable(sprintPlayable, sprintClip, locomotionPhase + sprintPhaseOffset);' in visual
 for anchor in (0.0, 0.003, 0.5, 0.995, 1.0):
-    for shift in (-2 / 60, 0.0, 1 / 60):
+    for shift in (-2 / 60, 0.0):
         phase, length = anchor + shift, 0.792
         seconds = phase * length
         wrapped = seconds % length
