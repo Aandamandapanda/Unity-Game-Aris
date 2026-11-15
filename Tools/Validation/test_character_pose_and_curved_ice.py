@@ -56,6 +56,14 @@ assert 'Physics.RaycastNonAlloc(new Ray(origin, Vector3.down)' in visual
 assert 'hit.collider.transform.IsChildOf(transform)' in visual
 assert 'PlantCrouchLeg(leftThigh, leftShin, leftFootBone,' in visual
 assert 'ProneAnkleClearanceMetres' in visual
+# Upright walk/run contact uses the same bounded, allocation-free leg solve,
+# but only near the floor so an authored swing foot is never pinned.
+assert 'private void PlantUprightContact(' in visual
+assert 'float supportY = SupportedAnkleY(foot, PlantedAnkleMetres);' in visual
+assert 'Mathf.InverseLerp(0.025f, 0.14f, gap)' in visual
+assert 'Mathf.Lerp(0.95f, 0.62f,' in visual
+assert 'lowPose < 0.02f' in visual
+assert visual.count('PlantUprightContact(') == 3
 # Positive calibration and grounded correction remain bounded, including
 # low-FPS 10/30/60/120Hz startup and imported soldier bone spans.
 for span in (1.168, 1.35, 1.64):
