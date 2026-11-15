@@ -55,7 +55,57 @@ namespace Aaris.MapReview
         // These are prefab references, not duplicate live GameObjects.
         private static readonly Dictionary<string, GameObject> modelCache =
             new Dictionary<string, GameObject>(8, StringComparer.Ordinal);
+        // Current bundled guns use textureless Prototyping Color Library
+        // materials. Tune each SHARED material once per domain without
+        // cloning materials or spending per-instance/per-frame memory.
+        private static readonly HashSet<Material> tunedFlatMaterials =
+            new HashSet<Material>();
+        private static readonly int MetallicId = Shader.PropertyToID("_Metallic");
+        private static readonly int SmoothnessId = Shader.PropertyToID("_Smoothness");
         public static bool Ready => specs != null && specs.Length > 0;
+
+        private static void TuneFlatWeaponSurfaces(GameObject prefab)
+        {
+            if (prefab == null) return;
+            Renderer[] renderers = prefab.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                Material[] materials = renderers[i].sharedMaterials;
+                for (int j = 0; j < materials.Length; j++)
+                {
+                    Material material = materials[j];
+                    if (material == null ||
+                        material.name.IndexOf("PCL_Flat", StringComparison.OrdinalIgnoreCase) < 0 ||
+                        !tunedFlatMaterials.Add(material))
+                        continue;
+
+                    // These are shared Resources materials, so this improves
+                    // held + floor guns together without allocating copies.
+                    material.enableInstancing = true;
+                    string label = material.name;
+                    float metallic = 0.10f, smoothness = 0.27f;
+                    if (label.IndexOf("Brown", StringComparison.OrdinalIgnoreCase) >= 0)
+                    { metallic = 0.02f; smoothness = 0.22f; }
+                    else if (label.IndexOf("Blue", StringComparison.OrdinalIgnoreCase) >= 0)
+                    { metallic = 0.06f; smoothness = 0.30f; }
+                    else if (label.IndexOf("Grey_Light", StringComparison.OrdinalIgnoreCase) >= 0)
+                    { metallic = 0.48f; smoothness = 0.44f; }
+                    else if (label.IndexOf("Grey_Darker", StringComparison.OrdinalIgnoreCase) >= 0)
+                    { metallic = 0.22f; smoothness = 0.31f; }
+                    else if (label.IndexOf("Grey_Dark", StringComparison.OrdinalIgnoreCase) >= 0)
+                    { metallic = 0.30f; smoothness = 0.36f; }
+                    else if (label.IndexOf("Black_Lighter", StringComparison.OrdinalIgnoreCase) >= 0)
+                    { metallic = 0.18f; smoothness = 0.34f; }
+                    else if (label.IndexOf("White", StringComparison.OrdinalIgnoreCase) >= 0)
+                    { metallic = 0.12f; smoothness = 0.32f; }
+
+                    if (material.HasProperty(MetallicId))
+                        material.SetFloat(MetallicId, metallic);
+                    if (material.HasProperty(SmoothnessId))
+                        material.SetFloat(SmoothnessId, smoothness);
+                }
+            }
+        }
 
         public static bool TryLoad()
         {
@@ -92,6 +142,7 @@ namespace Aaris.MapReview
                                 doc.weapons[i].id);
                             continue;
                         }
+                        TuneFlatWeaponSurfaces(prefab);
                         modelCache[modelPath] = prefab;
                     }
                     // A nominally imported FBX with no renderer is also
@@ -123,7 +174,11 @@ namespace Aaris.MapReview
                 prefab != null) return prefab;
             // Only a domain reload/re-import should reach this path after boot.
             prefab = Resources.Load<GameObject>(spec.modelResource);
-            if (prefab != null) modelCache[spec.modelResource] = prefab;
+            if (prefab != null)
+            {
+                TuneFlatWeaponSurfaces(prefab);
+                modelCache[spec.modelResource] = prefab;
+            }
             return prefab;
         }
 
