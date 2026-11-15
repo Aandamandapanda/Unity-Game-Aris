@@ -502,20 +502,22 @@ def run():
     assert 'weaponFinishCache[source] = result;' in inventory
     assert 'private static readonly Dictionary<string, Material> pbrFinishCache' in inventory
     assert 'private static Material CreatePbrFinish(string label,' in inventory
-    assert 'private static Material AuthoredPbrFinish(AarisWeaponSpec spec)' in inventory
+    assert 'private static Material AuthoredPbrFinish(AarisWeaponSpec spec,' in inventory
     for resource in (
         "AarisWeapons/PBR/M4A1/M4A1",
         "AarisWeapons/PBR/GreaseGun/Grease_Gun",
+        "AarisWeapons/PBR/BattleRifle/BattleRifle",
+        "AarisWeapons/PBR/Sniper/Sniper",
         "AarisWeapons/PBR/Shotgun/Shotgun",
     ):
         assert resource in inventory
     assert 'resourceFolder + "/" + stem + "_Base_Color"' in inventory
     assert 'resourceFolder + "/" + stem + "_Normal"' in inventory
     assert 'resourceFolder + "/" + stem + "_MetallicSmoothness"' in inventory
-    assert 'pbrFinishCache[resourceFolder] = material;' in inventory
+    assert 'pbrFinishCache[cacheKey] = material;' in inventory
     assert 'EnableKeyword("_NORMALMAP")' in inventory
     assert 'EnableKeyword("_METALLICSPECGLOSSMAP")' in inventory
-    assert 'Material authoredPbr = AuthoredPbrFinish(spec);' in inventory
+    assert 'Material authoredPbr = AuthoredPbrFinish(spec, source[i]);' in inventory
     assert 'internal static void ApplyTextureAwareWeaponFinish' in inventory
     assert "AarisWeaponInventory.ApplyTextureAwareWeaponFinish(" in pickup_cs
     # Gun models do not all have the same length; a fixed long-barrel
