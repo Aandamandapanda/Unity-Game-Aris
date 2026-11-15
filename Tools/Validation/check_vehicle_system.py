@@ -20,6 +20,13 @@ HASHES={
     "wheel-racing":("c779dba6ca48b46df4ed1244a026132eb84ba426370d945a3c1b8eef76b41dbe",35456),
     "wheel-truck":("21090484ab58c404b3001fbfce09221a790f41faf5c9fd010b895c4846ce392e",37696),
 }
+AUTHORED={
+    "1990s-hatchback":("9266b0ac0bbccee09cb03a3ade7a17483d641fbe8d4baffbf6fd6bcb0271c932",2120156),
+    "1990s-suv":("64069497f9c436ef8c2d8b197c51e8abf8c9f9656bedfe6834f04c9996673f1b",2607228),
+    "1990s-sports-car":("42eefdcde7275013aa5894e577c81a92e991f042750ff4c7360ef71764dcf826",2046796),
+    "1980s-van":("c50f781d642e39f84cbe664ea2ec7c1545d33e173c229c17031fd0464e5ba285",2333388),
+    "1990s-pickup-truck":("a561a47fe2b92404a7a35d32be209d4d618a6b5e9475e70cfa4dc1394fc6ab5d",2433580),
+}
 
 def script(name):
     return (SCRIPTS/(name+".cs")).read_text("utf8")
@@ -85,6 +92,26 @@ def test():
     for texture in ("SedanSurface", "SedanMetalSmoothness"):
         png = (RES / "Authored" / (texture + ".png")).read_bytes()
         assert int.from_bytes(png[16:20], "big") == int.from_bytes(png[20:24], "big") == 128
+    authored_by_type = {
+        "SUV":"1990s-suv",
+        "Sports":"1990s-sports-car",
+        "Hatchback":"1990s-hatchback",
+        "Van":"1980s-van",
+        "Utility":"1990s-pickup-truck",
+    }
+    for vehicle_id, slug in authored_by_type.items():
+        item = next(x for x in types if x["id"] == vehicle_id)
+        assert item["authoredModelResource"] == f"AarisVehicles/Authored/{slug}"
+        body = RES / "Authored" / f"{slug}.fbx"
+        expected, size = AUTHORED[slug]
+        assert body.is_file() and body.stat().st_size == size, ("authored FBX missing", slug)
+        assert hashlib.sha256(body.read_bytes()).hexdigest() == expected, ("authored FBX changed", slug)
+        assert body.read_bytes().startswith(b"Kaydara FBX Binary"), slug
+        assert body.with_name(body.name + ".meta").is_file(), ("stable authored GUID missing", slug)
+    source_note = (RES/"Authored"/"GRAB3D_CC0_SOURCES.txt").read_text("utf8")
+    assert "CC0-1.0" in source_note and "never downloaded at game runtime" in source_note
+    for slug, (expected, _) in AUTHORED.items():
+        assert slug in source_note and expected in source_note
     # Three real-proportion CC0 Quaternius bodies replace the stylized
     # legacy presentation while retaining the existing WheelCollider/wheel art.
     realistic = {
@@ -328,8 +355,21 @@ def test():
     assert "prefabs[i] = null;" in world
     # The six bundled CC0 Kenney types must remain byte-/appearance-compatible.
     assert all(not x.get("preserveAuthoredUrpMaterials", False) for x in types)
-    assert "visualWheels[i].SetPositionAndRotation(worldPosition, worldRotation);" in motor
+    assert "visualWheelRotationOffsets" in motor
+    assert "worldRotation * visualWheelRotationOffsets[i]" in motor
     assert "wheels[i].GetWorldPose(out Vector3 worldPosition," in motor
+    assert "public bool AttachEmbeddedWheelModels(Transform bodyRoot)" in motor
+    for token in ("wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr"):
+        assert token in motor and token in world
+    assert "HasEmbeddedWheelSet(authoredBody)" in world
+    assert "item.useEmbeddedAuthoredWheels = true;" in world
+    assert "FaceEmbeddedVehicleForward(root.transform, mesh.transform);" in build
+    assert "frontZ < rearZ" in world
+    assert "model.localRotation *= Quaternion.Euler(0f, 180f, 0f);" in world
+    assert "motor.AttachEmbeddedWheelModels(mesh.transform)" in build
+    assert "authoredMaterialCache" in world and "AuthoredUrpMaterial(" in world
+    assert 'label.Contains("glass") || label.Contains("window")' in world
+    assert "renderer.sharedMaterials = converted;" in world
     assert "new WheelCollider[4]" in motor
     assert "WheelCollider" in motor and "JointSpring" in motor
     assert "wheel.forwardFriction" in motor and "wheel.sidewaysFriction" in motor
