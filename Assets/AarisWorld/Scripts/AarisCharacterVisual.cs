@@ -15,8 +15,9 @@ namespace Aaris.MapReview
     [DefaultExecutionOrder(200)]
     public sealed class AarisCharacterVisual : MonoBehaviour
     {
-        private const string PrimaryModel = "AarisCharacters/Primary/RealisticSoldier/RealisticSoldier";
-        private const string PreviousPrimaryModel = "AarisCharacters/Primary/Player";
+        private const string PrimaryModel = "AarisCharacters/Primary/TacticalSoldier/TacticalSoldier";
+        private const string PreviousPrimaryModel = "AarisCharacters/Primary/RealisticSoldier/RealisticSoldier";
+        private const string LegacyPrimaryModel = "AarisCharacters/Primary/Player";
         private const string FallbackModel = "AarisCharacters/Kenney/characterMedium";
         private const string KenneyClips = "AarisCharacters/Kenney/";
         private const string PrimaryClips = "AarisCharacters/Primary/Animations/";
@@ -122,7 +123,10 @@ namespace Aaris.MapReview
         private float lastCrouchPhase = float.NaN;
         private float lastCrawlPhase = float.NaN;
         private bool primaryLoaded;
+        private bool tacticalSoldierLoaded;
         private bool realisticSoldierLoaded;
+        private bool CalibratedSoldierLoaded =>
+            tacticalSoldierLoaded || realisticSoldierLoaded;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void AttachToExistingPlayer()
@@ -151,6 +155,7 @@ namespace Aaris.MapReview
         {
             if (!TryInstantiateCharacter(PrimaryModel) &&
                 !TryInstantiateCharacter(PreviousPrimaryModel) &&
+                !TryInstantiateCharacter(LegacyPrimaryModel) &&
                 !TryInstantiateCharacter(FallbackModel))
             {
                 Debug.LogWarning("Aaris: no usable imported humanoid. Keeping original player visible.");
@@ -245,7 +250,8 @@ namespace Aaris.MapReview
                 FitVisualToController())
             {
                 primaryLoaded = resourcePath != FallbackModel;
-                realisticSoldierLoaded = resourcePath == PrimaryModel;
+                tacticalSoldierLoaded = resourcePath == PrimaryModel;
+                realisticSoldierLoaded = resourcePath == PreviousPrimaryModel;
                 return true;
             }
             visual.SetActive(false);
@@ -430,7 +436,7 @@ namespace Aaris.MapReview
 
         private void TryApplySkin()
         {
-            if (realisticSoldierLoaded)
+            if (tacticalSoldierLoaded || realisticSoldierLoaded)
             {
                 ApplyRealisticSoldierMaterials();
                 return;
@@ -1017,8 +1023,8 @@ namespace Aaris.MapReview
             // Real 6000.3.26f1 PlayMode measurement: standing soldier shoes
             // floated 0.75m while capsule bottom was only 0.035m above the
             // terrain. The static import fit cannot calibrate animated poses.
-            // Only the reviewed soldier gets this one-time runtime scale fit.
-            bool uprightGroundedSoldier = realisticSoldierLoaded && graphReady &&
+            // Both validated soldier rigs get this one-time runtime scale fit.
+            bool uprightGroundedSoldier = CalibratedSoldierLoaded && graphReady &&
                 groundedNow && !visuallyAirborne &&
                 (aerialDrop == null || aerialDrop.HasLanded) &&
                 actions != null &&
