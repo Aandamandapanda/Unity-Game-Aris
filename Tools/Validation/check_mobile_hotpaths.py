@@ -588,6 +588,10 @@ def audit():
     assert "memoryMB > 0 && memoryMB <= 3072" in quality
     assert "spawnBudgetPerPoll = 1;" in quality
     assert "unloadBudgetPerPoll = 2;" in quality
+    assert "private int maxConcurrentAuthoredLoads = 2;" in vehicle
+    assert "maxConcurrentAuthoredLoads = 1;" in quality
+    assert "if (inFlight >= maxConcurrentAuthoredLoads) return false;" in vehicle
+    assert "request != null && !request.isDone" in vehicle
     # Blocked garage locations can require two full collision probes.
     # Keep failed-placement queries bounded even before a car is built.
     assert "private int spawnProbeBudgetPerPoll = 8;" in vehicle
