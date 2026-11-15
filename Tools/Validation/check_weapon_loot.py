@@ -410,6 +410,19 @@ def run():
     assert "minimumForegripZ = 0.14f;" in inventory
     assert inventory.index("foregrip = ReachableSupportGripZ(") < inventory.index(
         "ReachArm(leftUpperArm, leftForearm, leftHand,")
+    # Left support hand needs a rotation target as well as a position target.
+    # Derive it from actual finger/thumb bones so avatar-local hand axes do not
+    # need to be hard-coded, and clamp the correction to preserve authored pose.
+    assert "HumanBodyBones.LeftThumbProximal" in inventory
+    assert "HumanBodyBones.LeftMiddleProximal" in inventory
+    assert "private void AlignSupportWristRotation()" in inventory
+    assert "Quaternion currentBasis = Quaternion.LookRotation(finger, thumb);" in inventory
+    assert "Quaternion targetBasisA = Quaternion.LookRotation(across, barrel);" in inventory
+    assert "Quaternion targetBasisB = Quaternion.LookRotation(-across, barrel);" in inventory
+    assert "Quaternion.RotateTowards(" in inventory
+    assert "aiming ? 52f : 38f" in inventory
+    assert inventory.index("ReachArm(leftUpperArm, leftForearm, leftHand,") < inventory.index(
+        "AlignSupportWristRotation();")
 
     def reachable_rail_grip(dx, dy, dz, arm_reach, preferred):
         # Forward-facing barrel = +Z. C# uses the same quadratic intersection
