@@ -19,7 +19,23 @@ namespace Aaris.MapReview.Editor
 
         private static readonly string[] KayKitClips =
         {
-            "walk", "run", "sprint", "crouch", "crouch_walk", "prone", "crawl", "punch"
+            "walk", "run", "crouch", "crouch_walk", "prone", "crawl", "punch"
+        };
+
+        // Sprint uses the project's previously audited Quaternius CC0
+        // Sprint_Loop asset. Its skeleton is intentionally different from
+        // KayKit, so forcing the KayKit map onto it collapses the gait.
+        private static readonly (string bone, string human)[] QuaterniusHumanoid =
+        {
+            ("pelvis", "Hips"),
+            ("spine_01", "Spine"), ("spine_02", "Chest"), ("spine_03", "UpperChest"),
+            ("neck_01", "Neck"), ("Head", "Head"),
+            ("clavicle_l", "LeftShoulder"), ("clavicle_r", "RightShoulder"),
+            ("upperarm_l", "LeftUpperArm"), ("lowerarm_l", "LeftLowerArm"), ("hand_l", "LeftHand"),
+            ("upperarm_r", "RightUpperArm"), ("lowerarm_r", "RightLowerArm"), ("hand_r", "RightHand"),
+            ("thigh_l", "LeftUpperLeg"), ("calf_l", "LeftLowerLeg"), ("foot_l", "LeftFoot"),
+            ("thigh_r", "RightUpperLeg"), ("calf_r", "RightLowerLeg"), ("foot_r", "RightFoot"),
+            ("ball_l", "LeftToes"), ("ball_r", "RightToes")
         };
 
         private static readonly (string bone, string human)[] KayKitHumanoid =
@@ -45,10 +61,13 @@ namespace Aaris.MapReview.Editor
             bool isMotion = assetPath.StartsWith(Anim, StringComparison.Ordinal);
             string clipName = Path.GetFileNameWithoutExtension(assetPath);
             bool kayKit = isMotion && Array.IndexOf(KayKitClips, clipName) >= 0;
-            if (kayKit)
+            bool quaterniusSprint = isMotion &&
+                string.Equals(clipName, "sprint", StringComparison.Ordinal);
+            if (kayKit || quaterniusSprint)
             {
                 var humanoid = importer.humanDescription;
-                humanoid.human = KayKitHumanoid.Select(pair => new HumanBone
+                var mapping = quaterniusSprint ? QuaterniusHumanoid : KayKitHumanoid;
+                humanoid.human = mapping.Select(pair => new HumanBone
                 {
                     boneName = pair.bone,
                     humanName = pair.human,
@@ -70,6 +89,7 @@ namespace Aaris.MapReview.Editor
                 bool loop = assetPath.EndsWith("idle.fbx", StringComparison.OrdinalIgnoreCase)
                     || assetPath.EndsWith("walk.fbx", StringComparison.OrdinalIgnoreCase)
                     || assetPath.EndsWith("run.fbx", StringComparison.OrdinalIgnoreCase)
+                    || assetPath.EndsWith("sprint.fbx", StringComparison.OrdinalIgnoreCase)
                     || assetPath.EndsWith("crouch.fbx", StringComparison.OrdinalIgnoreCase)
                     || assetPath.EndsWith("crouch_walk.fbx", StringComparison.OrdinalIgnoreCase)
                     || assetPath.EndsWith("jump.fbx", StringComparison.OrdinalIgnoreCase)
@@ -86,7 +106,7 @@ namespace Aaris.MapReview.Editor
                     // crooked root direction into in-place walk/run/jump.
                     clip.keepOriginalPositionY = true;
                     clip.keepOriginalOrientation = true;
-                    if (kayKit)
+                    if (kayKit || quaterniusSprint)
                         clip.name = clipName;
                 }
                 if (clips.Length > 0) importer.clipAnimations = clips;
