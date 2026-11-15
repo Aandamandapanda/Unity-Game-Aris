@@ -80,7 +80,7 @@ assert visual.count('PlantUprightContact(') == 3
 # Whole-rig floating recovery must work even if the player starts moving before
 # the one-time idle scale calibration. It uses the real stance-foot support
 # and hands small residual motion back to leg IK instead of flattening gait.
-assert 'bool uprightGroundedSoldier = realisticSoldierLoaded && graphReady' in visual
+assert 'bool uprightGroundedSoldier = CalibratedSoldierLoaded && graphReady' in visual
 assert 'bool stableSoldier = uprightGroundedSoldier && planar < 0.15f;' in visual
 assert 'Transform stanceFoot = leftFootBone.position.y <= rightFootBone.position.y' in visual
 assert 'float supportY = SupportedAnkleY(stanceFoot, UprightAnkleClearanceMetres);' in visual
@@ -558,16 +558,39 @@ assert 'SUCCESS_STANCE_JUMP_MOTOR' in pose_probe
 assert 'Finish("JUMP_FAILED");' in pose_probe
 
 
-# Native tactical-soldier model replacement and six-pose QA.
-soldier_path=ROOT / "Assets/Resources/AarisCharacters/Primary/RealisticSoldier/RealisticSoldier.fbx"
-assert soldier_path.is_file() and 300000 < soldier_path.stat().st_size < 2500000
-credit=(soldier_path.parent / "ATTRIBUTION.txt").read_text()
-assert "BAMEN" in credit and "CC BY 4.0" in credit and "sketchfab" in credit.lower()
-assert 'private const string PrimaryModel = "AarisCharacters/Primary/RealisticSoldier/RealisticSoldier";' in visual
-assert 'PreviousPrimaryModel = "AarisCharacters/Primary/Player";' in visual
+# Native textured tactical-soldier primary plus fail-safe fallback hierarchy.
+tactical_path=ROOT / "Assets/Resources/AarisCharacters/Primary/TacticalSoldier/TacticalSoldier.fbx"
+assert tactical_path.is_file() and 5_000_000 < tactical_path.stat().st_size < 9_000_000
+tactical_raw=tactical_path.read_bytes()
+for bone in (b"mixamorig:Hips", b"mixamorig:LeftHand", b"mixamorig:RightHand",
+             b"mixamorig:LeftFoot", b"mixamorig:RightFoot"):
+    assert bone in tactical_raw
+assert b"mixamorig:Hips_01" not in tactical_raw
+assert b"HeadphonesT" not in tactical_raw
+tactical_credit=(tactical_path.parent / "ATTRIBUTION.txt").read_text()
+assert "DanlyVostok" in tactical_credit and "CC BY 4.0" in tactical_credit
+assert "sketchfab" in tactical_credit.lower()
+assert "b403237626e308c5a27be9683407b4450b03a246" in tactical_credit
+tactical_meta=(tactical_path.with_suffix(".fbx.meta")).read_text()
+assert "guid: 8cf0c99d7a934ae1b24937c60ccf6f21" in tactical_meta
+assert "animationType: 3" in tactical_meta or "humanDescription:" in tactical_meta
+
+bamen_path=ROOT / "Assets/Resources/AarisCharacters/Primary/RealisticSoldier/RealisticSoldier.fbx"
+assert bamen_path.is_file() and 300000 < bamen_path.stat().st_size < 2500000
+bamen_credit=(bamen_path.parent / "ATTRIBUTION.txt").read_text()
+assert "BAMEN" in bamen_credit and "CC BY 4.0" in bamen_credit
+
+assert 'private const string PrimaryModel = "AarisCharacters/Primary/TacticalSoldier/TacticalSoldier";' in visual
+assert 'PreviousPrimaryModel = "AarisCharacters/Primary/RealisticSoldier/RealisticSoldier";' in visual
+assert 'LegacyPrimaryModel = "AarisCharacters/Primary/Player";' in visual
 load_order = [visual.index(f'TryInstantiateCharacter({name})')
-              for name in ('PrimaryModel', 'PreviousPrimaryModel', 'FallbackModel')]
+              for name in ('PrimaryModel', 'PreviousPrimaryModel',
+                           'LegacyPrimaryModel', 'FallbackModel')]
 assert load_order == sorted(load_order)
+assert 'tacticalSoldierLoaded = resourcePath == PrimaryModel;' in visual
+assert 'realisticSoldierLoaded = resourcePath == PreviousPrimaryModel;' in visual
+assert 'tacticalSoldierLoaded || realisticSoldierLoaded' in visual
+assert 'bool uprightGroundedSoldier = CalibratedSoldierLoaded && graphReady' in visual
 assert 'Resources.LoadAll<Avatar>(resourcePath)' in visual
 assert 'visual.transform.localScale *= scale;' in visual
 # Normalizing measured height must preserve the scale already present on
