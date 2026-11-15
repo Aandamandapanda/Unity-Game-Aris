@@ -85,6 +85,9 @@ namespace Aaris.MapReview
         // than the previous superhero rig. Native hand/foot bone measurements
         // confirm this additional visual-only lowering keeps feet above ground.
         private const float RealisticSoldierProneRigLowering = 0.64f;
+        // Upright Humanoid ankle is much closer to the sole than the retargeted
+        // crouch ankle. Keeping both at 13cm visibly floats standing boots.
+        private const float UprightAnkleClearanceMetres = 0.075f;
         private const float PlantedAnkleMetres = 0.13f;
         private const float ProneAnkleClearanceMetres = 0.105f;
         private Vector3 restingLocalPosition;
@@ -616,7 +619,7 @@ namespace Aaris.MapReview
         {
             if (thigh == null || shin == null || foot == null ||
                 uprightWeight <= 0.001f) return;
-            float supportY = SupportedAnkleY(foot, PlantedAnkleMetres);
+            float supportY = SupportedAnkleY(foot, UprightAnkleClearanceMetres);
             float gap = foot.position.y - supportY;
             // Always recover penetration. When the ankle is above the floor,
             // engage only through the final 14 cm of a step so a swing foot
@@ -748,7 +751,7 @@ namespace Aaris.MapReview
                     (planarVelocity - lastPlanarVelocity) / motionDt, transform.forward);
                 yawRate = Mathf.DeltaAngle(lastFacingYaw, currentYaw) / motionDt;
             }
-            motionHistoryReady = true;
+            motionHistoryReady = controller.enabled;
             lastPlanarVelocity = planarVelocity;
             lastFacingYaw = currentYaw;
             lastMotorPosition = motorPosition;
@@ -865,7 +868,7 @@ namespace Aaris.MapReview
                 // it, and only move the whole rig for a clearly global error.
                 Transform stanceFoot = leftFootBone.position.y <= rightFootBone.position.y
                     ? leftFootBone : rightFootBone;
-                float supportY = SupportedAnkleY(stanceFoot, PlantedAnkleMetres);
+                float supportY = SupportedAnkleY(stanceFoot, UprightAnkleClearanceMetres);
                 float stanceGap = stanceFoot.position.y - supportY;
                 if (Mathf.Abs(stanceGap) > 0.07f)
                 {

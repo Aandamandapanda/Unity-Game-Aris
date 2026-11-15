@@ -59,7 +59,8 @@ assert 'ProneAnkleClearanceMetres' in visual
 # Upright walk/run contact uses the same bounded, allocation-free leg solve,
 # but only near the floor so an authored swing foot is never pinned.
 assert 'private void PlantUprightContact(' in visual
-assert 'float supportY = SupportedAnkleY(foot, PlantedAnkleMetres);' in visual
+assert 'private const float UprightAnkleClearanceMetres = 0.075f;' in visual
+assert 'float supportY = SupportedAnkleY(foot, UprightAnkleClearanceMetres);' in visual
 assert 'Mathf.InverseLerp(0.025f, 0.14f, gap)' in visual
 assert 'Mathf.Lerp(0.95f, 0.62f,' in visual
 assert 'lowPose < 0.02f' in visual
@@ -70,7 +71,7 @@ assert visual.count('PlantUprightContact(') == 3
 assert 'bool uprightGroundedSoldier = realisticSoldierLoaded && graphReady' in visual
 assert 'bool stableSoldier = uprightGroundedSoldier && planar < 0.15f;' in visual
 assert 'Transform stanceFoot = leftFootBone.position.y <= rightFootBone.position.y' in visual
-assert 'float supportY = SupportedAnkleY(stanceFoot, PlantedAnkleMetres);' in visual
+assert 'float supportY = SupportedAnkleY(stanceFoot, UprightAnkleClearanceMetres);' in visual
 assert 'float stanceGap = stanceFoot.position.y - supportY;' in visual
 assert 'if (Mathf.Abs(stanceGap) > 0.07f)' in visual
 assert 'transform.position.y + 0.045f - lowestAnkle' not in visual
@@ -427,8 +428,8 @@ assert ': Mathf.Clamp01(effectiveCrouchBlend + effectiveProneBlend);' in visual
 # rig with a bounded crouch blend rather than leaving the player airborne.
 assert 'float proneLowering = primaryLoaded && proneClip != null &&' in visual
 # One two-bone solve per leg, irrespective of intermediate stance blends.
-assert visual.count('PlantCrouchLeg(') == 3  # definition + left + right
-assert visual.count('SupportedAnkleY(') == 3  # definition + two foot rays
+assert visual.count('PlantCrouchLeg(') == 4  # definition + upright helper + low-stance left/right
+assert visual.count('SupportedAnkleY(') == 5  # definition + upright + standing recovery + two low-stance rays
 assert 'float totalRigWeight = crouchRigWeight + proneRigWeight;' in visual
 assert 'float ankleRigWeight = !visuallyAirborne && graphReady' in visual
 assert 'Mathf.Clamp01(totalRigWeight) : 0f;' in visual
