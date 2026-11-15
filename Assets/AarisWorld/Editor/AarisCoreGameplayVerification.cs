@@ -199,7 +199,11 @@ namespace Aaris.MapReview.Editor
                 // those real event edges and let LateUpdate consume them exactly
                 // as gameplay does.
                 var motorType = typeof(AarisThirdPersonPlayer);
-                motorType.GetField("lastJumpStarted", Private).SetValue(player,
+                var jumpField = motorType.GetField("lastJumpStarted", Private);
+                var landingField = motorType.GetField("lastLanding", Private);
+                float savedJumpTime = player.LastJumpStartedTime;
+                float savedLandingTime = player.LastLandingTime;
+                jumpField.SetValue(player,
                     Mathf.Max(Time.unscaledTime, player.LastJumpStartedTime + 0.01f));
                 TickAudio();
                 Check(Cue("jump_start"), "Ground jump uses the local feedback pool");
@@ -208,11 +212,15 @@ namespace Aaris.MapReview.Editor
                 // Parachute touchdown intentionally consumes the current
                 // landing timestamp to suppress a duplicate generic thud.
                 // Advance by a strict edge so this verifies the NEXT landing.
-                motorType.GetField("lastLanding", Private).SetValue(player,
+                landingField.SetValue(player,
                     Mathf.Max(Time.unscaledTime, player.LastLandingTime + 0.01f));
                 TickAudio();
                 Check(Cue("impactSoft_heavy_000"),
                     "Ground landing resolves to the CC0 soft-impact clip in the local feedback pool");
+                // Synthetic audio edges must not contaminate the later stance
+                // graph: restore the real motor timeline from parachute landing.
+                jumpField.SetValue(player, savedJumpTime);
+                landingField.SetValue(player, savedLandingTime);
                 AarisAudioDirector.GunShot("SMG", "", player.transform.position);
                 AarisAudioDirector.BulletImpact(player.transform.position);
                 Check(Cue("smg_shot") && Cue("bullet_impact", 1f),
@@ -221,6 +229,13 @@ namespace Aaris.MapReview.Editor
                 battle = player.GetComponent<AarisBattleActions>();
                 wall = player.GetComponent<AarisOfflineGlooWall>();
                 Check(battle != null && wall != null, "Combat and Gloo on saved player");
+                var capsule = player.GetComponent<CharacterController>();
+                Physics.SyncTransforms();
+                if (capsule != null && capsule.enabled && !capsule.isGrounded)
+                    capsule.Move(Vector3.down * 0.12f);
+                Physics.SyncTransforms();
+                Check(capsule != null && capsule.enabled && capsule.isGrounded,
+                    "Player is physically grounded before stance pose checks");
 
                 float Pose(float crouch, float prone)
                 {
