@@ -193,6 +193,18 @@ DefaultImporter:
 """
 
 
+def folder_meta(path: Path) -> str:
+    return f"""fileFormatVersion: 2
+guid: {guid(path)}
+folderAsset: yes
+DefaultImporter:
+  externalObjects: {{}}
+  userData: ''
+  assetBundleName: ''
+  assetBundleVariant: ''
+"""
+
+
 def texture_meta(path: Path, max_size: int, normal: bool = False,
                  packed: bool = False) -> str:
     return f"""fileFormatVersion: 2
@@ -321,6 +333,8 @@ def export_weapon(source_root: Path, repo_root: Path, weapon_id: str,
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
+    Path(str(out) + ".meta").write_text(
+        folder_meta(out), encoding="utf-8")
 
     obj_path = out / f"{weapon_id}.obj"
     mtl_path = out / f"{weapon_id}.mtl"
