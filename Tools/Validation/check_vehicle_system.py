@@ -514,7 +514,7 @@ def test():
     assert "capsule.enabled = true;" in session and "footMotor.enabled = true;" in session
     assert "TryFindExit(out Vector3 safeExit)" in session
     assert "Physics.RaycastNonAlloc(" in session
-    assert "hit.collider.transform.IsChildOf(nearbyCar.transform)" in session
+    assert "HasClearVehicleAccess(eye, target, nearbyCar.transform)" in session
     assert "Mathf.Abs(hit.point.y - (option.y - .71f)) > 1.5f" in session
     assert "if (actions != null) actions.enabled = false;" in session
     assert "if (inventory != null) inventory.enabled = false;" in session

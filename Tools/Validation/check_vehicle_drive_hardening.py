@@ -35,22 +35,19 @@ def test():
     assert "if (d >= best || !record.visible.IsSafeToExit) continue;" in nearest
     assert nearest.index("!record.visible.IsSafeToExit") < nearest.index("nearest = record.visible;")
 
-    # The unsorted entry sight probe can saturate with owned vehicle/player
-    # hits. Do not deny a valid DRIVE tap or skip a hidden wall just because
-    # the 24-slot fast-path buffer is full.
+    # Entry and exit share a complete, ownership-filtered obstruction query.
     entry = session.split("private bool TryEnter()", 1)[1].split(
+        "private bool HasClearVehicleAccess(", 1)[0]
+    access = session.split("private bool HasClearVehicleAccess(", 1)[1].split(
         "private void SetFootHudVisible(", 1)[0]
-    assert "if (hitCount >= entrySight.Length) return false;" not in entry
-    assert "if (hitCount >= entrySight.Length)" in entry
-    assert "Physics.RaycastAll(sight, distance," in entry
-    assert "sightHits = Physics.RaycastAll" in entry
-    assert "var hit = sightHits[i];" in entry
-    assert "hit.collider.transform.IsChildOf(transform)" in entry
-    assert "hit.collider.transform.IsChildOf(nearbyCar.transform)" in entry
-    assert "return false;" in entry.split("for (int i = 0; i < hitCount; i++)", 1)[1].split(
-        "if (!nearbyCar.TryTakeDriver(this))", 1)[0]
-    assert entry.index("Physics.RaycastNonAlloc(") < entry.index(
-        "if (hitCount >= entrySight.Length)") < entry.index("Physics.RaycastAll(")
+    assert entry.index("HasClearVehicleAccess(eye, target, nearbyCar.transform)") < (
+        entry.index("if (!nearbyCar.TryTakeDriver(this))"))
+    assert access.index("Physics.RaycastNonAlloc(") < access.index(
+        "if (count >= vehicleAccessHits.Length)") < access.index("Physics.RaycastAll(")
+    assert "count = hits.Length;" in access
+    assert "collider.transform.IsChildOf(transform)" in access
+    assert "collider.transform.IsChildOf(vehicle)" in access
+    assert "return false;" in access.split("for (int i = 0; i < count; i++)", 1)[1]
 
     # The 32-slot exit ray/capsule buffers are intentionally allocation-free
     # in normal use. On saturation an EXIT press must query ALL candidates:
@@ -68,6 +65,13 @@ def test():
     assert "occupiedColliders = Physics.OverlapCapsule(bottom, top, r," in exit_path
     assert "overlaps = occupiedColliders.Length;" in exit_path
     assert "var obstacle = occupiedColliders[i];" in exit_path
+    # A wall between the car and a clear landing is still a blocked exit.
+    route = "if (!HasClearVehicleAccess(t.position + Vector3.up * .35f,"
+    assert route in exit_path
+    assert "support + Vector3.up * .85f, t)) continue;" in exit_path
+    assert exit_path.index("nearbyColliders.RefreshNow();") < exit_path.index("Physics.RaycastNonAlloc(")
+    assert exit_path.index("if (!safe) continue;") < exit_path.index(route) < (
+        exit_path.index("position = support + Vector3.up * .08f;"))
     # Authored house collider streaming disables distant walls. A sudden
     # exit before its next refresh must still reject a location inside one.
     # The cached world AABB is conservative until the real collider streams
@@ -267,7 +271,7 @@ def test():
     assert "record.visible.CanPark" in world
     assert "(!IsDriving)" not in session  # no duplicate input owner gate
     assert "Physics.OverlapCapsuleNonAlloc" in session
-    assert "hit.collider.transform.IsChildOf(nearbyCar.transform)" in session
+    assert "collider.transform.IsChildOf(vehicle)" in session
     assert "if (actions != null) actions.enabled = false;" in session
     assert "if (inventory != null) inventory.enabled = false;" in session
     assert "if (lootWorld != null) lootWorld.enabled = false;" in session
