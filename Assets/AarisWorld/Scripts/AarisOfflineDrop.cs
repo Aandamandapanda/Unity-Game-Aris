@@ -608,6 +608,7 @@ namespace Aaris.MapReview
 
         public void OnAction()
         {
+            if (Time.timeScale <= 0f) return;
             if (phase == DropPhase.InPlane) Eject();
             else if (phase == DropPhase.Freefall)
             {

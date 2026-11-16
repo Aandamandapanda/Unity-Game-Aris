@@ -6,7 +6,7 @@ namespace Aaris.MapReview
     /// <summary>
     /// Offline health receiver shared by player and future AI bot prefabs.
     /// Existing guns and frag explosions already use IAarisDamageable.
-    /// This receiver reports death; a match/bot state machine decides respawn or defeat.
+    /// The player match controller consumes the same death event available to bots.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class AarisOfflineHealth : MonoBehaviour, IAarisDamageable
@@ -47,7 +47,7 @@ namespace Aaris.MapReview
             HealthChanged?.Invoke(this);
             if (!dead) return;
             Died?.Invoke(this);
-            Debug.Log("Aaris offline combat: combatant defeated, awaiting match state transition.");
+            Debug.Log("Aaris offline combat: combatant defeated.");
         }
 
         public void RestoreHealth(float amount)
