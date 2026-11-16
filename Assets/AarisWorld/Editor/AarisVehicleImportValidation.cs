@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 
@@ -7,6 +8,78 @@ namespace Aaris.MapReview.Editor
     /// <summary>Real licensed Unity importer smoke-test, separate from Python QA.</summary>
     public static class AarisVehicleImportValidation
     {
+        [MenuItem("Aaris/CI/Verify Vehicle Exit Collision")]
+        public static void VerifyExitCollision()
+        {
+            const BindingFlags privateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
+            var sessionType = typeof(AarisVehicleSession);
+            var findExit = sessionType.GetMethod("TryFindExit", privateInstance);
+            var fixture = new GameObject("Vehicle exit collision test");
+            fixture.transform.position = Vector3.up * 500f;
+            try
+            {
+                var car = new GameObject("Test car", typeof(AarisVehicleMotor));
+                car.transform.SetParent(fixture.transform, false);
+                car.transform.localPosition = Vector3.up * .71f;
+                var body = car.AddComponent<BoxCollider>();
+                body.center = new Vector3(0f, .5f, 0f);
+                body.size = new Vector3(1.85f, 1f, 3.85f);
+
+                var player = new GameObject("Test driver", typeof(CharacterController),
+                    typeof(AarisVehicleSession));
+                player.transform.SetParent(car.transform, false);
+                var capsule = player.GetComponent<CharacterController>();
+                capsule.height = 1.8f;
+                capsule.radius = .3f;
+                capsule.enabled = false;
+                var session = player.GetComponent<AarisVehicleSession>();
+                sessionType.GetField("car", privateInstance).SetValue(session,
+                    car.GetComponent<AarisVehicleMotor>());
+                sessionType.GetField("capsule", privateInstance).SetValue(session, capsule);
+
+                BoxCollider AddObstacle(string name, Vector3 center, Vector3 size)
+                {
+                    var obstacle = new GameObject(name);
+                    obstacle.transform.SetParent(fixture.transform, false);
+                    obstacle.transform.localPosition = center;
+                    var collider = obstacle.AddComponent<BoxCollider>();
+                    collider.size = size;
+                    return collider;
+                }
+
+                bool ResolveExit(out Vector3 position)
+                {
+                    Physics.SyncTransforms();
+                    var args = new object[] { Vector3.zero };
+                    bool found = (bool)findExit.Invoke(session, args);
+                    position = (Vector3)args[0];
+                    return found;
+                }
+
+                AddObstacle("Road", new Vector3(0f, -.25f, 0f), new Vector3(20f, .5f, 20f));
+                if (!ResolveExit(out Vector3 exit) || exit.x < 3f)
+                    throw new InvalidOperationException("Expected the unobstructed right-side exit.");
+
+                var crossWall = new Vector3(.2f, 2.2f, 3f);
+                AddObstacle("Right wall", new Vector3(2f, 1.1f, 0f), crossWall);
+                if (!ResolveExit(out exit) || exit.x > -3f)
+                    throw new InvalidOperationException("The right wall must force the left-side exit.");
+
+                AddObstacle("Left wall", new Vector3(-2f, 1.1f, 0f), crossWall);
+                var endWall = new Vector3(3f, 2.2f, .2f);
+                AddObstacle("Rear wall", new Vector3(0f, 1.1f, -2.5f), endWall);
+                AddObstacle("Front wall", new Vector3(0f, 1.1f, 2.5f), endWall);
+                if (ResolveExit(out _))
+                    throw new InvalidOperationException("A car enclosed by four walls must deny exit.");
+
+                Debug.Log("AARIS_VEHICLE_EXIT_COLLISION_PASS: clear route, alternate side, all sides blocked.");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(fixture);
+            }
+        }
+
         [MenuItem("Aaris/Validate 2km CC0 Vehicles")]
         public static void Run()
         {

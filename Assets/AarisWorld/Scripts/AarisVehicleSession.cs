@@ -15,7 +15,7 @@ namespace Aaris.MapReview
     {
         private readonly Collider[] exitOverlap = new Collider[32];
         private readonly RaycastHit[] exitGround = new RaycastHit[32];
-        private readonly RaycastHit[] entrySight = new RaycastHit[24];
+        private readonly RaycastHit[] vehicleAccessHits = new RaycastHit[24];
         private readonly RaycastHit[] cameraObstacles = new RaycastHit[32];
         // Avoid allocating a full hit array every frame in crowded forests.
         private readonly RaycastHit[] crowdedCameraObstacles = new RaycastHit[128];
@@ -114,34 +114,7 @@ namespace Aaris.MapReview
             // The DRIVE action cannot reach through a house/rock wall.
             Vector3 eye = transform.position + Vector3.up * 1.1f;
             Vector3 target = nearbyCar.transform.position + Vector3.up * 1.1f;
-            Vector3 delta = target - eye;
-            float distance = delta.magnitude;
-            if (distance > .01f)
-            {
-                Ray sight = new Ray(eye, delta / distance);
-                int hitCount = Physics.RaycastNonAlloc(
-                    sight, entrySight, distance,
-                    Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
-                RaycastHit[] sightHits = entrySight;
-                if (hitCount >= entrySight.Length)
-                {
-                    // Unsorted NonAlloc results can fill with player/car
-                    // colliders before including a distant wall. Retry the
-                    // COMPLETE query only on an explicit saturated DRIVE tap,
-                    // retaining the same obstruction/ownership safety checks.
-                    sightHits = Physics.RaycastAll(sight, distance,
-                        Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
-                    hitCount = sightHits.Length;
-                }
-                for (int i = 0; i < hitCount; i++)
-                {
-                    var hit = sightHits[i];
-                    if (hit.collider == null ||
-                        hit.collider.transform.IsChildOf(transform) ||
-                        hit.collider.transform.IsChildOf(nearbyCar.transform)) continue;
-                    return false;
-                }
-            }
+            if (!HasClearVehicleAccess(eye, target, nearbyCar.transform)) return false;
             if (!nearbyCar.TryTakeDriver(this)) return false;
             // The four AfterSceneLoad Boot methods have no guaranteed
             // ordering. The vehicle session may have been configured before
@@ -191,6 +164,34 @@ namespace Aaris.MapReview
             return true;
         }
 
+        private bool HasClearVehicleAccess(Vector3 start, Vector3 end, Transform vehicle)
+        {
+            Vector3 delta = end - start;
+            float distance = delta.magnitude;
+            if (distance <= .01f) return true;
+
+            Ray path = new Ray(start, delta / distance);
+            int count = Physics.RaycastNonAlloc(path, vehicleAccessHits, distance,
+                Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+            RaycastHit[] hits = vehicleAccessHits;
+            // A full buffer can omit a solid wall behind the owned colliders.
+            // Complete the query only on a saturated DRIVE or EXIT request.
+            if (count >= vehicleAccessHits.Length)
+            {
+                hits = Physics.RaycastAll(path, distance,
+                    Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+                count = hits.Length;
+            }
+            for (int i = 0; i < count; i++)
+            {
+                Collider collider = hits[i].collider;
+                if (collider == null || collider.transform.IsChildOf(transform) ||
+                    collider.transform.IsChildOf(vehicle)) continue;
+                return false;
+            }
+            return true;
+        }
+
         private void SetFootHudVisible(bool show)
         {
             // Toggle only the two existing on-foot canvases and raycasters;
@@ -222,6 +223,9 @@ namespace Aaris.MapReview
             // Resolve only on an explicit exit request, never each frame.
             if (nearbyColliders == null)
                 nearbyColliders = FindFirstObjectByType<AarisNearbyColliders>();
+            // Refresh once on an exit request so a just-streamed road or
+            // house wall is available to both the route and landing checks.
+            if (nearbyColliders != null) nearbyColliders.RefreshNow();
             var t = car.transform;
             float seaLevel = -38.07552f;
             // Exit candidates are computed on demand, without allocating
@@ -299,6 +303,11 @@ namespace Aaris.MapReview
                     break;
                 }
                 if (!safe) continue;
+                // A clear landing spot can still be on the far side of a
+                // wall. Check the waist-height route out of the car, then
+                // try the remaining sides if this path is blocked.
+                if (!HasClearVehicleAccess(t.position + Vector3.up * .35f,
+                        support + Vector3.up * .85f, t)) continue;
                 position = support + Vector3.up * .08f;
                 return true;
             }
