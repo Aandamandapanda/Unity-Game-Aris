@@ -467,7 +467,10 @@ namespace Aaris.MapReview
             }
             if (wasGrounded)
             {
-                lastGrounded = now;
+                // A speculative downhill sweep helps the capsule follow steps,
+                // but cannot refresh coyote time or authorize a buffered jump
+                // until a real CharacterController.Move touches the floor.
+                if (previousMoveGrounded) lastGrounded = now;
                 if (verticalVelocity < 0f) verticalVelocity = -groundedDownVelocity;
             }
             bool launchJump = now <= jumpUntil && now - lastGrounded <= 0.15f;

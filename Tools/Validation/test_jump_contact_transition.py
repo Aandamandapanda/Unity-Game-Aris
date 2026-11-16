@@ -165,3 +165,21 @@ assert 'lastPhysicalGroundContact = now;\n                lastGrounded = now;' i
 for airborne_seconds, should_land in ((0,False),(1/60,False),(0.1,False),
                                      (0.119,False),(0.12,True),(0.45,True)):
     assert (airborne_seconds >= 0.12) == should_land
+
+# Predicted near-ground support must not renew jump eligibility before touchdown.
+# Keep the actual-contact coyote window and buffered landing jump independent.
+ground_block = motor.split("if (wasGrounded)", 1)[1].split("bool launchJump", 1)[0]
+assert "if (previousMoveGrounded) lastGrounded = now;" in ground_block
+def can_launch(now, last_contact, real_previous, predicted, buffered_until):
+    if real_previous:
+        last_contact = now
+    return now <= buffered_until and now - last_contact <= 0.15
+
+for fps in (10, 20, 30, 60, 120):
+    dt = 1.0 / fps
+    assert can_launch(1.0, 0.90, False, False, 1.2), "Valid coyote jump"
+    for frame in range(1, fps + 1):
+        now = 1.0 + frame * dt
+        assert not can_launch(now, 0.5, False, True, now + 0.2), "No jump from predicted support"
+    assert can_launch(1.0 + dt, 0.5, True, True, 1.2), "Buffered real touchdown jump"
+print("PASS: physical-contact-only jump eligibility across 10-120 FPS")
