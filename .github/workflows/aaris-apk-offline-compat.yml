@@ -1,0 +1,93 @@
+name: Aaris Offline Android compatibility APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      native_run:
+        description: Successful Aaris Android APK run with its Gradle project still in the Codespace
+        type: string
+        required: true
+        default: '43799622905'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aaris-apk-offline-compat.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.actor == 'sundamunda289-art'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    concurrency:
+      group: aaris-codespace-control
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: write
+    env:
+      CODESPACE: aaris-ai-ubuntu-minimal-wv4jxgw97qwr2gx5
+      NATIVE_RUN: ${{ inputs.native_run || '43799622905' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Resolve the verified Unity build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$NATIVE_RUN" =~ ^[0-9]+$ ]]
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$NATIVE_RUN")"
+          sha="$(jq -er 'select(.conclusion == "success" and .path == ".github/workflows/aaris-codespace-android-apk.yml") | .head_sha' <<< "$run")"
+          digest="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/apk-test-$NATIVE_RUN" \
+            --jq '.assets[] | select(.name=="AarisGame.apk") | .digest')"
+          [[ "$sha" =~ ^[a-f0-9]{40}$ && "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          printf 'SOURCE_COMMIT=%s\nSOURCE_APK_HASH=%s\n' "$sha" "${digest#sha256:}" >> "$GITHUB_ENV"
+          bash -n Tools/Codespaces/apk_offline_compat.sh
+
+      - name: Rebuild or verify the side-by-side APK in the existing Codespace
+        env:
+          GH_TOKEN: ${{ secrets.CODESPACE_PAT }}
+        run: |
+          set -euo pipefail
+          gh codespace list --limit 100 --json name,state,repository |
+            jq -e --arg name "$CODESPACE" '[.[] | select(
+              .name == $name and .state == "Available" and
+              ((if (.repository | type) == "string" then .repository
+                else .repository.nameWithOwner end) | test("^[^/]+/Unity-Game-Aris$"))
+            )] | length == 1' >/dev/null
+          mkdir -p dist
+          timeout 950 gh codespace ssh -c "$CODESPACE" -- \
+            -o ConnectTimeout=25 -o ServerAliveInterval=25 -o ServerAliveCountMax=6 \
+            "bash -s -- $SOURCE_COMMIT $SOURCE_APK_HASH" \
+            < Tools/Codespaces/apk_offline_compat.sh > result.txt
+          grep -qxF AARIS_OFFLINE_APK_REBUILT_VERIFIED result.txt
+          grep -E '^[a-f0-9]{64}  AarisGame-Offline[.]apk$' result.txt > dist/AarisGame-Offline.sha256
+          remote_path="/tmp/aaris-offline-install-${SOURCE_COMMIT:0:7}/AarisGame-Offline.apk"
+          if ! timeout 800 gh codespace cp -e -c "$CODESPACE" "remote:$remote_path" dist/AarisGame-Offline.apk; then
+            timeout 800 gh codespace ssh -c "$CODESPACE" -- \
+              -o ServerAliveInterval=25 -o ServerAliveCountMax=6 \
+              "cat $remote_path" > dist/AarisGame-Offline.apk
+          fi
+          (cd dist && sha256sum -c AarisGame-Offline.sha256)
+
+      - name: Publish the independent installation package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="apk-offline-$GITHUB_RUN_ID"
+          cat > release-notes.md <<EOF
+          Android test APK with application ID com.aaris.game.offline and launcher name Aaris Game Offline.
+          It installs alongside com.aaris.game and uses its own app data.
+          Unity game source: $SOURCE_COMMIT (native build $NATIVE_RUN).
+          Verified: matching Unity assets and native binaries, ARM64 and ARMv7, Android SDK 26 minimum,
+          target SDK 33, APK signatures v1/v2/v3, ZIP alignment and SHA-256.
+          EOF
+          gh release create "$tag" dist/AarisGame-Offline.apk dist/AarisGame-Offline.sha256 \
+            --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" --title "Aaris Game Offline" \
+            --notes-file release-notes.md --prerelease
