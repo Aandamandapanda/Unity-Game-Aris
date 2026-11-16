@@ -666,6 +666,23 @@ class OfflineCombatAssetChecks(unittest.TestCase):
             clamped = min(max(0.35, x - 0.2) for x in distances)
             self.assertAlmostEqual(clamped, 0.6)
 
+    def test_interrupted_aerial_drop_restores_ground_before_motor_handoff(self):
+        drop = (SCRIPTS / "AarisOfflineDrop.cs").read_text("utf-8")
+        interrupt = drop.split("private void OnDisable()", 1)[1].split(
+            "public sealed class AarisOfflineDropHud", 1)[0]
+        self.assertIn("if (!controlsSuspended) return;", interrupt)
+        ordered = [
+            "capsule.enabled = false;",
+            "transform.SetPositionAndRotation(preFlightGroundPosition, cachedPlayerRotation);",
+            "capsule.enabled = true;",
+            "phase = DropPhase.Landed;",
+            "RestoreFootControls();",
+        ]
+        positions = [interrupt.index(line) for line in ordered]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("plane = null;", interrupt)
+        self.assertIn("canopy = null;", interrupt)
+
     def test_aerial_hud_fingers_never_steal_camera_swipe(self):
         drop = (SCRIPTS / "AarisOfflineDrop.cs").read_text("utf-8")
         look = drop[drop.index("private void ReadLookInput()"):
