@@ -485,8 +485,22 @@ def test():
         assert 2.95 <= height <= 3.25
     for contact in (0.0, .05, .1, .2, .24, .3, .35, .45, 1.0, 6.0):
         assert 0 <= max(0.0, contact - .24) <= contact
+    # The driving session—not only the HUD—owns the held motor command.
+    # Losing Android focus/pause must therefore zero throttle and steering
+    # even if uGUI never delivers its final PointerUp.
+    assert "private void ClearHeldDrivingInput()" in session
+    clear_input = session.split("private void ClearHeldDrivingInput()", 1)[1].split(
+        "private void OnApplicationPause", 1)[0]
+    assert "touchMove = touchSteer = 0f;" in clear_input
+    assert "car.SetInput(0f, 0f);" in clear_input
+    pause = session.split("private void OnApplicationPause(bool paused)", 1)[1].split(
+        "private void OnApplicationFocus", 1)[0]
+    focus = session.split("private void OnApplicationFocus(bool focused)", 1)[1].split(
+        "private void OnDisable", 1)[0]
     disabled = session.split("private void OnDisable()", 1)[1]
-    assert "touchMove = touchSteer = 0f;" in disabled
+    assert "if (paused) ClearHeldDrivingInput();" in pause
+    assert "if (!focused) ClearHeldDrivingInput();" in focus
+    assert "ClearHeldDrivingInput();" in disabled
 
     # Traction control must reuse prior WheelHit slip instead of adding
     # another contact query to the 2 GB-phone hotpath.

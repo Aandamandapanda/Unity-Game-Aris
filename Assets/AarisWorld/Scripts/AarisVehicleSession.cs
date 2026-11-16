@@ -427,10 +427,27 @@ namespace Aaris.MapReview
                 targetFov, 1f - Mathf.Exp(-5f * fovDelta));
         }
 
-        private void OnDisable()
+        // VehicleSession is the authoritative held-input owner. UI buttons
+        // reset themselves too, but Android may suspend the app while uGUI is
+        // disabled/rebuilt or before PointerUp reaches the button. Clear the
+        // actual motor command here so focus regain can never resume stale
+        // throttle/steering without a fresh player press.
+        private void ClearHeldDrivingInput()
         {
             touchMove = touchSteer = 0f;
             if (car != null) car.SetInput(0f, 0f);
         }
+
+        private void OnApplicationPause(bool paused)
+        {
+            if (paused) ClearHeldDrivingInput();
+        }
+
+        private void OnApplicationFocus(bool focused)
+        {
+            if (!focused) ClearHeldDrivingInput();
+        }
+
+        private void OnDisable() => ClearHeldDrivingInput();
     }
 }
