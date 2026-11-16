@@ -68,9 +68,40 @@ grep -qxF "sdkVersion:'26'" "$run/badging.txt"
 grep -qxF "targetSdkVersion:'33'" "$run/badging.txt"
 
 python3 - "$source_apk" "$output" <<'PY'
+import struct
 import sys
 from hashlib import sha256
 from zipfile import ZipFile
+
+def without_swappy_build_id(binary):
+    # Gradle relinks Unity's frame-pacing wrapper. Its GNU build ID can differ
+    # even when all executable bytes are identical.
+    assert binary[:4] == b"\x7fELF" and binary[5] == 1
+    if binary[4] == 2:
+        table_offset = struct.unpack_from("<Q", binary, 40)[0]
+        entry_size, count, names_index = struct.unpack_from("<HHH", binary, 58)
+        range_format, range_offset = "<QQ", 24
+    else:
+        assert binary[4] == 1
+        table_offset = struct.unpack_from("<I", binary, 32)[0]
+        entry_size, count, names_index = struct.unpack_from("<HHH", binary, 46)
+        range_format, range_offset = "<II", 16
+    names_offset, names_size = struct.unpack_from(
+        range_format, binary, table_offset + names_index * entry_size + range_offset)
+    names = binary[names_offset:names_offset + names_size]
+    for index in range(count):
+        entry = table_offset + index * entry_size
+        name_offset = struct.unpack_from("<I", binary, entry)[0]
+        if names[name_offset:].split(b"\0", 1)[0] != b".note.gnu.build-id":
+            continue
+        note_offset, note_size = struct.unpack_from(
+            range_format, binary, entry + range_offset)
+        assert note_size == 36 and binary[note_offset:note_offset + 16] == (
+            struct.pack("<III", 4, 20, 3) + b"GNU\0")
+        start = note_offset + 16
+        return binary[:start] + bytes(20) + binary[start + 20:]
+    raise AssertionError("Swappy GNU build ID note missing")
+
 
 with ZipFile(sys.argv[1]) as original, ZipFile(sys.argv[2]) as candidate:
     assert candidate.testzip() is None
@@ -90,7 +121,10 @@ with ZipFile(sys.argv[1]) as original, ZipFile(sys.argv[2]) as candidate:
     assert payload and payload == payload_names(candidate)
     for name in sorted(payload):
         with original.open(name) as left, candidate.open(name) as right:
-            assert digest(left) == digest(right), name
+            if name.endswith("/libswappywrapper.so"):
+                assert without_swappy_build_id(left.read()) == without_swappy_build_id(right.read()), name
+            else:
+                assert digest(left) == digest(right), name
 print("AARIS_OFFLINE_UNITY_PAYLOAD_VERIFIED")
 PY
 cd "$run"
