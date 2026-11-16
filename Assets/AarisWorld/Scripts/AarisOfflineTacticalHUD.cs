@@ -689,13 +689,15 @@ namespace Aaris.MapReview
         public void Bind(AarisOfflineGlooWall value) => wall = value;
         public void OnPointerDown(PointerEventData data)
         {
-            if (wall == null || holding != int.MinValue) return;
+            if (wall == null || data == null ||
+                data.button != PointerEventData.InputButton.Left ||
+                holding != int.MinValue) return;
             holding = data.pointerId;
             wall.BeginAim();
         }
         public void OnPointerUp(PointerEventData data)
         {
-            if (holding != data.pointerId) return;
+            if (data == null || holding != data.pointerId) return;
             holding = int.MinValue;
             if (wall == null) return;
             for (int i = 0; i < Input.touchCount; i++)
@@ -707,6 +709,40 @@ namespace Aaris.MapReview
             }
             wall.ReleaseAndDeploy();
         }
+
+        // Android can lose PointerUp/Cancel while the app remains focused
+        // (system gesture, touch snapshot loss, input interruption). A lost
+        // hold is never permission to spend a wall: cancel the preview and
+        // ownership only after the classic uGUI pointer is no longer physical.
+        private void LateUpdate()
+        {
+            if (holding == int.MinValue) return;
+            if (EventSystem.current == null ||
+                EventSystem.current.currentInputModule == null)
+            {
+                CancelHold();
+                return;
+            }
+            if (!(EventSystem.current.currentInputModule is StandaloneInputModule))
+                return;
+            if (!IsPointerPhysicallyHeld(holding)) CancelHold();
+        }
+
+        private static bool IsPointerPhysicallyHeld(int pointerId)
+        {
+            if (pointerId == PointerInputModule.kMouseLeftId)
+                return Input.GetMouseButton(0);
+            for (int i = 0; i < Input.touchCount; i++)
+            {
+                Touch touch = Input.GetTouch(i);
+                if (touch.fingerId == pointerId &&
+                    touch.phase != TouchPhase.Ended &&
+                    touch.phase != TouchPhase.Canceled)
+                    return true;
+            }
+            return false;
+        }
+
         public void OnCancel(BaseEventData data) => CancelHold();
 
         public void CancelHold()
