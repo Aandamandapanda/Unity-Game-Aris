@@ -75,6 +75,9 @@ namespace Aaris.MapReview
             foreach (var receiver in player.GetComponents<MonoBehaviour>())
                 if (receiver is IAarisDamageable) { hasDamageReceiver = true; break; }
             if (!hasDamageReceiver) player.gameObject.AddComponent<AarisOfflineHealth>();
+            if (player.GetComponent<AarisOfflineHealth>() != null &&
+                player.GetComponent<AarisOfflineMatchEnd>() == null)
+                player.gameObject.AddComponent<AarisOfflineMatchEnd>();
             if (player.GetComponent<AarisOfflineGlooWall>() == null)
                 player.gameObject.AddComponent<AarisOfflineGlooWall>();
             if (player.GetComponent<AarisOfflineTacticalHUD>() == null)
