@@ -404,7 +404,18 @@ bash .devcontainer/start_screen.sh >"$BASE/private-screen.log" 2>&1 || {
 }
 DISPLAY=:99 xdpyinfo >/dev/null 2>&1 || {
   echo APK_DISPLAY_MISSING; exit 29; }
-mkdir -p "$BASE/UnityTemp" "$BASE/Build"
+# Keep Android dependencies and daemon logs off the small Codespace overlay.
+export GRADLE_USER_HOME="$BASE/GradleUserHome"
+mkdir -p "$BASE/UnityTemp" "$BASE/Build" "$GRADLE_USER_HOME"
+if test "$MODE" = build_hud; then
+  # The immutable historical HUD branch still uses its original code.
+  EXPECTED_VERSION_CODE=7
+else
+  EXPECTED_VERSION_CODE="$(awk '$1 == "AndroidBundleVersionCode:" {print $2}' ProjectSettings/ProjectSettings.asset)"
+fi
+[[ "$EXPECTED_VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || {
+  echo APK_SOURCE_VERSION_CODE_INVALID; exit 29;
+}
 rm -f "$BASE/Build/AarisGame.apk" "$BASE/build-report.json"
 ANDROID="$(dirname "$EDITOR")/Data/PlaybackEngines/AndroidPlayer"
 # The Editor build script requires both platform APIs and the bundled NDK.
@@ -487,8 +498,19 @@ if test "$RC" -ne 0; then
     143) echo APK_EDITOR_TERMINATED_OR_CODESPACE_STOPPED ;;
     *) echo APK_EDITOR_NONZERO_EXIT ;;
   esac
-  if grep -Eq 'error CS[0-9]{4}' "$BASE/private-editor.log" 2>/dev/null; then
+  build_logs=("$BASE/private-editor.log" "$BASE/private-stdout.log" "$BASE/private-stderr.log")
+  if grep -Eqi 'No space left on device|Disk quota exceeded|(^|[^A-Z])ENOSPC([^A-Z]|$)' "${build_logs[@]}" 2>/dev/null; then
+    echo APK_BUILD_STORAGE_EXHAUSTED
+  elif grep -Eq 'error CS[0-9]{4}' "${build_logs[@]}" 2>/dev/null; then
     echo APK_CSHARP_COMPILE_FAILED
+  elif grep -Eqi 'Java heap space|OutOfMemoryError|GC overhead limit exceeded' "${build_logs[@]}" 2>/dev/null; then
+    echo APK_GRADLE_OUT_OF_MEMORY
+  elif grep -Eqi 'Gradle build daemon disappeared|daemon has disappeared' "${build_logs[@]}" 2>/dev/null; then
+    echo APK_GRADLE_DAEMON_EXITED
+  elif grep -Eqi 'Could not (resolve all (files|dependencies)|download)|Failed to (download|resolve) .*gradle' "${build_logs[@]}" 2>/dev/null; then
+    echo APK_GRADLE_DEPENDENCY_RESOLUTION_FAILED
+  elif grep -Eqi 'Manifest merger failed' "${build_logs[@]}" 2>/dev/null; then
+    echo APK_ANDROID_MANIFEST_MERGE_FAILED
   elif grep -Eqi 'licen[sc]e.*(invalid|expired|missing|failed)' "$BASE/private-editor.log" 2>/dev/null; then
     echo APK_EDITOR_LICENSE_FAILED
   elif grep -Eqi 'SIGSEGV|segmentation fault' "$BASE/private-editor.log" 2>/dev/null; then
@@ -580,7 +602,7 @@ AAPT="$(find "$ANDROID/SDK/build-tools" -maxdepth 2 -type f -name aapt -print -q
 if ! test -x "$AAPT"; then echo APK_AAPT_MISSING; exit 38; fi
 timeout 120 "$AAPT" dump badging "$BASE/Build/AarisGame.apk" \
   > "$BASE/private-package-id-report.log" 2>&1 || exit 39
-grep -Eq "^package: name='com[.]aaris[.]game' versionCode='7'" \
+grep -Eq "^package: name='com[.]aaris[.]game' versionCode='$EXPECTED_VERSION_CODE'([[:space:]]|$)" \
   "$BASE/private-package-id-report.log" || {
     echo APK_PACKAGE_ID_OR_VERSION_INVALID; exit 40;
   }

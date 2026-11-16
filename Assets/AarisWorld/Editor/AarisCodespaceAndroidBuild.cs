@@ -23,8 +23,8 @@ namespace Aaris.MapReview.Editor
         private const string MainScene =
             "Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity";
         private const string ExpectedAppId = "com.aaris.game";
-        private const string ExpectedVersion = "0.3.1";
-        private const int ExpectedVersionCode = 7;
+        private const string ExpectedVersion = AarisExplorerBuild.AndroidVersionName;
+        private const int ExpectedVersionCode = AarisExplorerBuild.AndroidVersionCode;
         private const string Output = "/tmp/aaris-codespaces/android-apk";
         private const string Apk = "/tmp/aaris-codespaces/android-apk/Build/AarisGame.apk";
 
@@ -151,19 +151,19 @@ namespace Aaris.MapReview.Editor
                 EditorUserBuildSettings.exportAsGoogleAndroidProject = false;
                 // Unity's imported PlayerSettings may retain stale values from a
                 // previous isolated Library import. Explicitly enforce the
-                // reviewed native v7 Android identity before BuildPipeline.
+                // reviewed native Android identity before BuildPipeline.
                 // This is an isolated worktree only, never the owner's GUI project.
                 PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Android,
                                                         "com.aaris.game");
-                PlayerSettings.bundleVersion = "0.3.1";
-                PlayerSettings.Android.bundleVersionCode = 7;
+                PlayerSettings.bundleVersion = ExpectedVersion;
+                PlayerSettings.Android.bundleVersionCode = ExpectedVersionCode;
                 PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel26;
                 PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevel33;
                 if (PlayerSettings.GetApplicationIdentifier(NamedBuildTarget.Android) !=
                         "com.aaris.game" ||
-                    PlayerSettings.Android.bundleVersionCode != 7 ||
+                    PlayerSettings.Android.bundleVersionCode != ExpectedVersionCode ||
                     PlayerSettings.Android.targetSdkVersion != AndroidSdkVersions.AndroidApiLevel33)
-                    throw new InvalidOperationException("ANDROID_V7_SETTINGS_NOT_APPLIED");
+                    throw new InvalidOperationException("ANDROID_RELEASE_SETTINGS_NOT_APPLIED");
                 PlayerSettings.Android.useCustomKeystore = false;
                 PlayerSettings.Android.targetArchitectures = AarisExplorerBuild.AndroidArchitectures;
                 PlayerSettings.Android.buildApkPerCpuArchitecture = false;
@@ -176,7 +176,7 @@ namespace Aaris.MapReview.Editor
                     throw new InvalidOperationException("ANDROID_APPLICATION_ID_MISSING");
                 // Validate BEFORE BuildPipeline and again AFTER all preprocessors.
                 // AarisExplorerBuild implements IPreprocessBuildWithReport; its
-                // Configure() previously overwrote the v7 manifest with the
+                // Configure() previously overwrote the game manifest with the
                 // legacy v6 map explorer ID during BuildPipeline.BuildPlayer.
                 if (evidence.applicationId != ExpectedAppId ||
                     PlayerSettings.bundleVersion != ExpectedVersion ||
