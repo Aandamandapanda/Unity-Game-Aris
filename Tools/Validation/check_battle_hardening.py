@@ -161,6 +161,21 @@ def audit() -> None:
     assert "button.CancelHold()" in ui
     assert "if (!focused) ReleaseAllPointers();" in ui
 
+    # A system overlay can remove app focus without the normal pause/pointer-up
+    # sequence. Combat state itself must also drop held/buffered attacks, not
+    # rely only on the HUD receiving a lifecycle callback.
+    combat_cancel = state.split("private void CancelPendingCombatInput()", 1)[1].split(
+        "private void OnDisable()", 1
+    )[0]
+    assert "fireHeld = false;" in combat_cancel
+    assert "semiShotQueued = false;" in combat_cancel
+    assert "fireBufferUntil = 0f;" in combat_cancel
+    assert "punchContactTime = -1f;" in combat_cancel
+    assert "private void OnApplicationFocus(bool focused)" in state
+    assert "if (!focused) CancelPendingCombatInput();" in state
+    assert "if (paused) CancelPendingCombatInput();" in state
+    assert "private void OnDisable() => CancelPendingCombatInput();" in state
+
     # Canvas.enabled=false doesn't call the button's OnDisable. On every
     # non-foot frame we must clear real holds, but avoid redundant native
     # ghost.SetActive(false) calls after the hold has already been cleared.

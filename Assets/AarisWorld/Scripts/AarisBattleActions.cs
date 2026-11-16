@@ -445,21 +445,28 @@ namespace Aaris.MapReview
             AarisEquippedGun.ApplyDamage(victim, punchDamage, gameObject);
         }
 
-        private void OnDisable()
+        private void CancelPendingCombatInput()
         {
+            // Android can lose focus through a system overlay/gesture without
+            // delivering the same pointer-up or pause sequence as normal app
+            // backgrounding. Never let held fire, a buffered semi-auto tap or
+            // a queued punch contact survive a control-authority interruption.
             fireHeld = false;
             semiShotQueued = false;
             fireBufferUntil = 0f;
             punchContactTime = -1f;
         }
 
+        private void OnDisable() => CancelPendingCombatInput();
+
         private void OnApplicationPause(bool paused)
         {
-            if (!paused) return;
-            fireHeld = false;
-            semiShotQueued = false;
-            fireBufferUntil = 0f;
-            punchContactTime = -1f;
+            if (paused) CancelPendingCombatInput();
+        }
+
+        private void OnApplicationFocus(bool focused)
+        {
+            if (!focused) CancelPendingCombatInput();
         }
     }
 }
