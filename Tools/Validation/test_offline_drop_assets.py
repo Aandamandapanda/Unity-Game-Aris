@@ -728,6 +728,15 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         self.assertIn("holding = int.MinValue;", tactical)
         self.assertIn("if (paused) CancelHold();", tactical)
         self.assertIn("if (!focused) CancelHold();", tactical)
+        self.assertIn("data.button != PointerEventData.InputButton.Left", tactical)
+        button = tactical.split("public sealed class AarisGlooTouchButton", 1)[1]
+        lost = button.split("private void LateUpdate()", 1)[1].split(
+            "public void OnCancel", 1)[0]
+        self.assertIn("IsPointerPhysicallyHeld(holding)", lost)
+        self.assertIn("CancelHold();", lost)
+        self.assertNotIn("ReleaseAndDeploy", lost)
+        self.assertIn("TouchPhase.Ended", button)
+        self.assertIn("TouchPhase.Canceled", button)
         self.assertIn("if (paused) CancelAim();", cover)
 
     def test_cover_damage_ignores_nan_and_infinity(self):
