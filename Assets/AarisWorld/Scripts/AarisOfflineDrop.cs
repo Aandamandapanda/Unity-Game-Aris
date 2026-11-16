@@ -837,9 +837,15 @@ namespace Aaris.MapReview
         private void OnDisable()
         {
             if (!controlsSuspended) return;
-            if (plane != null) Destroy(plane);
-            if (canopy != null) Destroy(canopy);
+            if (plane != null) { Destroy(plane); plane = null; }
+            if (canopy != null) { Destroy(canopy); canopy = null; }
+            // An interrupted drop must not register an airborne location as
+            // the foot motor's HOME point. Abort to the known ground spawn
+            // before handing ownership back, even if the component re-enables.
+            if (capsule != null) capsule.enabled = false;
+            transform.SetPositionAndRotation(preFlightGroundPosition, cachedPlayerRotation);
             if (capsule != null) capsule.enabled = true;
+            phase = DropPhase.Landed;
             ShowPlayer();
             if (footMotor != null) footMotor.RestoreLegacyAerialPose();
             RestoreFootControls();
