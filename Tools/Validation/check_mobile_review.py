@@ -113,7 +113,12 @@ def check(native=False):
     assert 'horizontalVelocity.sqrMagnitude > 0.000001f' in player
     assert 'SafeFooting(candidate)' in player and 'CanAdvanceProne(candidate, horizontalVelocity)' in player
     settings=documents(ROOT/'ProjectSettings/ProjectSettings.asset')[0][3]
-    assert settings['bundleVersion']=='0.3.1' and settings['AndroidBundleVersionCode']==7
+    android_builder = (ROOT / 'Assets/AarisWorld/Editor/AarisExplorerBuild.cs').read_text()
+    version = re.search(r'AndroidVersionName = "([0-9.]+)"', android_builder)
+    version_code = re.search(r'AndroidVersionCode = (\d+)', android_builder)
+    assert version and version_code, 'Missing canonical Android release version'
+    assert settings['bundleVersion'] == version[1]
+    assert settings['AndroidBundleVersionCode'] == int(version_code[1]) > 20261112
     assert settings['productName']=='Aaris Game'
     assert settings['applicationIdentifier']['Android']=='com.aaris.game'
     assert settings['AndroidMinSdkVersion']==26 and settings['AndroidTargetSdkVersion']==33

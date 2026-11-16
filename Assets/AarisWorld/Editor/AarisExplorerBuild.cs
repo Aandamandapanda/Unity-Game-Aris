@@ -13,6 +13,8 @@ namespace Aaris.MapReview.Editor
     public sealed class AarisExplorerBuild : IPreprocessBuildWithReport
     {
         public const string ScenePath = "Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity";
+        internal const string AndroidVersionName = "0.3.3";
+        internal const int AndroidVersionCode = 20261116;
         internal const AndroidArchitecture AndroidArchitectures = AndroidArchitecture.ARMv7 | AndroidArchitecture.ARM64;
         private static bool buildSceneValidated;
 
@@ -56,8 +58,8 @@ namespace Aaris.MapReview.Editor
         {
             PlayerSettings.companyName = "Aaris";
             PlayerSettings.productName = "Aaris Game";
-            PlayerSettings.bundleVersion = "0.3.1";
-            PlayerSettings.Android.bundleVersionCode = 7;
+            PlayerSettings.bundleVersion = AndroidVersionName;
+            PlayerSettings.Android.bundleVersionCode = AndroidVersionCode;
             PlayerSettings.colorSpace = ColorSpace.Linear;
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.AutoRotation;
             PlayerSettings.allowedAutorotateToLandscapeLeft = true;
