@@ -229,6 +229,31 @@ class OfflineCombatAssetChecks(unittest.TestCase):
                 self.assertLessEqual(mid, radii[i])
                 self.assertGreaterEqual(mid, radii[i+1])
 
+    def test_offline_rivals_reuse_bundled_realistic_humanoid_and_animation(self):
+        br = (SCRIPTS / "AarisOfflineBRDirector.cs").read_text("utf-8")
+        source = ASSETS / "AarisCharacters" / "Primary"
+        model = source / "RealisticSoldier" / "RealisticSoldier.fbx"
+        self.assertTrue(model.is_file() and model.stat().st_size > 100_000)
+        self.assertIn("animationType: 3", model.with_suffix(".fbx.meta").read_text("utf-8"))
+        for name in ("idle", "run"):
+            fbx = source / "Animations" / (name + ".fbx")
+            self.assertTrue(fbx.is_file() and fbx.stat().st_size > 100_000)
+            meta = fbx.with_suffix(".fbx.meta").read_text("utf-8")
+            self.assertIn("animationType: 3", meta)
+            self.assertIn("importAnimation: 1", meta)
+        self.assertFalse((ASSETS / "AarisCharacters" / "Kenney").exists())
+        self.assertIn("AarisCharacters/Primary/RealisticSoldier/RealisticSoldier", br)
+        self.assertIn("AarisCharacters/Primary/Animations/idle", br)
+        self.assertIn("AarisCharacters/Primary/Animations/run", br)
+        self.assertIn("if (!rivalAssetsResolved)", br)
+        self.assertIn("owner.ResolveRivalAssets(", br)
+        self.assertIn("Resources.LoadAll<Avatar>(path)", br)
+        self.assertIn("TryFitHumanoidModel(visual.transform, animator)", br)
+        self.assertIn("owner.CompatibleRivalMaterial(materials[i])", br)
+        self.assertIn("foreach (Material converted in rivalMaterialCache.Values)", br)
+        self.assertIn("idle == null || run == null) return;", br)
+        self.assertIn("AnimationMixerPlayable.Create(graph, 2)", br)
+
     def test_ocean_glide_requires_solid_contact_or_safe_recovery(self):
         drop = (SCRIPTS / "AarisOfflineDrop.cs").read_text("utf-8")
         move = drop.split("private void MoveAirborne(float dt)", 1)[1].split(

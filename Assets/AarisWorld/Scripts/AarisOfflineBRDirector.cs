@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
@@ -44,6 +45,59 @@ namespace Aaris.MapReview
         private Text status;
         private LineRenderer boundary;
         private Material boundaryMaterial;
+        // One bounded resource lookup per match, not per opponent.
+        private bool rivalAssetsResolved;
+        private GameObject rivalPrefab;
+        private Avatar rivalAvatar;
+        private AnimationClip rivalIdle, rivalRun;
+        private readonly Dictionary<Material, Material> rivalMaterialCache =
+            new Dictionary<Material, Material>();
+
+        internal void ResolveRivalAssets(out GameObject prefab, out Avatar avatar,
+            out AnimationClip idle, out AnimationClip run)
+        {
+            if (!rivalAssetsResolved)
+            {
+                rivalAssetsResolved = true;
+                const string primary = "AarisCharacters/Primary/RealisticSoldier/RealisticSoldier";
+                string path = primary;
+                rivalPrefab = Resources.Load<GameObject>(path);
+                if (rivalPrefab == null)
+                {
+                    path = "AarisCharacters/Primary/Player";
+                    rivalPrefab = Resources.Load<GameObject>(path);
+                }
+                if (rivalPrefab == null)
+                {
+                    path = "AarisCharacters/Kenney/characterMedium";
+                    rivalPrefab = Resources.Load<GameObject>(path);
+                }
+                if (rivalPrefab != null)
+                {
+                    foreach (Avatar available in Resources.LoadAll<Avatar>(path))
+                        if (available != null && available.isValid && available.isHuman)
+                        { rivalAvatar = available; break; }
+                }
+                rivalIdle = LoadRivalClip("AarisCharacters/Primary/Animations/idle");
+                rivalRun = LoadRivalClip("AarisCharacters/Primary/Animations/run");
+                if (rivalIdle == null) rivalIdle = LoadRivalClip("AarisCharacters/Kenney/idle");
+                if (rivalRun == null) rivalRun = LoadRivalClip("AarisCharacters/Kenney/run");
+                if (rivalPrefab == null)
+                    Debug.LogWarning("Aaris BR: no bundled humanoid model was found.");
+            }
+            prefab = rivalPrefab;
+            avatar = rivalAvatar;
+            idle = rivalIdle;
+            run = rivalRun;
+        }
+
+        private static AnimationClip LoadRivalClip(string path)
+        {
+            foreach (AnimationClip clip in Resources.LoadAll<AnimationClip>(path))
+                if (clip != null && !clip.legacy && clip.humanMotion && clip.length > .02f)
+                    return clip;
+            return null;
+        }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Boot()
@@ -412,8 +466,57 @@ namespace Aaris.MapReview
             boundary.enabled = true;
         }
 
+        // Source rig uses some legacy shaders. Never modify imported materials:
+        // share one optional URP conversion per authored material across rivals.
+        internal Material CompatibleRivalMaterial(Material source)
+        {
+            if (source == null) return null;
+            if (source.shader != null && source.shader.name.StartsWith(
+                "Universal Render Pipeline/", StringComparison.Ordinal)) return source;
+            if (rivalMaterialCache.TryGetValue(source, out Material cached))
+                return cached;
+            Shader lit = Shader.Find("Universal Render Pipeline/Lit");
+            if (lit == null) return source;
+            var result = new Material(lit) { name = "Aaris rival URP " + source.name };
+            Color color = source.HasProperty("_BaseColor") ? source.GetColor("_BaseColor") :
+                source.HasProperty("_Color") ? source.GetColor("_Color") : Color.white;
+            result.SetColor("_BaseColor", color);
+            string baseProp = source.HasProperty("_BaseMap") ? "_BaseMap" :
+                source.HasProperty("_MainTex") ? "_MainTex" : null;
+            if (baseProp != null)
+            {
+                result.SetTexture("_BaseMap", source.GetTexture(baseProp));
+                result.SetTextureScale("_BaseMap", source.GetTextureScale(baseProp));
+                result.SetTextureOffset("_BaseMap", source.GetTextureOffset(baseProp));
+            }
+            if (source.HasProperty("_Metallic"))
+                result.SetFloat("_Metallic", source.GetFloat("_Metallic"));
+            if (source.HasProperty("_Smoothness"))
+                result.SetFloat("_Smoothness", source.GetFloat("_Smoothness"));
+            else if (source.HasProperty("_Glossiness"))
+                result.SetFloat("_Smoothness", source.GetFloat("_Glossiness"));
+            if (source.HasProperty("_BumpMap") && source.GetTexture("_BumpMap") != null)
+            {
+                result.SetTexture("_BumpMap", source.GetTexture("_BumpMap"));
+                if (source.HasProperty("_BumpScale"))
+                    result.SetFloat("_BumpScale", source.GetFloat("_BumpScale"));
+                result.EnableKeyword("_NORMALMAP");
+            }
+            if (source.HasProperty("_OcclusionMap") &&
+                source.GetTexture("_OcclusionMap") != null)
+            {
+                result.SetTexture("_OcclusionMap", source.GetTexture("_OcclusionMap"));
+                result.EnableKeyword("_OCCLUSIONMAP");
+            }
+            rivalMaterialCache.Add(source, result);
+            return result;
+        }
+
         private void OnDestroy()
         {
+            foreach (Material converted in rivalMaterialCache.Values)
+                if (converted != null) Destroy(converted);
+            rivalMaterialCache.Clear();
             if (boundaryMaterial != null) Destroy(boundaryMaterial);
             // Child HUD/ring and rivals are scene-local, never DontDestroyOnLoad.
             // The scene manager handles their cleanup on restart.
@@ -459,8 +562,9 @@ namespace Aaris.MapReview
         {
             // The bundled CC0 humanoid is shared by all rivals. Avoid six
             // full hero-quality tactical rigs on entry-level 2GB devices.
-            GameObject prefab = Resources.Load<GameObject>(
-                "AarisCharacters/Kenney/characterMedium");
+            if (owner == null) return;
+            owner.ResolveRivalAssets(out GameObject prefab, out Avatar cachedAvatar,
+                out AnimationClip idle, out AnimationClip run);
             if (prefab == null)
             {
                 var fallback = GameObject.CreatePrimitive(PrimitiveType.Capsule);
@@ -478,32 +582,52 @@ namespace Aaris.MapReview
             { c.enabled = false; Destroy(c); }
             foreach (var body in visual.GetComponentsInChildren<Rigidbody>(true))
             { body.isKinematic = true; body.detectCollisions = false; }
-            Bounds bounds = new Bounds();
-            bool found = false;
-            foreach (var render in visual.GetComponentsInChildren<Renderer>(true))
+            // The conversion cache is on the match director; one rig is
+            // imported once and six opponents reuse the same URP materials.
+            foreach (var renderer in visual.GetComponentsInChildren<Renderer>(true))
             {
-                if (!render.enabled || !render.gameObject.activeInHierarchy) continue;
-                if (!found) { bounds = render.bounds; found = true; }
-                else bounds.Encapsulate(render.bounds);
+                Material[] materials = renderer.sharedMaterials;
+                bool changed = false;
+                for (int i = 0; i < materials.Length; i++)
+                {
+                    Material compatible = owner.CompatibleRivalMaterial(materials[i]);
+                    if (compatible == materials[i]) continue;
+                    materials[i] = compatible;
+                    changed = true;
+                }
+                if (changed) renderer.sharedMaterials = materials;
             }
-            if (found && bounds.size.y > .01f && bounds.size.y < 1000f)
-            {
-                float scale = Mathf.Clamp(1.74f / bounds.size.y, .02f, 25f);
-                visual.transform.localScale *= scale;
-                float low = float.PositiveInfinity;
-                foreach (var render in visual.GetComponentsInChildren<Renderer>(true))
-                    if (render.enabled && render.gameObject.activeInHierarchy)
-                        low = Mathf.Min(low, render.bounds.min.y);
-                if (!float.IsInfinity(low))
-                    visual.transform.position += Vector3.up * (transform.position.y - low);
-            }
-
             var animator = visual.GetComponentInChildren<Animator>(true);
-            if (animator == null || animator.avatar == null ||
-                !animator.avatar.isValid || !animator.avatar.isHuman) return;
-            var idle = FirstHumanoidClip("AarisCharacters/Kenney/idle");
-            var run = FirstHumanoidClip("AarisCharacters/Kenney/run");
-            if (idle == null || run == null) return;
+            if (animator == null) animator = visual.AddComponent<Animator>();
+            if (animator.avatar == null || !animator.avatar.isValid || !animator.avatar.isHuman)
+                animator.avatar = cachedAvatar;
+            bool boneFitted = TryFitHumanoidModel(visual.transform, animator);
+            if (!boneFitted)
+            {
+                Bounds bounds = new Bounds();
+                bool found = false;
+                foreach (var render in visual.GetComponentsInChildren<Renderer>(true))
+                {
+                    if (!render.enabled || !render.gameObject.activeInHierarchy) continue;
+                    if (!found) { bounds = render.bounds; found = true; }
+                    else bounds.Encapsulate(render.bounds);
+                }
+                if (found && bounds.size.y > .01f && bounds.size.y < 1000f)
+                {
+                    float scale = Mathf.Clamp(1.74f / bounds.size.y, .02f, 25f);
+                    visual.transform.localScale *= scale;
+                    float low = float.PositiveInfinity;
+                    foreach (var render in visual.GetComponentsInChildren<Renderer>(true))
+                        if (render.enabled && render.gameObject.activeInHierarchy)
+                            low = Mathf.Min(low, render.bounds.min.y);
+                    if (!float.IsInfinity(low))
+                        visual.transform.position += Vector3.up * (transform.position.y - low);
+                }
+
+            }
+            // A failed Avatar import must not hide a valid 3D model.
+            if (animator.avatar == null || !animator.avatar.isValid ||
+                !animator.avatar.isHuman || idle == null || run == null) return;
             animator.applyRootMotion = false;
             animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
             graph = PlayableGraph.Create("Aaris Offline Rival");
@@ -519,12 +643,25 @@ namespace Aaris.MapReview
             hasAnimations = true;
         }
 
-        private static AnimationClip FirstHumanoidClip(string resource)
+        // Rigs may contain enormous import/bind-pose renderer bounds.
+        // Fit on the actual Humanoid skeleton before falling back to AABBs.
+        private static bool TryFitHumanoidModel(Transform model, Animator animator)
         {
-            foreach (var clip in Resources.LoadAll<AnimationClip>(resource))
-                if (clip != null && !clip.legacy && clip.humanMotion && clip.length > .02f)
-                    return clip;
-            return null;
+            if (animator == null || animator.avatar == null ||
+                !animator.avatar.isValid || !animator.avatar.isHuman) return false;
+            Transform head = animator.GetBoneTransform(HumanBodyBones.Head);
+            Transform left = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+            Transform right = animator.GetBoneTransform(HumanBodyBones.RightFoot);
+            if (head == null || left == null || right == null) return false;
+            float low = Mathf.Min(left.position.y, right.position.y);
+            float span = head.position.y - low;
+            if (float.IsNaN(span) || float.IsInfinity(span) ||
+                span < .80f || span > 2.50f) return false;
+            model.localScale *= Mathf.Clamp(1.64f / span, .50f, 2f);
+            Vector3 feet = (left.position + right.position) * .5f;
+            feet.y = Mathf.Min(left.position.y, right.position.y);
+            model.position += model.parent.position + Vector3.up * .075f - feet;
+            return true;
         }
 
         private void Update()
