@@ -17,6 +17,15 @@ namespace Aaris.MapReview
         private readonly WheelCollider[] wheels = new WheelCollider[4];
         private readonly float[] surfaceGripMultipliers = new float[4];
         private readonly Transform[] visualWheels = new Transform[4];
+        // Two bounded, world-space skid traces are created ONLY when a player
+        // first drives this car. Parked streamed vehicles allocate zero trails.
+        // All contact points reuse ApplyAntiRoll WheelHit (no extra raycasts).
+        private readonly TrailRenderer[] rearTyreTrails = new TrailRenderer[2];
+        private readonly Vector3[] rearContactPoints = new Vector3[2];
+        private readonly Vector3[] rearContactNormals = new Vector3[2];
+        private readonly float[] rearContactSlip = new float[2];
+        private readonly bool[] rearContactsGrounded = new bool[2];
+        private Material sharedSkidMaterial;
         // Two compact lamp clusters per end, plus two white reversing lenses.
         // Every car shares the World-owned URP materials; no runtime clones.
         private readonly Renderer[] frontLamps = new Renderer[2];
@@ -45,6 +54,9 @@ namespace Aaris.MapReview
         private const float ParkingBrakeTorque = 3600f;
         private const float AntiRollStrength = 4800f;
         private float nextTelemetryAt;
+        // A short impact pulse communicates a meaningful collision without
+        // creating sparks/particles on phones or changing the drive authority.
+        private float impactFlashUntil;
         // Stop native wheel pose queries only after a parked car truly sleeps.
         private bool sleepingWheelPoseCurrent;
         public string VehicleId { get; private set; }
@@ -53,6 +65,7 @@ namespace Aaris.MapReview
         // True only when the active driver is asking the wheels to slow down;
         // parking/coasting drag must not illuminate the brake indicator.
         public bool IsServiceBraking => driver != null && appliedBrakeTorque >= 500f;
+        public bool IsRecentImpact => driver != null && Time.time < impactFlashUntil;
         public float LateralSlipMetresPerSecond => body == null ? 0f :
             Mathf.Abs(Vector3.Dot(body.linearVelocity, transform.right));
         // Peak contact slip from the same WheelHit samples already used by
@@ -90,9 +103,17 @@ namespace Aaris.MapReview
 
         private void OnCollisionEnter(Collision collision)
         {
-            if (driver != null && collision != null)
-                AarisAudioDirector.VehicleCrash(transform.position,
-                    collision.relativeVelocity.magnitude);
+            if (driver == null || collision == null) return;
+            float impactSpeed = collision.relativeVelocity.magnitude;
+            AarisAudioDirector.VehicleCrash(transform.position, impactSpeed);
+            // Contact impulses are not reliable across Rigidbody mass/road
+            // physics configurations; relative speed is already available.
+            // Only substantial impacts trigger a half-second visual cue.
+            if (impactSpeed >= 7f)
+            {
+                impactFlashUntil = Time.time + .55f;
+                RefreshExteriorLights();
+            }
         }
 
         public void Configure(string id, float maxSpeedMetres, float kilograms)
@@ -415,7 +436,8 @@ namespace Aaris.MapReview
             if (frontLamps[0] == null) return;
             bool driving = driver != null && driver.isActiveAndEnabled &&
                 isActiveAndEnabled;
-            bool braking = driving && appliedBrakeTorque >= 500f;
+            bool braking = driving &&
+                (appliedBrakeTorque >= 500f || Time.time < impactFlashUntil);
             // Reverse lamps turn on when the driver requests backward travel
             // and the car has slowed enough to engage reverse, not when a
             // moving-forward car is merely braking with the down arrow.
@@ -434,6 +456,105 @@ namespace Aaris.MapReview
                 reversingLamps[side].enabled = reversing;
             }
             if (roadHeadlight != null) roadHeadlight.enabled = driving;
+        }
+
+        public void ConfigureRearTyreTraces(Material material)
+        {
+            // The shared material is owned and disposed by VehicleWorld.
+            // Do not instantiate graphics for any parked/never-driven car.
+            sharedSkidMaterial = material;
+        }
+
+        private void EnsureRearTyreTraces()
+        {
+            if (sharedSkidMaterial == null || rearTyreTrails[0] != null)
+                return;
+            for (int i = 0; i < rearTyreTrails.Length; i++)
+            {
+                var mark = new GameObject("Physics Rear Tyre Skid " + i);
+                mark.transform.SetParent(transform, false);
+                var trail = mark.AddComponent<TrailRenderer>();
+                trail.sharedMaterial = sharedSkidMaterial;
+                trail.time = 2.2f;
+                trail.minVertexDistance = .20f;
+                trail.startWidth = .14f;
+                trail.endWidth = .085f;
+                trail.numCornerVertices = 0;
+                trail.numCapVertices = 0;
+                trail.alignment = LineAlignment.TransformZ;
+                trail.textureMode = LineTextureMode.Stretch;
+                trail.shadowCastingMode =
+                    UnityEngine.Rendering.ShadowCastingMode.Off;
+                trail.receiveShadows = false;
+                trail.emitting = false;
+                trail.Clear();
+                rearTyreTrails[i] = trail;
+            }
+        }
+
+        private void StopRearTyreTraces(bool clear)
+        {
+            for (int i = 0; i < rearTyreTrails.Length; i++)
+            {
+                var trail = rearTyreTrails[i];
+                if (trail == null) continue;
+                trail.emitting = false;
+                if (clear) trail.Clear();
+            }
+        }
+
+        private void UpdateRearTyreTraces()
+        {
+            if (rearTyreTrails[0] == null || body == null) return;
+            // Never draw for an unoccupied car, a disabled/suspended session,
+            // an airborne tyre, standing water, or slow stationary wheelspin.
+            bool driving = driver != null && driver.isActiveAndEnabled &&
+                isActiveAndEnabled;
+            bool moving = driving && body.linearVelocity.sqrMagnitude > 16f;
+            for (int i = 0; i < rearTyreTrails.Length; i++)
+            {
+                var trail = rearTyreTrails[i];
+                if (trail == null) continue;
+                bool makingMark = moving && rearContactsGrounded[i] &&
+                    rearContactSlip[i] > .35f;
+                if (!makingMark)
+                {
+                    trail.emitting = false;
+                    continue;
+                }
+                // WheelHit.point and WheelHit.normal came from the existing
+                // physics step. Ground offset avoids Z-fighting with roads.
+                // TransformZ aligns the ribbon width along the actual road.
+                Vector3 normal = rearContactNormals[i];
+                trail.transform.SetPositionAndRotation(
+                    rearContactPoints[i] + normal * .014f,
+                    Quaternion.FromToRotation(Vector3.forward, normal));
+                if (!trail.emitting)
+                {
+                    // Break any old strip when a wheel recontacts the road;
+                    // no drawn line across a gap, landing or respawn jump.
+                    trail.Clear();
+                    trail.emitting = true;
+                }
+            }
+        }
+
+        private void CacheRearTyreContact(int wheelIndex, WheelHit hit,
+            float slip)
+        {
+            if (wheelIndex < 2 || wheelIndex >= wheels.Length ||
+                driver == null || rearTyreTrails[0] == null)
+                return;
+            int i = wheelIndex - 2;
+            // Water is not a skid-mark surface. The world-up normal guard
+            // rejects wall contacts and unrealistically steep slopes.
+            if (hit.collider == null || hit.collider.gameObject.layer == 4 ||
+                Vector3.Dot(hit.normal, Vector3.up) < .45f)
+                return;
+            rearContactsGrounded[i] = true;
+            rearContactPoints[i] = hit.point;
+            rearContactNormals[i] = hit.normal;
+            rearContactSlip[i] = slip;
         }
 
         private void SyncVisibleWheels()
@@ -457,6 +578,7 @@ namespace Aaris.MapReview
             bool parkedSleeping = driver == null && body.IsSleeping();
             if (parkedSleeping && sleepingWheelPoseCurrent) return;
             SyncVisibleWheels();
+            UpdateRearTyreTraces();
             sleepingWheelPoseCurrent = parkedSleeping;
         }
 
@@ -465,6 +587,7 @@ namespace Aaris.MapReview
             sleepingWheelPoseCurrent = false;
             appliedDriveTorque = appliedBrakeTorque = appliedSteeringAngle = float.NaN;
             lastLampState = -1;
+            StopRearTyreTraces(true);
             RefreshExteriorLights();
         }
 
@@ -481,9 +604,12 @@ namespace Aaris.MapReview
                 !IsSafeToExit) return false;
             driver = session;
             forward = steering = smoothSteer = 0f;
+            impactFlashUntil = 0f;
             // Release parked-car brake cache on boarding, otherwise the
             // first frame falsely displays brake lamps before physics ticks.
             ApplyWheelForces(0f, 155f);
+            EnsureRearTyreTraces();
+            StopRearTyreTraces(true);
             RefreshExteriorLights();
             return true;
         }
@@ -507,7 +633,9 @@ namespace Aaris.MapReview
             if (session != driver) return;
             driver = null;
             forward = steering = 0f;
+            impactFlashUntil = 0f;
             ApplyWheelForces(0f, ParkingBrakeTorque);
+            StopRearTyreTraces(false);
             RefreshExteriorLights();
         }
 
@@ -595,6 +723,7 @@ namespace Aaris.MapReview
             // Reset once per physics step; ApplyAntiRoll reuses each WheelHit
             // to accumulate real longitudinal/lateral tyre slip.
             tyreSlip = 0f;
+            rearContactsGrounded[0] = rearContactsGrounded[1] = false;
             ApplyAntiRoll(0, 1);
             ApplyAntiRoll(2, 3);
 
@@ -702,9 +831,10 @@ namespace Aaris.MapReview
                 leftTravel = Mathf.Clamp01(
                     (-left.transform.InverseTransformPoint(leftHit.point).y -
                         left.radius) / Mathf.Max(.01f, left.suspensionDistance));
-                tyreSlip = Mathf.Max(tyreSlip, Mathf.Max(
-                    Mathf.Abs(leftHit.sidewaysSlip),
-                    Mathf.Abs(leftHit.forwardSlip) * 0.78f));
+                float leftSlip = Mathf.Max(Mathf.Abs(leftHit.sidewaysSlip),
+                    Mathf.Abs(leftHit.forwardSlip) * .78f);
+                tyreSlip = Mathf.Max(tyreSlip, leftSlip);
+                CacheRearTyreContact(leftIndex, leftHit, leftSlip);
             }
             if (rightGrounded)
             {
@@ -712,9 +842,10 @@ namespace Aaris.MapReview
                 rightTravel = Mathf.Clamp01(
                     (-right.transform.InverseTransformPoint(rightHit.point).y -
                         right.radius) / Mathf.Max(.01f, right.suspensionDistance));
-                tyreSlip = Mathf.Max(tyreSlip, Mathf.Max(
-                    Mathf.Abs(rightHit.sidewaysSlip),
-                    Mathf.Abs(rightHit.forwardSlip) * 0.78f));
+                float rightSlip = Mathf.Max(Mathf.Abs(rightHit.sidewaysSlip),
+                    Mathf.Abs(rightHit.forwardSlip) * .78f);
+                tyreSlip = Mathf.Max(tyreSlip, rightSlip);
+                CacheRearTyreContact(rightIndex, rightHit, rightSlip);
             }
             // A lifted wheel has no suspension contact. The legacy
             // leftTravel/rightTravel default of 1 would push upward on the
@@ -736,6 +867,8 @@ namespace Aaris.MapReview
             forward = steering = 0f;
             ApplyWheelForces(0f, ParkingBrakeTorque);
             lastLampState = -1;
+            StopRearTyreTraces(true);
+            impactFlashUntil = 0f;
             RefreshExteriorLights();
         }
     }

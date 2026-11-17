@@ -104,6 +104,9 @@ namespace Aaris.MapReview
         private Material headlampGlassMaterial, headlampOnMaterial;
         private Material taillampGlassMaterial, brakeLampMaterial;
         private Material reverseLampMaterial;
+        // One scene-owned URP mark material shared by both rear trails on
+        // every streamed car, instead of allocating one material per wheel.
+        private Material skidMarkMaterial;
         // Convert each imported source material once, then share it across all
         // streamed instances. This preserves PBR texture subassets without
         // per-car material duplication on low-memory Android devices.
@@ -354,6 +357,7 @@ namespace Aaris.MapReview
                 new Color(1f, .065f, .045f), new Color(2.2f, .06f, .025f));
             reverseLampMaterial = CreateLampMaterial(shader, "Reverse Lamps",
                 new Color(.90f, .97f, 1f), new Color(1.7f, 1.85f, 2f));
+            skidMarkMaterial = CreateSkidMarkMaterial(shader);
 
             // Stable per-match plan. A multiplayer server can later provide
             // this seed to clients; local standalone has no server authority.
@@ -409,6 +413,37 @@ namespace Aaris.MapReview
             lamp.SetColor("_EmissionColor", emission);
             lamp.EnableKeyword("_EMISSION");
             return lamp;
+        }
+
+        // Skid traces live for only a couple of seconds. URP transparent
+        // rendering produces thin road-bound strokes, not thick black ribbons.
+        // The shared material exists once per scene, never per skid/frame.
+        private static Material CreateSkidMarkMaterial(Shader shader)
+        {
+            var material = new Material(shader)
+            {
+                name = "Aaris Shared Skid Traces",
+                enableInstancing = true
+            };
+            material.SetColor("_BaseColor",
+                new Color(.075f, .073f, .070f, .62f));
+            material.SetFloat("_Metallic", 0f);
+            material.SetFloat("_Smoothness", .12f);
+            material.SetOverrideTag("RenderType", "Transparent");
+            if (material.HasProperty("_Surface"))
+                material.SetFloat("_Surface", 1f);
+            if (material.HasProperty("_SrcBlend"))
+                material.SetFloat("_SrcBlend",
+                    (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (material.HasProperty("_DstBlend"))
+                material.SetFloat("_DstBlend",
+                    (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (material.HasProperty("_ZWrite"))
+                material.SetFloat("_ZWrite", 0f);
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.renderQueue =
+                (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            return material;
         }
 
         private static Transform FindNamedWheel(Transform root, string token)
@@ -1082,6 +1117,7 @@ namespace Aaris.MapReview
                 headlampGlassMaterial, headlampOnMaterial,
                 taillampGlassMaterial, brakeLampMaterial,
                 reverseLampMaterial);
+            motor.ConfigureRearTyreTraces(skidMarkMaterial);
             record.visible = motor;
             if (Debug.isDebugBuild)
                 Debug.Log("AARIS_CAR_PLACED " + record.point.id + " " +
@@ -1234,6 +1270,7 @@ namespace Aaris.MapReview
             if (taillampGlassMaterial != null) Destroy(taillampGlassMaterial);
             if (brakeLampMaterial != null) Destroy(brakeLampMaterial);
             if (reverseLampMaterial != null) Destroy(reverseLampMaterial);
+            if (skidMarkMaterial != null) Destroy(skidMarkMaterial);
             // These runtime URP conversions are shared among streamed car
             // instances, not imported asset materials. Release exactly the
             // converted copies on scene teardown to avoid native GPU leaks.

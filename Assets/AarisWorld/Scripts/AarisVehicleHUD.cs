@@ -355,8 +355,12 @@ namespace Aaris.MapReview
                 longitudinal > .4f || throttle > .1f ? "F" : "N";
             string caption = kmh + " km/h   " + direction;
             if (speedCaption.text != caption) speedCaption.text = caption;
-            Color textColor = vehicle.IsServiceBraking
-                ? new Color(1f, .64f, .56f, 1f) : Color.white;
+            // Brief amber cue for a strong collision. Brake indication
+            // remains independent and returns after the impact cue expires.
+            Color textColor = vehicle.IsRecentImpact
+                ? new Color(1f, .82f, .42f, 1f)
+                : vehicle.IsServiceBraking
+                    ? new Color(1f, .64f, .56f, 1f) : Color.white;
             if (speedCaption.color != textColor) speedCaption.color = textColor;
         }
 
