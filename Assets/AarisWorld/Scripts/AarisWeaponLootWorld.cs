@@ -322,19 +322,21 @@ namespace Aaris.MapReview
             {
                 if (terrain == null || terrain.terrainData == null) continue;
                 var data = terrain.terrainData;
-                // TreeInstance[] is requested ONCE per tile, not once per
-                // update. The saved map currently contains ~7.5k instances
-                // in total. Increase planned tree-side pickups without new
-                // trees, per-frame terrain scans or extra live weapon meshes.
-                TreeInstance[] trees = data.treeInstances;
-                if (trees == null || trees.Length == 0) continue;
+                // Read only the sampled native tree indices. Copying every
+                // TreeInstance into a new managed array merely to inspect a
+                // bounded set of random trees spikes cold-start allocations
+                // on phones with limited RAM. Unity 6 GetTreeInstance avoids
+                // materializing the complete array; no trees are modified.
+                int treeCount = data.treeInstanceCount;
+                if (treeCount <= 0) continue;
                 int accepted = 0, attempts = 0;
                 Vector3 origin = terrain.transform.position;
                 Vector3 size = data.size;
                 while (accepted < 48 && attempts++ < 240)
                 {
-                    int idx = (int)(AarisWeaponRandom.Next(ref rng) % (uint)trees.Length);
-                    Vector3 tree = origin + Vector3.Scale(trees[idx].position, size);
+                    int idx = (int)(AarisWeaponRandom.Next(ref rng) % (uint)treeCount);
+                    TreeInstance instance = data.GetTreeInstance(idx);
+                    Vector3 tree = origin + Vector3.Scale(instance.position, size);
                     float angle = AarisWeaponRandom.Next01(ref rng) * Mathf.PI * 2f;
                     float distance = 2f + AarisWeaponRandom.Next01(ref rng) * 7f;
                     float x = tree.x + Mathf.Cos(angle) * distance;

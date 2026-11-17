@@ -87,6 +87,29 @@ class LootGridRegression(unittest.TestCase):
         self.assertIn("MaximumActiveLoot = 40;", SOURCE)
         self.assertIn("MaximumBuildAttemptsPerFrame = 2;", SOURCE)
 
+    def test_native_tree_cover_samples_indices_without_copying_full_arrays(self):
+        # Unity's GetTreeInstance(index) avoids allocating the whole
+        # treeInstances array when only bounded random samples are needed.
+        section = SOURCE[SOURCE.index("private void AppendNativeTreeCover("):
+                         SOURCE.index("private static bool WithinMap(")]
+        self.assertIn("int treeCount = data.treeInstanceCount;", section)
+        self.assertIn("if (treeCount <= 0) continue;", section)
+        self.assertIn("data.GetTreeInstance(idx)", section)
+        self.assertIn("(uint)treeCount", section)
+        self.assertNotIn("data.treeInstances;", section)
+        self.assertIn("while (accepted < 48 && attempts++ < 240)", section)
+        self.assertIn("result.Add(new AarisLootCandidate", section)
+        self.assertIn("treePoints.Add(new Vector2(x, z));", section)
+        self.assertLess(section.index("int treeCount = data.treeInstanceCount;"),
+                        section.index("data.GetTreeInstance(idx)"))
+        # Equivalent index selection and zero-tree guard for map tiles
+        # without touching authored TerrainData or gameplay seed order.
+        for count in (1, 2, 11, 250, 7500):
+            for seed in (1, 47, 20261117):
+                rng = random.Random(seed)
+                indices = [rng.getrandbits(32) % count for _ in range(240)]
+                self.assertTrue(all(0 <= index < count for index in indices))
+
     def test_tree_spacing_subsets_keep_the_same_acceptance_order(self):
         self.assertIn("foreach (var point in treePoints)", SOURCE)
         self.assertIn("treePoints.Add(new Vector2(x, z));", SOURCE)
