@@ -44,6 +44,8 @@ namespace Aaris.MapReview
         private UniversalRenderPipelineAsset androidPipeline;
         private float originalRenderScale = 1f;
         private float lastAppliedRenderScale = 1f;
+        private int originalMsaaSamples, appliedMsaaSamples;
+        private bool modifiedMsaaSamples;
         private float originalMipBudgetMB, appliedMipBudgetMB;
         private bool modifiedMipBudget;
         private float originalShadowDistance, appliedShadowDistance;
@@ -210,6 +212,20 @@ namespace Aaris.MapReview
             // Only budget phones need extra foliage/shadow restrictions.
             // All Android phones can use the sustained-frame GPU governor.
             if (memoryMB > 3072 && !constrainedGraphics) return;
+            // Budget Android GPUs can spend significant bandwidth on 4x MSAA.
+            // Preserve native resolution and 2x edge smoothing when needed.
+            if (constrainedGraphics)
+            {
+                originalMsaaSamples = androidPipeline.msaaSampleCount;
+                appliedMsaaSamples = Mathf.Min(originalMsaaSamples, 2);
+                if (appliedMsaaSamples < originalMsaaSamples)
+                {
+                    androidPipeline.msaaSampleCount = appliedMsaaSamples;
+                    modifiedMsaaSamples = true;
+                    Debug.Log("AARIS_ANDROID_MSAA_BUDGET original=" +
+                        originalMsaaSamples + " applied=" + appliedMsaaSamples);
+                }
+            }
             // Mipmap streaming was already enabled by the saved QualitySettings.
             // Bound its texture residency on low-RAM phones without modifying
             // the four native TerrainData control textures or their readability.
@@ -578,6 +594,9 @@ namespace Aaris.MapReview
             if (androidPipeline != null &&
                 Mathf.Approximately(androidPipeline.renderScale, lastAppliedRenderScale))
                 androidPipeline.renderScale = originalRenderScale;
+            if (modifiedMsaaSamples && androidPipeline != null &&
+                androidPipeline.msaaSampleCount == appliedMsaaSamples)
+                androidPipeline.msaaSampleCount = originalMsaaSamples;
             if (modifiedMipBudget &&
                 Mathf.Approximately(QualitySettings.streamingMipmapsMemoryBudget, appliedMipBudgetMB))
                 QualitySettings.streamingMipmapsMemoryBudget = originalMipBudgetMB;
