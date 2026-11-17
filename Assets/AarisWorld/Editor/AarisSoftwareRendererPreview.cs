@@ -59,8 +59,11 @@ namespace Aaris.MapReview.Editor
             local.hideFlags = HideFlags.HideAndDontSave;
             local.supportsHDR = false;
             local.msaaSampleCount = 1;
-            local.renderScale = Mathf.Min(local.renderScale, 0.85f);
-            local.shadowDistance = Mathf.Min(local.shadowDistance, 110f);
+            // llvmpipe draws the full game on CPU. The extra ~22% pixel
+            // reduction versus 85% scale makes Codespace Play Mode usable
+            // without degrading authored world textures or Android output.
+            local.renderScale = Mathf.Min(local.renderScale, 0.75f);
+            local.shadowDistance = Mathf.Min(local.shadowDistance, 80f);
             local.mainLightShadowmapResolution =
                 Mathf.Min(local.mainLightShadowmapResolution, 1024);
             local.shadowCascadeCount = 1;
@@ -70,7 +73,7 @@ namespace Aaris.MapReview.Editor
             EditorApplication.update -= ApplyWhenReady;
             SceneView.RepaintAll();
             Debug.Log("AARIS_SOFTWARE_PREVIEW_ACTIVE: software OpenGL " + renderer +
-                "; temporary LDR, 85% scale, 1x MSAA and 1024 shadows. " +
+                "; temporary LDR, 75% scale, 1x MSAA, 80m shadows and 1024 shadow atlas. " +
                 "Saved map and Android graphics remain unchanged.");
         }
 

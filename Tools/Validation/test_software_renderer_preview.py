@@ -31,6 +31,11 @@ class SoftwareRendererPreviewTests(unittest.TestCase):
                        "local.shadowDistance", "local.shadowCascadeCount = 1",
                        "local.mainLightShadowmapResolution"):
             self.assertIn(marker, source)
+        self.assertIn("local.renderScale = Mathf.Min(local.renderScale, 0.75f);", source)
+        self.assertIn("local.shadowDistance = Mathf.Min(local.shadowDistance, 80f);", source)
+        self.assertIn("Mathf.Min(local.mainLightShadowmapResolution, 1024);", source)
+        self.assertIn("QualitySettings.renderPipeline = local;", source)
+        self.assertNotIn("AssetDatabase.SaveAssets", source)
 
 if __name__ == "__main__":
     unittest.main()
