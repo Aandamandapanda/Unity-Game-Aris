@@ -86,10 +86,20 @@ namespace Aaris.MapReview
                 nextSpawn = Time.time + 0.5f;
                 if (attemptedSlots >= RivalCount)
                 {
-                    spawnComplete = true;
                     if (spawnedRivals == 0)
-                        Debug.LogWarning("Aaris BR: no safe rival positions. Victory disabled for this match.");
-                    else if (activeRivals == 0) matchEnd.WinMatch();
+                    {
+                        // Never lock the player into a permanently empty match
+                        // when the first six sectors contain ocean, cliffs or
+                        // inactive house geometry. Retry a bounded single slot
+                        // after a cooldown, using the player's CURRENT position.
+                        attemptedSlots = 0;
+                        nextSpawn = Time.time + 2.5f;
+                    }
+                    else
+                    {
+                        spawnComplete = true;
+                        if (activeRivals == 0) matchEnd.WinMatch();
+                    }
                 }
             }
 
@@ -213,6 +223,21 @@ namespace Aaris.MapReview
             return true;
         }
 
+        // Far-away house/bridge colliders are deliberately unloaded for
+        // Android. CharacterController.Move cannot hit disabled geometry,
+        // so check the prebuilt no-allocation obstacle grid before each
+        // rival displacement; NEVER activate thousands of distant colliders.
+        internal bool WouldCrossInactiveCover(Vector3 from, Vector3 displacement)
+        {
+            if (nearbyColliders == null || displacement.sqrMagnitude < 0.000001f)
+                return false;
+            Vector3 lookAhead = displacement.normalized *
+                Mathf.Max(displacement.magnitude, 0.72f);
+            Vector3 predicted = from + lookAhead + Vector3.up * 0.9f;
+            return nearbyColliders.HasPotentialInactiveObstacle(predicted,
+                new Vector3(0.36f, 0.90f, 0.36f), Quaternion.identity);
+        }
+
         private void EvaluateZone(float elapsed)
         {
             center = centers[centers.Length - 1];
@@ -278,7 +303,12 @@ namespace Aaris.MapReview
                 }
             string label = Outside(player.position) ? "OUTSIDE ZONE" :
                 wait > 0f ? "CLOSE IN " + Mathf.CeilToInt(wait) + "s" : "ZONE MOVING";
-            status.text = "ALIVE " + (activeRivals + 1) +
+            // Until a valid rival actually exists, ALIVE 1 incorrectly
+            // tells the player the BR has already been won.
+            string participants = spawnComplete
+                ? "ALIVE " + (activeRivals + 1)
+                : "RIVALS " + spawnedRivals + "/" + RivalCount;
+            status.text = participants +
                 "    ZONE " + Mathf.CeilToInt(radius) + "m    " + label;
         }
 
@@ -365,6 +395,7 @@ namespace Aaris.MapReview
         private CharacterController capsule;
         private readonly RaycastHit[] sightHits = new RaycastHit[20];
         private float nextThink, nextAttack, verticalSpeed, turnOffset, visualBlend;
+        private float avoidanceHandedness;
         private bool canSee;
         private PlayableGraph graph;
         private AnimationMixerPlayable animations;
@@ -381,6 +412,7 @@ namespace Aaris.MapReview
             capsule = GetComponent<CharacterController>();
             health.Died += OnDied;
             turnOffset = UnityEngine.Random.Range(-12f, 12f);
+            avoidanceHandedness = UnityEngine.Random.value < 0.5f ? 1f : -1f;
             BuildVisual();
         }
 
@@ -460,7 +492,10 @@ namespace Aaris.MapReview
         {
             if (owner == null || !owner.CanEngage || !IsAlive ||
                 target == null || targetHealth == null || targetHealth.IsDead) return;
-            float dt = Mathf.Min(Time.deltaTime, 0.05f);
+            // A 10-15 FPS phone must not make distant rivals run at half
+            // speed. Keep one CharacterController sweep per rendered frame;
+            // the 120 ms cap still bounds extreme app-resume hitches.
+            float dt = Mathf.Min(Time.deltaTime, 0.12f);
             Vector3 diff = target.position - transform.position;
             diff.y = 0f;
             float distance = diff.magnitude;
@@ -474,14 +509,31 @@ namespace Aaris.MapReview
             float moveSpeed = distance > 12f ? 2.85f : distance < 7f ? -1.15f : 0f;
             Vector3 desired = Quaternion.Euler(0f, turnOffset, 0f) * toward * moveSpeed;
             if (canSee) desired *= .23f; // Hold position to keep firing readable.
+            Vector3 displacement = desired * dt;
+            if (displacement.sqrMagnitude > 0.000001f &&
+                owner.WouldCrossInactiveCover(transform.position, displacement))
+            {
+                // Choose a consistent tangent around remote house geometry,
+                // instead of walking invisibly through a disabled collider.
+                Vector3 first = Quaternion.Euler(0f, avoidanceHandedness * 80f, 0f)
+                    * displacement;
+                Vector3 second = Quaternion.Euler(0f, -avoidanceHandedness * 80f, 0f)
+                    * displacement;
+                if (!owner.WouldCrossInactiveCover(transform.position, first))
+                    displacement = first;
+                else if (!owner.WouldCrossInactiveCover(transform.position, second))
+                    displacement = second;
+                else
+                    displacement = Vector3.zero;
+            }
             Vector3 facing = distance > .05f ? toward : transform.forward;
             if (facing.sqrMagnitude > .01f)
                 transform.rotation = Quaternion.Slerp(transform.rotation,
                     Quaternion.LookRotation(facing), 1f - Mathf.Exp(-5f * dt));
             verticalSpeed = capsule.isGrounded ? -1.5f :
                 Mathf.Max(-24f, verticalSpeed - 19.6f * dt);
-            CollisionFlags hit = capsule.Move((desired +
-                Vector3.up * verticalSpeed) * dt);
+            CollisionFlags hit = capsule.Move(displacement +
+                Vector3.up * (verticalSpeed * dt));
             if ((hit & CollisionFlags.Sides) != 0 && !canSee)
                 turnOffset = -turnOffset + UnityEngine.Random.Range(-28f, 28f);
 

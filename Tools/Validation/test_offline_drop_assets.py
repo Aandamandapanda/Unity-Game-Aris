@@ -97,6 +97,45 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         ):
             self.assertEqual(physically_held(pointer, mouse, touches), expected)
 
+    def test_offline_rivals_recover_spawns_and_avoid_unloaded_walls(self):
+        br = (SCRIPTS / "AarisOfflineBRDirector.cs").read_text("utf-8")
+        grid = (SCRIPTS / "AarisNearbyColliders.cs").read_text("utf-8")
+        # When every first-attempt site is a blocked house or steep cliff,
+        # the match continues to search, rather than permanently claiming
+        the_match_is_over = "spawnComplete = true;"
+        self.assertIn("if (spawnedRivals == 0)", br)
+        self.assertIn("attemptedSlots = 0;", br)
+        self.assertIn("nextSpawn = Time.time + 2.5f;", br)
+        self.assertIn("TrySpawnSlot(attemptedSlots++);", br)
+        self.assertIn(the_match_is_over, br)
+
+        # Remote obstacles are disabled by the original 55m collision
+        # streamer. Bots must consult its cached bounds, not trigger an
+        # expensive Physics.SyncTransforms/enable-all-colliders per update.
+        self.assertIn("internal bool WouldCrossInactiveCover(", br)
+        self.assertIn("nearbyColliders.HasPotentialInactiveObstacle(predicted,", br)
+        self.assertIn("new Vector3(0.36f, 0.90f, 0.36f)", br)
+        self.assertIn("owner.WouldCrossInactiveCover(transform.position, displacement)", br)
+        self.assertIn("owner.WouldCrossInactiveCover(transform.position, first)", br)
+        self.assertIn("owner.WouldCrossInactiveCover(transform.position, second)", br)
+        self.assertIn("displacement = Vector3.zero;", br)
+        self.assertIn("HasPotentialInactiveObstacle(", grid)
+        self.assertNotIn("Physics.SyncTransforms()", br)
+        self.assertNotIn("nearbyColliders.RefreshNow()", br)
+        self.assertIn('string participants = spawnComplete', br)
+        self.assertIn('"RIVALS " + spawnedRivals + "/" + RivalCount', br)
+
+        # 10/15/20/30/60/90/120 FPS: a steady 2.85 m/s pursuit no longer
+        # loses half its elapsed time at a 10 Hz phone frame rate.
+        self.assertIn("float dt = Mathf.Min(Time.deltaTime, 0.12f);", br)
+        self.assertIn("capsule.Move(displacement +", br)
+        self.assertNotIn("float dt = Mathf.Min(Time.deltaTime, 0.05f);", br)
+        for fps in (10, 15, 20, 30, 60, 90, 120):
+            seconds = 5
+            sim_distance = sum(2.85 * min(1.0 / fps, .12)
+                               for _ in range(fps * seconds))
+            self.assertAlmostEqual(sim_distance, 2.85 * seconds, places=5)
+
     def test_offline_br_is_a_bounded_real_match_not_an_empty_map(self):
         br = (SCRIPTS / "AarisOfflineBRDirector.cs").read_text("utf-8")
         end = (SCRIPTS / "AarisOfflineMatchEnd.cs").read_text("utf-8")
