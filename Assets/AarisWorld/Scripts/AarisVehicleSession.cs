@@ -125,10 +125,21 @@ namespace Aaris.MapReview
             if (!CanEnter || capsule == null || followCamera == null) return false;
             if ((nearbyCar.transform.position - transform.position).sqrMagnitude > 16f)
                 return false;
+            // A sudden sprint/teleport can precede the streamed wall's next
+            // 1-second refresh. Synchronize only on a deliberate DRIVE tap.
+            if (nearbyColliders == null)
+                nearbyColliders = FindFirstObjectByType<AarisNearbyColliders>();
+            if (nearbyColliders != null) nearbyColliders.RefreshNow();
             // The DRIVE action cannot reach through a house/rock wall.
             Vector3 eye = transform.position + Vector3.up * 1.1f;
             Vector3 target = nearbyCar.transform.position + Vector3.up * 1.1f;
-            if (!HasClearVehicleAccess(eye, target, nearbyCar.transform)) return false;
+            if (!HasClearVehicleAccess(eye, target, nearbyCar.transform))
+            {
+                // A nearer car behind a wall must not hide another accessible
+                // parked vehicle. This scene query runs on a failed tap ONLY.
+                nearbyCar = FindReachableCarOnTap();
+                if (nearbyCar == null) return false;
+            }
             if (!nearbyCar.TryTakeDriver(this)) return false;
             // The four AfterSceneLoad Boot methods have no guaranteed
             // ordering. The vehicle session may have been configured before
@@ -178,6 +189,29 @@ namespace Aaris.MapReview
             cameraVelocity = Vector3.zero;
             Debug.Log("AARIS_VEHICLE_ENTER " + car.VehicleId);
             return true;
+        }
+
+        private AarisVehicleMotor FindReachableCarOnTap()
+        {
+            AarisVehicleMotor nearest = null;
+            float nearestSquared = 4f * 4f;
+            Vector3 origin = transform.position;
+            Vector3 eye = origin + Vector3.up * 1.1f;
+            // This allocation-free-in-normal-Update fallback only scans
+            // live vehicle motors if the primary DRIVE ray is blocked.
+            foreach (AarisVehicleMotor candidate in
+                FindObjectsByType<AarisVehicleMotor>(FindObjectsSortMode.None))
+            {
+                if (candidate == null || !candidate.isActiveAndEnabled ||
+                    candidate.IsOccupied) continue;
+                float d2 = (candidate.transform.position - origin).sqrMagnitude;
+                if (d2 >= nearestSquared || !candidate.IsSafeToExit) continue;
+                Vector3 target = candidate.transform.position + Vector3.up * 1.1f;
+                if (!HasClearVehicleAccess(eye, target, candidate.transform)) continue;
+                nearest = candidate;
+                nearestSquared = d2;
+            }
+            return nearest;
         }
 
         private bool HasClearVehicleAccess(Vector3 start, Vector3 end, Transform vehicle)
