@@ -8,7 +8,11 @@
       "weight": 6,
       "maxSpeedMetres": 25.5,
       "massKg": 1250,
-      "wheelResource": "AarisVehicles/Models/wheel-default"
+      "wheelResource": "AarisVehicles/Models/wheel-default",
+      "drivetrain": "FWD",
+      "tyreGripScale": 1,
+      "suspensionScale": 1,
+      "steeringScale": 1
     },
     {
       "id": "SUV",
@@ -18,7 +22,11 @@
       "massKg": 1650,
       "wheelResource": "AarisVehicles/Models/wheel-default",
       "authoredModelResource": "AarisVehicles/Authored/1990s-suv",
-      "fallbackAuthoredModelResource": "AarisVehicles/Authored/QuaterniusSUV"
+      "fallbackAuthoredModelResource": "AarisVehicles/Authored/QuaterniusSUV",
+      "drivetrain": "AWD",
+      "tyreGripScale": 0.98,
+      "suspensionScale": 1.08,
+      "steeringScale": 0.9
     },
     {
       "id": "Sports",
@@ -28,7 +36,11 @@
       "massKg": 1140,
       "wheelResource": "AarisVehicles/Models/wheel-racing",
       "authoredModelResource": "AarisVehicles/Authored/1990s-sports-car",
-      "fallbackAuthoredModelResource": "AarisVehicles/Authored/QuaterniusSports"
+      "fallbackAuthoredModelResource": "AarisVehicles/Authored/QuaterniusSports",
+      "drivetrain": "RWD",
+      "tyreGripScale": 1.09,
+      "suspensionScale": 1.16,
+      "steeringScale": 1.12
     },
     {
       "id": "Hatchback",
@@ -38,7 +50,11 @@
       "massKg": 1040,
       "wheelResource": "AarisVehicles/Models/wheel-racing",
       "authoredModelResource": "AarisVehicles/Authored/1990s-hatchback",
-      "fallbackAuthoredModelResource": "AarisVehicles/Authored/QuaterniusCompact"
+      "fallbackAuthoredModelResource": "AarisVehicles/Authored/QuaterniusCompact",
+      "drivetrain": "FWD",
+      "tyreGripScale": 1.04,
+      "suspensionScale": 0.97,
+      "steeringScale": 1.08
     },
     {
       "id": "Van",
@@ -47,7 +63,11 @@
       "maxSpeedMetres": 20,
       "massKg": 1950,
       "wheelResource": "AarisVehicles/Models/wheel-truck",
-      "authoredModelResource": "AarisVehicles/Authored/1980s-van"
+      "authoredModelResource": "AarisVehicles/Authored/1980s-van",
+      "drivetrain": "RWD",
+      "tyreGripScale": 0.91,
+      "suspensionScale": 1.04,
+      "steeringScale": 0.82
     },
     {
       "id": "Utility",
@@ -56,7 +76,11 @@
       "maxSpeedMetres": 21,
       "massKg": 2050,
       "wheelResource": "AarisVehicles/Models/wheel-truck",
-      "authoredModelResource": "AarisVehicles/Authored/1990s-pickup-truck"
+      "authoredModelResource": "AarisVehicles/Authored/1990s-pickup-truck",
+      "drivetrain": "AWD",
+      "tyreGripScale": 0.94,
+      "suspensionScale": 1.08,
+      "steeringScale": 0.88
     }
   ]
 }

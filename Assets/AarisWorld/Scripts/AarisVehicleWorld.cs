@@ -28,6 +28,9 @@ namespace Aaris.MapReview
         public string fallbackAuthoredModelResource;
         public int weight;
         public float maxSpeedMetres, massKg;
+        // Declarative physics profiles; unconfigured values fall back safely.
+        public string drivetrain;
+        public float tyreGripScale, suspensionScale, steeringScale;
         // Opt-in for imported car AND wheel prefabs with valid URP Lit PBR materials.
         // Legacy Kenney models still use the shared atlas and unchanged art budget.
         public bool preserveAuthoredUrpMaterials;
@@ -1081,6 +1084,17 @@ namespace Aaris.MapReview
             // Only executed at spawn, never per frame. A per-renderer indexed
             // property block keeps the original shared URP PBR material/normal
             // maps intact and does not allocate unique material instances.
+            // Paint-only per-car finish: never re-shade glass, wheel rubber,
+            // light lenses, decals or the shared PBR texture atlas.
+            float targetMetallic = .34f, targetSmoothness = .64f;
+            switch (record.type.id)
+            {
+                case "SUV": targetMetallic = .23f; targetSmoothness = .49f; break;
+                case "Sports": targetMetallic = .46f; targetSmoothness = .73f; break;
+                case "Hatchback": targetMetallic = .30f; targetSmoothness = .61f; break;
+                case "Van": targetMetallic = .20f; targetSmoothness = .46f; break;
+                case "Utility": targetMetallic = .18f; targetSmoothness = .43f; break;
+            }
             var block = new MaterialPropertyBlock();
             foreach (var renderer in model.GetComponentsInChildren<Renderer>(true))
             {
@@ -1116,10 +1130,12 @@ namespace Aaris.MapReview
                     {
                         if (material.HasProperty("_Smoothness"))
                             block.SetFloat("_Smoothness", Mathf.Clamp(
-                                material.GetFloat("_Smoothness"), .56f, .72f));
+                                Mathf.Lerp(material.GetFloat("_Smoothness"),
+                                    targetSmoothness, .76f), .38f, .78f));
                         if (material.HasProperty("_Metallic"))
                             block.SetFloat("_Metallic", Mathf.Clamp(
-                                material.GetFloat("_Metallic"), .20f, .42f));
+                                Mathf.Lerp(material.GetFloat("_Metallic"),
+                                    targetMetallic, .76f), .16f, .50f));
                     }
                     renderer.SetPropertyBlock(block, slot);
                 }
@@ -1218,6 +1234,9 @@ namespace Aaris.MapReview
             mesh.transform.localPosition += new Vector3(0f, .48f, 0f) - bounds.center;
             var motor = root.AddComponent<AarisVehicleMotor>();
             motor.Configure(record.type.id, record.type.maxSpeedMetres, record.type.massKg);
+            motor.ConfigureHandling(record.type.drivetrain,
+                record.type.tyreGripScale, record.type.suspensionScale,
+                record.type.steeringScale);
             // After the mesh is recentered to local Y=.48, its size remains
             // valid in chassis space at every road yaw. Align physical shell
             // and wheels to the visible type instead of a generic sedan.

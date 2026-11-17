@@ -47,7 +47,8 @@ class RealVehicleTelemetry(unittest.TestCase):
         self.assertIn("float torque = baseTorque * driveTorqueScale;", MOTOR)
         self.assertIn("steeringMassFactor = Mathf.Lerp(1f, .88f,", MOTOR)
         self.assertIn("Mathf.InverseLerp(1150f, 2100f, body.mass)", MOTOR)
-        self.assertIn("Mathf.InverseLerp(0f, 24f, planarSpeed)) * steeringMassFactor;", MOTOR)
+        self.assertIn("Mathf.InverseLerp(0f, 24f, planarSpeed)) * steeringMassFactor *", MOTOR)
+        self.assertIn("steeringResponseMultiplier;", MOTOR)
         masses = [1140, 1250, 1650, 1950, 2050]
         acceleration = []
         for mass in masses:

@@ -437,8 +437,11 @@ def test():
     assert "surface is TerrainCollider" in motor
     assert "ApplySurfaceGrip(leftIndex, left, leftHit.collider);" in motor
     assert "ApplySurfaceGrip(rightIndex, right, rightHit.collider);" in motor
-    assert "BaseForwardGripStiffness * multiplier" in motor
-    assert "BaseSideGripStiffness * multiplier" in motor
+    # Per-type tyre compound now modulates the original road/terrain/water grip.
+    # Preserve the original no-extra-contact-query contract.
+    assert "BaseForwardGripStiffness *\n                tyreCompoundMultiplier * multiplier" in motor
+    assert "BaseSideGripStiffness *\n                tyreCompoundMultiplier * multiplier" in motor
+    assert "tyreCompoundMultiplier = SafeHandlingScale(tyreGrip, .88f, 1.12f)" in motor
     assert motor.count("GetGroundHit(out WheelHit") == 2
     for multiplier in (1.0, 0.90, 0.42):
         assert 0.40 <= multiplier <= 1.0

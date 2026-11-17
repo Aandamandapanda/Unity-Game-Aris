@@ -68,6 +68,10 @@ namespace Aaris.MapReview
         // Heavier SUVs/utility cars need more wheel torque yet still accelerate
         // more slowly than light sports cars under the same WheelCollider model.
         private float driveTorqueScale = 1f;
+        // One-time vehicle-specific handling; no extra physics authority.
+        private float frontDriveFraction; // Legacy RWD default.
+        private float tyreCompoundMultiplier = 1f;
+        private float steeringResponseMultiplier = 1f;
         private float steeringMassFactor = 1f;
         private float appliedDriveTorque = float.NaN, appliedBrakeTorque = float.NaN;
         private float appliedSteeringAngle = float.NaN;
@@ -182,6 +186,50 @@ namespace Aaris.MapReview
             // parked cars remain asleep, so the mobile cost stays bounded.
             if (wheels[0] != null)
                 wheels[0].ConfigureVehicleSubsteps(12f, 3, 2);
+        }
+
+        private static float SafeHandlingScale(float value, float minimum, float maximum)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value) || value <= 0f)
+                return 1f;
+            return Mathf.Clamp(value, minimum, maximum);
+        }
+
+        /// <summary>
+        /// Original mobile-oriented drivetrain/suspension profiles. Split the
+        /// same total torque between real WheelCollider axles, never teleport
+        /// velocity or create new mesh/physics materials in FixedUpdate.
+        /// </summary>
+        public void ConfigureHandling(string drivetrain, float tyreGrip,
+            float suspension, float steeringResponse)
+        {
+            if (body == null || wheels[0] == null) return;
+            frontDriveFraction = string.Equals(drivetrain, "FWD",
+                StringComparison.OrdinalIgnoreCase) ? 1f :
+                string.Equals(drivetrain, "AWD",
+                StringComparison.OrdinalIgnoreCase) ? .46f : 0f;
+            tyreCompoundMultiplier = SafeHandlingScale(tyreGrip, .88f, 1.12f);
+            steeringResponseMultiplier = SafeHandlingScale(
+                steeringResponse, .78f, 1.16f);
+            float springScale = SafeHandlingScale(suspension, .86f, 1.18f);
+            for (int i = 0; i < wheels.Length; i++)
+            {
+                WheelCollider wheel = wheels[i];
+                if (wheel == null) continue;
+                JointSpring spring = wheel.suspensionSpring;
+                spring.spring *= springScale;
+                spring.damper *= Mathf.Sqrt(springScale);
+                wheel.suspensionSpring = spring;
+                WheelFrictionCurve forwardGrip = wheel.forwardFriction;
+                forwardGrip.stiffness = BaseForwardGripStiffness *
+                    tyreCompoundMultiplier;
+                wheel.forwardFriction = forwardGrip;
+                WheelFrictionCurve sideGrip = wheel.sidewaysFriction;
+                sideGrip.stiffness = BaseSideGripStiffness *
+                    tyreCompoundMultiplier;
+                wheel.sidewaysFriction = sideGrip;
+            }
+            appliedDriveTorque = float.NaN;
         }
 
         private void CreateWheel(int index, float x, float z)
@@ -957,7 +1005,12 @@ namespace Aaris.MapReview
             for (int i = 0; i < wheels.Length; i++)
             {
                 if (wheels[i] == null) continue;
-                if (driveChanged) wheels[i].motorTorque = i >= 2 ? drive * .5f : 0f;
+                if (driveChanged)
+                {
+                    float axleFraction = i < 2 ? frontDriveFraction :
+                        1f - frontDriveFraction;
+                    wheels[i].motorTorque = drive * .5f * axleFraction;
+                }
                 if (brakeChanged) wheels[i].brakeTorque = brake;
             }
             appliedDriveTorque = drive;
@@ -1024,9 +1077,11 @@ namespace Aaris.MapReview
             float planarSpeed = Vector3.ProjectOnPlane(
                 body.linearVelocity, transform.up).magnitude;
             float maxAngle = Mathf.Lerp(32f, 10f,
-                Mathf.InverseLerp(0f, 24f, planarSpeed)) * steeringMassFactor;
+                Mathf.InverseLerp(0f, 24f, planarSpeed)) * steeringMassFactor *
+                steeringResponseMultiplier;
             float target = turn * maxAngle;
-            smoothSteer = Mathf.MoveTowards(smoothSteer, target, 125f * Time.fixedDeltaTime);
+            smoothSteer = Mathf.MoveTowards(smoothSteer, target,
+                125f * steeringResponseMultiplier * Time.fixedDeltaTime);
             ApplyAckermannSteering(smoothSteer);
 
             // Axle load transfer: counter excessive roll on fast bends and
@@ -1121,11 +1176,13 @@ namespace Aaris.MapReview
             surfaceGripMultipliers[wheelIndex] = multiplier;
 
             WheelFrictionCurve forwardGrip = wheel.forwardFriction;
-            forwardGrip.stiffness = BaseForwardGripStiffness * multiplier;
+            forwardGrip.stiffness = BaseForwardGripStiffness *
+                tyreCompoundMultiplier * multiplier;
             wheel.forwardFriction = forwardGrip;
 
             WheelFrictionCurve sideGrip = wheel.sidewaysFriction;
-            sideGrip.stiffness = BaseSideGripStiffness * multiplier;
+            sideGrip.stiffness = BaseSideGripStiffness *
+                tyreCompoundMultiplier * multiplier;
             wheel.sidewaysFriction = sideGrip;
         }
 
