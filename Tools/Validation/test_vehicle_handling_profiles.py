@@ -8,7 +8,7 @@ W=(R/'Assets/AarisWorld/Scripts/AarisVehicleWorld.cs').read_text()
 C=json.loads((R/'Assets/Resources/AarisVehicles/vehicle_catalog.json').read_text())
 class TestHandlingProfiles(unittest.TestCase):
  def test_catalog_and_drivetrain(self):
-  expected={'Sedan':'FWD','SUV':'AWD','Sports':'RWD',
+  expected={'Sedan':'FWD','SUV':'AWD','Sports':'RWD','GT':'RWD',
             'Hatchback':'FWD','Van':'RWD','Utility':'AWD',
             'Buggy':'AWD'}
   self.assertEqual({v['id'] for v in C['vehicles']},set(expected))

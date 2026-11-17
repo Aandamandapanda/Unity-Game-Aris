@@ -711,17 +711,10 @@ namespace Aaris.MapReview
                     bool sedan = label.IndexOf("AarisCivilianSurface",
                         StringComparison.OrdinalIgnoreCase) >= 0;
                     if (!separate && !atlas && !sedan) continue;
-                    Color paintFactor = atlas ? Color.Lerp(Color.white, carPaint, .30f)
-                        : sedan ? Color.Lerp(Color.white, carPaint, .45f)
-                        : carPaint;
-                    // The world already multiplied this imported paint's
-                    // original PBR base tint. Wear must start from EXACTLY
-                    // that colour, not replace it with a raw palette swatch.
-                    Color original = material.GetColor("_BaseColor");
-                    Color fresh = new Color(
-                        original.r * paintFactor.r,
-                        original.g * paintFactor.g,
-                        original.b * paintFactor.b, original.a);
+                    // Restore damage from the exact same premium swatch.
+                    // A driven GT must not snap back to imported dark red.
+                    Color fresh = AarisVehicleWorld.SelectPaintTint(
+                        material, carPaint, atlas, sedan);
                     bodyPaintSlots.Add(new BodyPaintSlot
                     {
                         renderer = renderer, index = slot,

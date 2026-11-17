@@ -1180,21 +1180,18 @@ namespace Aaris.MapReview
         // recolouring would turn windows and lights into painted plastic. Give
         // dedicated paint slots a full tint and body atlases only a subtle tint.
         // Never recolour the Kenney UV palette or the shared material assets.
+        // Premium paint stays readable in low-end Android lighting.
+        // No neon, candy hues or flat near-black cars.
         private static readonly Color[] BodyPaintColours =
         {
-            Color.white,
-            new Color(.84f, .31f, .29f, 1f), // deep red
-            new Color(.32f, .54f, .82f, 1f), // steel blue
-            new Color(.30f, .60f, .48f, 1f), // forest green
-            new Color(.65f, .68f, .74f, 1f), // silver
-            new Color(.30f, .32f, .38f, 1f), // graphite
-            new Color(.84f, .71f, .46f, 1f), // champagne
-            new Color(.86f, .34f, .15f, 1f), // performance orange
-            new Color(.94f, .75f, .19f, 1f), // sunburst yellow
-            new Color(.17f, .53f, .60f, 1f), // ocean teal
-            new Color(.45f, .28f, .61f, 1f), // imperial plum
-            new Color(.61f, .20f, .29f, 1f), // burgundy
-            new Color(.64f, .42f, .31f, 1f)  // copper
+            new Color(.91f, .91f, .87f, 1f), // pearl white
+            new Color(.67f, .72f, .76f, 1f), // satin silver
+            new Color(.36f, .42f, .48f, 1f), // graphite steel
+            new Color(.59f, .16f, .20f, 1f), // oxblood crimson
+            new Color(.23f, .35f, .53f, 1f), // midnight sapphire
+            new Color(.34f, .45f, .37f, 1f), // olive jade
+            new Color(.74f, .66f, .49f, 1f), // pale champagne
+            new Color(.32f, .48f, .51f, 1f)  // smoked teal
         };
 
         private static int StablePaintVariant(string pointId, string vehicleId)
@@ -1210,6 +1207,31 @@ namespace Aaris.MapReview
                     hash = (hash ^ key[i]) * 16777619u;
                 return (int)(hash % (uint)BodyPaintColours.Length);
             }
+        }
+
+        // Identical on spawn and after damage: one verified paint formula.
+        // Quaternius AarisPaint imports as a dark red solid material. Modulating
+        // that hue by a blue/silver paint made it look almost black. Dedicated
+        // untextured body paint must REPLACE the swatch, not multiply it.
+        // Baked atlas textures also contain lamps/windows, so keep those toned.
+        internal static Color SelectPaintTint(Material material, Color paint,
+            bool bodyAtlas, bool civilianPaint)
+        {
+            Color original = material.GetColor("_BaseColor");
+            if (!bodyAtlas && !civilianPaint)
+            {
+                Texture baseMap = material.HasProperty("_BaseMap")
+                    ? material.GetTexture("_BaseMap") : null;
+                Color dedicated = baseMap == null ||
+                    baseMap == Texture2D.whiteTexture
+                    ? paint : Color.Lerp(original, paint, .85f);
+                return new Color(dedicated.r, dedicated.g, dedicated.b, original.a);
+            }
+            Color paintFactor = bodyAtlas
+                ? Color.Lerp(Color.white, paint, .30f)
+                : Color.Lerp(Color.white, paint, .45f);
+            return new Color(original.r * paintFactor.r,
+                original.g * paintFactor.g, original.b * paintFactor.b, original.a);
         }
 
         private static void PaintVerifiedBodySlots(GameObject model,
@@ -1233,6 +1255,7 @@ namespace Aaris.MapReview
                     targetMetallic = .27f; targetSmoothness = .50f;
                     paintClearCoat = .15f; break;
                 case "Sports":
+                case "GT":
                     targetMetallic = .46f; targetSmoothness = .73f;
                     paintClearCoat = .57f; break;
                 case "Hatchback": targetMetallic = .30f; targetSmoothness = .61f; break;
@@ -1262,16 +1285,8 @@ namespace Aaris.MapReview
                     if (!separatePaint && !bodyAtlas && !civilianPaint) continue;
                     // Subtle for a multi-purpose body texture: paint variation
                     // must not wash out the authored windows/decals/headlights.
-                    Color paintFactor = bodyAtlas ? Color.Lerp(Color.white, paint, .30f)
-                        : civilianPaint ? Color.Lerp(Color.white, paint, .45f)
-                        : paint;
-                    // MaterialPropertyBlock replaces _BaseColor: multiply the
-                    // authored PBR tone instead of bleaching dark body panels.
-                    Color original = material.GetColor("_BaseColor");
-                    Color tint = new Color(
-                        original.r * paintFactor.r,
-                        original.g * paintFactor.g,
-                        original.b * paintFactor.b, original.a);
+                    Color tint = SelectPaintTint(
+                        material, paint, bodyAtlas, civilianPaint);
                     block.Clear();
                     renderer.GetPropertyBlock(block, slot);
                     block.SetColor("_BaseColor", tint);

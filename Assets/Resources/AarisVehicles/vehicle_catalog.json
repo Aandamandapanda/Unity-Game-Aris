@@ -5,7 +5,7 @@
       "modelResource": "AarisVehicles/Models/sedan",
       "authoredModelResource": "AarisVehicles/Authored/CivilianSedan",
       "authoredWheelResource": "AarisVehicles/Authored/CivilianWheel",
-      "weight": 6,
+      "weight": 4,
       "maxSpeedMetres": 25.5,
       "massKg": 1250,
       "wheelResource": "AarisVehicles/Models/wheel-default",
@@ -33,7 +33,7 @@
     {
       "id": "Sports",
       "modelResource": "AarisVehicles/Models/sedan-sports",
-      "weight": 2,
+      "weight": 4,
       "maxSpeedMetres": 28,
       "massKg": 1140,
       "wheelResource": "AarisVehicles/Models/wheel-racing",
@@ -44,6 +44,20 @@
       "suspensionScale": 1.16,
       "steeringScale": 1.12,
       "suspensionTravelScale": 0.84
+    },
+    {
+      "id": "GT",
+      "modelResource": "AarisVehicles/Models/sedan-sports",
+      "authoredModelResource": "AarisVehicles/Authored/QuaterniusSports",
+      "weight": 4,
+      "maxSpeedMetres": 27.5,
+      "massKg": 1160,
+      "wheelResource": "AarisVehicles/Models/wheel-racing",
+      "drivetrain": "RWD",
+      "tyreGripScale": 1.08,
+      "suspensionScale": 1.12,
+      "steeringScale": 1.1,
+      "suspensionTravelScale": 0.86
     },
     {
       "id": "Hatchback",

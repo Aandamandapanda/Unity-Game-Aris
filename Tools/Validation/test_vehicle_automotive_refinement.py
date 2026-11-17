@@ -15,7 +15,7 @@ CATALOG = json.loads((ROOT / "Assets/Resources/AarisVehicles/vehicle_catalog.jso
 class AutomotiveRefinement(unittest.TestCase):
     def test_catalog_has_distinct_stroke_profiles_and_safe_bounds(self):
         ride = {v["id"]: v["suspensionTravelScale"] for v in CATALOG["vehicles"]}
-        self.assertEqual(len(ride), 7)
+        self.assertEqual(len(ride), 8)
         self.assertLess(ride["Sports"], ride["Sedan"])
         self.assertGreater(ride["SUV"], ride["Sedan"])
         self.assertGreater(ride["Buggy"], ride["SUV"])
@@ -118,12 +118,15 @@ class AutomotiveRefinement(unittest.TestCase):
         self.assertIn('polished.EnableKeyword("_CLEARCOAT")', method)
         self.assertIn("record.type.preserveAuthoredUrpMaterials)", build)
         self.assertIn("ApplyAuthoredMaterials(renderers);", build)
-        self.assertIn('material.GetColor("_BaseColor")', body)
+        helper = WORLD.split("internal static Color SelectPaintTint(", 1)[1].split(
+            "private static void PaintVerifiedBodySlots(", 1)[0]
+        self.assertIn("Color tint = SelectPaintTint(", body)
+        self.assertIn('material.GetColor("_BaseColor")', helper)
         for field in ("original.r * paintFactor.r",
                       "original.g * paintFactor.g",
                       "original.b * paintFactor.b",
                       "original.a"):
-            self.assertIn(field, body)
+            self.assertIn(field, helper)
         self.assertNotIn("new Material(", body)
         self.assertNotIn("renderer.material", body)
 
@@ -132,12 +135,16 @@ class AutomotiveRefinement(unittest.TestCase):
             "public void ConfigureRearTyreTraces(", 1)[0]
         world = WORLD.split("private static void PaintVerifiedBodySlots(", 1)[1].split(
             "private void FallBackToVerifiedModel(", 1)[0]
-        for source in (wear, world):
-            self.assertIn('material.GetColor("_BaseColor")', source)
-            for term in ("original.r * paintFactor.r",
-                         "original.g * paintFactor.g",
-                         "original.b * paintFactor.b", "original.a"):
-                self.assertIn(term, source)
+        self.assertIn("Color fresh = AarisVehicleWorld.SelectPaintTint(", wear)
+        self.assertIn("Color tint = SelectPaintTint(", world)
+        helper = WORLD.split("internal static Color SelectPaintTint(", 1)[1].split(
+            "private static void PaintVerifiedBodySlots(", 1)[0]
+        self.assertIn('material.GetColor("_BaseColor")', helper)
+        for term in ("original.r * paintFactor.r",
+                     "original.g * paintFactor.g",
+                     "original.b * paintFactor.b", "original.a"):
+            self.assertIn(term, helper)
+        self.assertIn("? paint : Color.Lerp(original, paint, .85f)", helper)
         self.assertIn("fresh = fresh, atlas = atlas", wear)
         self.assertNotIn("fresh = tint", wear)
         self.assertIn("entry.renderer.GetPropertyBlock(bodyPaintBlock, entry.index)", wear)
@@ -145,7 +152,7 @@ class AutomotiveRefinement(unittest.TestCase):
         # The zero-damage wear pass must produce the spawn tint exactly.
         for base in ((.12, .24, .45, .5), (.70, .64, .60, 1)):
             for paint in ((.4, .8, .3), (.95, .2, .1)):
-                for coverage in (.3, .45, 1):
+                for coverage in (.3, .45):
                     tint = [1 - coverage + coverage * c for c in paint]
                     fresh = [base[i] * tint[i] for i in range(3)] + [base[3]]
                     self.assertNotAlmostEqual(fresh[0], tint[0])

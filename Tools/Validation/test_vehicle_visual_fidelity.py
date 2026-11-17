@@ -125,10 +125,12 @@ class VehicleVisualFidelity(unittest.TestCase):
         self.assertIn('label.IndexOf("AarisPaint"', method)
         self.assertIn('label.IndexOf("AarisCivilianSurface"', method)
         self.assertIn("if (!separate && !atlas && !sedan) continue;", method)
-        self.assertIn("Color paintFactor = atlas ? Color.Lerp(Color.white, carPaint, .30f)", method)
-        self.assertIn('material.GetColor("_BaseColor")', method)
+        self.assertIn("Color fresh = AarisVehicleWorld.SelectPaintTint(", method)
+        helper = WORLD.split("internal static Color SelectPaintTint(", 1)[1].split(
+            "private static void PaintVerifiedBodySlots(", 1)[0]
+        self.assertIn('material.GetColor("_BaseColor")', helper)
+        self.assertIn("original.r * paintFactor.r", helper)
         self.assertIn("fresh = fresh, atlas = atlas", method)
-        self.assertIn("original.r * paintFactor.r", method)
         self.assertIn("entry.atlas ? .73f : .52f", method)
         self.assertIn('entry.renderer.GetPropertyBlock(bodyPaintBlock, entry.index);', method)
         self.assertIn('bodyPaintBlock.SetColor("_BaseColor", worn);', method)

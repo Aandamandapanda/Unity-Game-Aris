@@ -19,9 +19,9 @@ class VehiclePaintAndFallback(unittest.TestCase):
         for term in ('new MaterialPropertyBlock()', 'renderer.GetPropertyBlock(block, slot)', 'renderer.SetPropertyBlock(block, slot)',
                      'label.IndexOf("AarisPaint"', 'label.IndexOf("body_pbr"', 'if (!separatePaint && !bodyAtlas && !civilianPaint) continue;'):
             self.assertIn(term, paint)
-        self.assertIn("Color.Lerp(Color.white, paint, .30f)", paint)
+        self.assertIn("Color.Lerp(Color.white, paint, .30f)", WORLD)
         self.assertIn('label.IndexOf("AarisCivilianSurface"', paint)
-        self.assertIn("Color.Lerp(Color.white, paint, .45f)", paint)
+        self.assertIn("Color.Lerp(Color.white, paint, .45f)", WORLD)
         self.assertNotIn("renderer.material", paint)
         self.assertNotIn("new Material(", paint)
 
@@ -47,8 +47,8 @@ class VehiclePaintAndFallback(unittest.TestCase):
 
     def test_premium_palette_and_panel_only_clearcoat(self):
         palette = WORLD.split("private static readonly Color[] BodyPaintColours =", 1)[1].split("private static int StablePaintVariant(", 1)[0]
-        self.assertGreaterEqual(palette.count("new Color("), 12)
-        for shade in ("performance orange", "sunburst yellow", "ocean teal", "imperial plum", "burgundy", "copper"):
+        self.assertEqual(palette.count("new Color("), 8)
+        for shade in ("pearl white", "satin silver", "graphite steel", "oxblood crimson", "midnight sapphire", "olive jade", "pale champagne", "smoked teal"):
             self.assertIn(shade, palette)
         paint = WORLD.split("private static void PaintVerifiedBodySlots(", 1)[1].split("private void FallBackToVerifiedModel(", 1)[0]
         self.assertIn("if (separatePaint || civilianPaint)", paint)
