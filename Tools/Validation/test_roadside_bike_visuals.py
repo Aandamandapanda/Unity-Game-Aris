@@ -72,5 +72,40 @@ class BikeVisuals(unittest.TestCase):
         self.assertEqual(update.count("CreateBike("), 1)
         self.assertIn("if (visibleCount >= MaximumVisibleBikes) return;", update)
 
+    def test_crowded_parking_queries_are_complete_and_keep_safety_checks(self):
+        source = SCRIPT.read_text()
+        parking = source.split("private bool TryParkingSpot(", 1)[1].split(
+            "private static int SurfaceIndex(", 1)[0]
+        # A nonallocating buffer reaching capacity is not a complete set of
+        # unsorted physics hits. Bikes must not vanish at dense road crossings.
+        for required in (
+            "private readonly RaycastHit[] denseSupportHits = new RaycastHit[96];",
+            "private readonly Collider[] denseBlockingHits = new Collider[96];",
+        ):
+            self.assertIn(required, source)
+        for required in (
+            "RaycastHit[] floorHits = supportHits;",
+            "if (count >= supportHits.Length)",
+            "if (count >= denseSupportHits.Length)",
+            "Physics.RaycastAll(origin, Vector3.down,",
+            "RaycastHit hit = floorHits[i];",
+            "Collider[] foundColliders = blockingHits;",
+            "if (obstacles >= blockingHits.Length)",
+            "if (obstacles >= denseBlockingHits.Length)",
+            "Physics.OverlapBox(center, half, rotation,",
+            "Collider collider = foundColliders[i];",
+            "if (hit.collider == null || hit.normal.y < .965f)",
+            "HasPotentialInactiveObstacle(center,half,rotation)",
+            "if (collider != null && !(collider is TerrainCollider))",
+        ):
+            self.assertIn(required, parking)
+        self.assertNotIn("if (count >= supportHits.Length) continue;", parking)
+        self.assertNotIn("if (obstacles >= blockingHits.Length) continue;", parking)
+        self.assertLess(parking.index("Physics.RaycastAll("),
+                        parking.index("float nearestError = 1.5f;"))
+        self.assertLess(parking.index("Physics.OverlapBox(center, half, rotation,"),
+                        parking.index("bool blocked = false;"))
+
+
 if __name__ == "__main__":
     unittest.main()

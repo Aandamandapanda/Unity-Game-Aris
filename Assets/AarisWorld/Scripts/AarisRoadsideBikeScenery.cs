@@ -17,7 +17,9 @@ namespace Aaris.MapReview
         private const float UnloadRadius = 66f;
         private readonly List<BikePlan> plans = new List<BikePlan>(18);
         private readonly RaycastHit[] supportHits = new RaycastHit[20];
+        private readonly RaycastHit[] denseSupportHits = new RaycastHit[96];
         private readonly Collider[] blockingHits = new Collider[24];
+        private readonly Collider[] denseBlockingHits = new Collider[96];
         private readonly Material[] surfaces = new Material[8];
         private readonly Material[] paintVariants = new Material[4];
         private Transform player;
@@ -170,13 +172,32 @@ namespace Aaris.MapReview
                 int count = Physics.RaycastNonAlloc(origin, Vector3.down,
                     supportHits, 7f, Physics.DefaultRaycastLayers,
                     QueryTriggerInteraction.Ignore);
-                if (count >= supportHits.Length) continue;
+                RaycastHit[] floorHits = supportHits;
+                if (count >= supportHits.Length)
+                {
+                    // Saturated NonAlloc results are unordered and incomplete.
+                    // Do not hide a valid bike bay just because nearby roads,
+                    // terrain seams or houses filled the small hit buffer.
+                    count = Physics.RaycastNonAlloc(origin, Vector3.down,
+                        denseSupportHits, 7f, Physics.DefaultRaycastLayers,
+                        QueryTriggerInteraction.Ignore);
+                    floorHits = denseSupportHits;
+                    if (count >= denseSupportHits.Length)
+                    {
+                        // Exceptional dense scene only: preserve the same slope
+                        // and authored elevation checks on every actual hit.
+                        floorHits = Physics.RaycastAll(origin, Vector3.down,
+                            7f, Physics.DefaultRaycastLayers,
+                            QueryTriggerInteraction.Ignore);
+                        count = floorHits.Length;
+                    }
+                }
                 float nearestError = 1.5f;
                 Vector3 ground = default;
                 bool found = false;
                 for (int i = 0; i < count; i++)
                 {
-                    RaycastHit hit = supportHits[i];
+                    RaycastHit hit = floorHits[i];
                     if (hit.collider == null || hit.normal.y < .965f) continue;
                     float error = Mathf.Abs(hit.point.y - point.y);
                     if (error >= nearestError) continue;
@@ -193,11 +214,26 @@ namespace Aaris.MapReview
                 int obstacles = Physics.OverlapBoxNonAlloc(center, half,
                     blockingHits, rotation, Physics.DefaultRaycastLayers,
                     QueryTriggerInteraction.Ignore);
-                if (obstacles >= blockingHits.Length) continue;
+                Collider[] foundColliders = blockingHits;
+                if (obstacles >= blockingHits.Length)
+                {
+                    // Never accept a partial overlap set as clear; retry with
+                    // preallocated storage before rare complete-query fallback.
+                    obstacles = Physics.OverlapBoxNonAlloc(center, half,
+                        denseBlockingHits, rotation, Physics.DefaultRaycastLayers,
+                        QueryTriggerInteraction.Ignore);
+                    foundColliders = denseBlockingHits;
+                    if (obstacles >= denseBlockingHits.Length)
+                    {
+                        foundColliders = Physics.OverlapBox(center, half, rotation,
+                            Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+                        obstacles = foundColliders.Length;
+                    }
+                }
                 bool blocked = false;
                 for (int i = 0; i < obstacles; i++)
                 {
-                    Collider collider = blockingHits[i];
+                    Collider collider = foundColliders[i];
                     if (collider != null && !(collider is TerrainCollider))
                     {
                         blocked = true;
