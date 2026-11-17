@@ -33,6 +33,10 @@ namespace Aaris.MapReview
         private int auditedTiles, visibleHeightmaps, paintedTiles;
         private int alphamapCount, invalidTerrainMaterials;
         private bool terrainLitAvailable;
+        // Restore water shadow properties when this scene runtime exits.
+        private MeshRenderer oceanShadowRenderer;
+        private UnityEngine.Rendering.ShadowCastingMode originalOceanCasting;
+        private bool originalOceanReceiving, changedOceanCasting, changedOceanReceiving;
         private const float ReportInterval = 15f;
 #if UNITY_ANDROID && !UNITY_EDITOR
         private long androidPssKB = -1;
@@ -136,16 +140,24 @@ namespace Aaris.MapReview
         // The 2 km visual-only ocean is a flat water surface, not a shadow caster.
         // Disable both shadow passes once before the first camera frame; keep the
         // authored mesh, shader, materials and terrain assets untouched.
-        private static void ConfigureOceanShadowBudget()
+        private void ConfigureOceanShadowBudget()
         {
             GameObject ocean = GameObject.Find("Ocean_VisualOnly");
             if (ocean == null) return;
-            MeshRenderer oceanRenderer = ocean.GetComponent<MeshRenderer>();
-            if (oceanRenderer == null) return;
-            if (oceanRenderer.shadowCastingMode != UnityEngine.Rendering.ShadowCastingMode.Off)
-                oceanRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            if (oceanRenderer.receiveShadows)
-                oceanRenderer.receiveShadows = false;
+            oceanShadowRenderer = ocean.GetComponent<MeshRenderer>();
+            if (oceanShadowRenderer == null) return;
+            originalOceanCasting = oceanShadowRenderer.shadowCastingMode;
+            originalOceanReceiving = oceanShadowRenderer.receiveShadows;
+            if (originalOceanCasting != UnityEngine.Rendering.ShadowCastingMode.Off)
+            {
+                oceanShadowRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                changedOceanCasting = true;
+            }
+            if (originalOceanReceiving)
+            {
+                oceanShadowRenderer.receiveShadows = false;
+                changedOceanReceiving = true;
+            }
         }
 
         private void ConfigureTerrainInstanceRenderer()
@@ -612,6 +624,16 @@ namespace Aaris.MapReview
         {
             Application.lowMemory -= OnLowMemory;
             Application.logMessageReceived -= OnLog;
+            // Restore only properties still holding the values that we set.
+            // Other water/quality controllers retain their later changes.
+            if (oceanShadowRenderer != null)
+            {
+                if (changedOceanCasting &&
+                    oceanShadowRenderer.shadowCastingMode == UnityEngine.Rendering.ShadowCastingMode.Off)
+                    oceanShadowRenderer.shadowCastingMode = originalOceanCasting;
+                if (changedOceanReceiving && !oceanShadowRenderer.receiveShadows)
+                    oceanShadowRenderer.receiveShadows = originalOceanReceiving;
+            }
 #if UNITY_ANDROID && !UNITY_EDITOR
             // Undo only our own change. Other subsystems might deliberately
             // customize the log stack trace policy while this scene is alive.

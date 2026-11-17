@@ -20,6 +20,7 @@ Shader "Aaris/URP Coastal Water"
             float4 positionCS : SV_POSITION;
             float3 positionWS : TEXCOORD0;
             half fogFactor : TEXCOORD1;
+            half3 normalWS : TEXCOORD2;
         };
         // Shared displacement keeps the depth and color passes in exactly the same place.
         float3 WaterPositionWS(float3 positionOS)
@@ -29,18 +30,19 @@ Shader "Aaris/URP Coastal Water"
                  + 0.06 * sin(p.z * 0.063 - _Time.y * 0.45);
             return p;
         }
+        half3 WaterNormalWS(float3 p)
+        {
+            return normalize(float3(-0.0045 * cos(p.x * 0.045 + _Time.y * 0.6), 1,
+                -0.00378 * cos(p.z * 0.063 - _Time.y * 0.45)));
+        }
         WaterVaryings WaterVertex(WaterAttributes input)
         {
             WaterVaryings output;
             output.positionWS = WaterPositionWS(input.positionOS.xyz);
             output.positionCS = TransformWorldToHClip(output.positionWS);
             output.fogFactor = ComputeFogFactor(output.positionCS.z);
+            output.normalWS = WaterNormalWS(output.positionWS);
             return output;
-        }
-        half3 WaterNormalWS(float3 p)
-        {
-            return normalize(float3(-0.0045 * cos(p.x * 0.045 + _Time.y * 0.6), 1,
-                -0.00378 * cos(p.z * 0.063 - _Time.y * 0.45)));
         }
         ENDHLSL
         Pass
@@ -75,7 +77,7 @@ Shader "Aaris/URP Coastal Water"
                 InputData lighting = (InputData)0;
                 lighting.positionWS = input.positionWS;
                 lighting.positionCS = input.positionCS;
-                lighting.normalWS = WaterNormalWS(input.positionWS);
+                lighting.normalWS = normalize(input.normalWS);
                 lighting.viewDirectionWS = GetWorldSpaceNormalizeViewDir(input.positionWS);
                 lighting.shadowCoord = TransformWorldToShadowCoord(input.positionWS);
                 lighting.fogCoord = input.fogFactor;

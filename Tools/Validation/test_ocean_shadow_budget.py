@@ -30,21 +30,36 @@ class OceanShadowBudgetTests(unittest.TestCase):
 
     def test_ocean_does_not_submit_or_receive_shadows(self):
         helper = self.source.split(
-            "private static void ConfigureOceanShadowBudget()", 1
+            "private void ConfigureOceanShadowBudget()", 1
         )[1].split("private void ConfigureTerrainInstanceRenderer()", 1)[0]
         for expected in (
             'GameObject.Find("Ocean_VisualOnly")',
-            "ocean.GetComponent<MeshRenderer>()",
+            "oceanShadowRenderer = ocean.GetComponent<MeshRenderer>()",
             "if (ocean == null) return;",
-            "if (oceanRenderer == null) return;",
-            "oceanRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;",
-            "oceanRenderer.receiveShadows = false;",
+            "if (oceanShadowRenderer == null) return;",
+            "oceanShadowRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;",
+            "oceanShadowRenderer.receiveShadows = false;",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, helper)
         self.assertNotIn("material =", helper)
         self.assertNotIn("terrainData", helper)
         self.assertNotIn("Update()", helper)
+
+    def test_shadow_settings_are_restored_only_if_still_owned(self):
+        cleanup = self.source.split("private void OnDestroy()", 1)[1].split(
+            "private void OnLog(", 1
+        )[0]
+        for expected in (
+            "if (oceanShadowRenderer != null)",
+            "if (changedOceanCasting &&",
+            "oceanShadowRenderer.shadowCastingMode == UnityEngine.Rendering.ShadowCastingMode.Off",
+            "oceanShadowRenderer.shadowCastingMode = originalOceanCasting;",
+            "if (changedOceanReceiving && !oceanShadowRenderer.receiveShadows)",
+            "oceanShadowRenderer.receiveShadows = originalOceanReceiving;",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, cleanup)
 
     def test_authored_ocean_scene_is_retained(self):
         self.assertIn("m_Name: Ocean_VisualOnly", SCENE.read_text(encoding="utf-8"))
