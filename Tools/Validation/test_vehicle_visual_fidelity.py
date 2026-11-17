@@ -68,7 +68,7 @@ class VehicleVisualFidelity(unittest.TestCase):
 
     def test_lamp_clusters_scale_to_six_body_types_and_no_shadow(self):
         cfg = MOTOR.split("public void ConfigureExteriorLights(", 1)[1].split(
-            "private void RefreshExteriorLights()", 1)[0]
+            "private void EnsureRoadHeadlight()", 1)[0]
         for piece in (
             "float halfTrack = Mathf.Clamp(width * .385f, .48f, .84f)",
             "fittedBounds.max.z + .017f",
@@ -80,9 +80,12 @@ class VehicleVisualFidelity(unittest.TestCase):
             "Recessed Reverse Lamp"
         ):
             self.assertIn(piece, cfg)
-        self.assertIn("LightShadows.None", cfg)
-        self.assertEqual(cfg.count("AddComponent<Light>()"), 1)
-        self.assertIn("roadHeadlight.enabled = false;", cfg)
+        self.assertEqual(cfg.count("AddComponent<Light>()"), 0)
+        lazy = MOTOR.split("private void EnsureRoadHeadlight()", 1)[1].split(
+            "private void RefreshExteriorLights()", 1)[0]
+        self.assertIn("LightShadows.None", lazy)
+        self.assertEqual(lazy.count("AddComponent<Light>()"), 1)
+        self.assertIn("roadHeadlight.enabled = false;", lazy)
         for width, height, length in (
             (1.8, 1.5, 4.1), (1.9, 1.2, 4.4), (2.05, 1.93, 4.9),
             (1.9, 1.9, 4.7), (2.0, 1.9, 5.3), (1.85, 1.35, 4.2)

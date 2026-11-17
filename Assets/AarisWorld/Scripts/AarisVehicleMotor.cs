@@ -518,12 +518,26 @@ namespace Aaris.MapReview
                 reversingLamps[side].enabled = false;
             }
 
-            // Only the player's actively driven vehicle illuminates the road.
-            // Parked cars have visible dark glass, not costly spotlights.
+            // The 10-car mobile stream needs *zero* idle Light components.
+            // A single player-car spotlight is created only on first entry.
+            // Parked cars still show the original shared URP lens materials.
+            lastLampState = -1;
+            RefreshExteriorLights();
+        }
+
+        private void EnsureRoadHeadlight()
+        {
+            // No per-frame allocations or repeated lamp creation. The visual
+            // body pivot already exists when the player enters a fitted car.
+            if (roadHeadlight != null || frontLamps[0] == null ||
+                frontLamps[1] == null) return;
+            Transform mount = frontLamps[0].transform.parent;
+            if (mount == null) return;
             var beamObject = new GameObject("Player Car Headlight Beam");
-            beamObject.transform.SetParent(lampChassis, false);
-            beamObject.transform.localPosition =
-                new Vector3(0f, frontY, frontZ + .10f);
+            beamObject.transform.SetParent(mount, false);
+            Vector3 middle = (frontLamps[0].transform.localPosition +
+                frontLamps[1].transform.localPosition) * .5f;
+            beamObject.transform.localPosition = middle + Vector3.forward * .10f;
             roadHeadlight = beamObject.AddComponent<Light>();
             roadHeadlight.type = LightType.Spot;
             roadHeadlight.color = new Color(1f, .94f, .80f);
@@ -532,8 +546,6 @@ namespace Aaris.MapReview
             roadHeadlight.intensity = 1.2f;
             roadHeadlight.shadows = LightShadows.None;
             roadHeadlight.enabled = false;
-            lastLampState = -1;
-            RefreshExteriorLights();
         }
 
         private void RefreshExteriorLights()
@@ -966,6 +978,8 @@ namespace Aaris.MapReview
             EnsureExhaustEmitter();
             StopRearTyreTraces(true);
             nextExhaustUpdateAt = 0f;
+            // This is the only creation point for the visual spotlight.
+            EnsureRoadHeadlight();
             RefreshExteriorLights();
             return true;
         }
@@ -1017,6 +1031,24 @@ namespace Aaris.MapReview
             appliedBrakeTorque = brake;
         }
 
+        // Smooth, monotone torque bands keep zero slope at every transition.
+        // Real WheelCollider impulses and the speed cap remain authoritative.
+        // The old step function dropped 21-32% torque at exact thresholds,
+        // which could make the driver feel a lurch during acceleration.
+        private static float ContinuousDriveTorque(float speedAbs)
+        {
+            if (speedAbs < 7f)
+                return Mathf.SmoothStep(1500f, 1180f,
+                    Mathf.Clamp01(speedAbs / 7f));
+            if (speedAbs < 14f)
+                return Mathf.SmoothStep(1180f, 850f,
+                    Mathf.Clamp01((speedAbs - 7f) / 7f));
+            if (speedAbs < 21f)
+                return Mathf.SmoothStep(850f, 580f,
+                    Mathf.Clamp01((speedAbs - 14f) / 7f));
+            return 580f;
+        }
+
         private void FixedUpdate()
         {
             if (body == null || wheels[0] == null) return;
@@ -1035,10 +1067,9 @@ namespace Aaris.MapReview
             // authority. The current step refreshes tyreSlip below.
             float previousTyreSlip = tyreSlip;
 
-            // Four progressive torque bands are speed-derived, not arbitrary
-            // teleporting 9/16/22/28 m/s velocities after an input timer.
-            float baseTorque = speedAbs < 7f ? 1500f : speedAbs < 14f ? 1180f :
-                speedAbs < 21f ? 850f : 580f;
+            // Keep the existing four real-physics torque targets, but no
+            // abrupt threshold step that kicks the chassis at 7/14/21 m/s.
+            float baseTorque = ContinuousDriveTorque(speedAbs);
             float torque = baseTorque * driveTorqueScale;
             float drive = 0f, brake = 0f;
             if (throttle > .08f)

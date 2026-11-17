@@ -97,7 +97,7 @@ class VehicleBodyDynamics(unittest.TestCase):
 
     def test_lights_and_exhaust_follow_only_body_not_wheels(self):
         cfg = MOTOR.split("public void ConfigureExteriorLights(", 1)[1].split(
-            "private void RefreshExteriorLights()", 1)[0]
+            "private void EnsureRoadHeadlight()", 1)[0]
         self.assertIn(
             "visualBodyPivot != null ? visualBodyPivot : transform", cfg)
         for term in (
@@ -106,9 +106,13 @@ class VehicleBodyDynamics(unittest.TestCase):
             "frontLamps[side] = CreateLampLens(lampChassis,",
             "rearLamps[side] = CreateLampLens(lampChassis,",
             "reversingLamps[side] = CreateLampLens(lampChassis,",
-            "beamObject.transform.SetParent(lampChassis, false);",
         ):
             self.assertIn(term, cfg)
+        lamp = MOTOR.split("private void EnsureRoadHeadlight()", 1)[1].split(
+            "private void RefreshExteriorLights()", 1)[0]
+        self.assertIn("Transform mount = frontLamps[0].transform.parent;", lamp)
+        self.assertIn("beamObject.transform.SetParent(mount, false);", lamp)
+        self.assertIn("frontLamps[0].transform.localPosition", lamp)
         exhaust = MOTOR.split("private void EnsureExhaustEmitter()", 1)[1].split(
             "private void StopExhaust(", 1)[0]
         self.assertIn(

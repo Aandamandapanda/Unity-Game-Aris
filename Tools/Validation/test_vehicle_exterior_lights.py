@@ -78,11 +78,17 @@ class VehicleExteriorLighting(unittest.TestCase):
         self.assertIn("isActiveAndEnabled;", lights)
         self.assertIn("roadHeadlight.enabled = driving;", lights)
         configure = MOTOR.split("public void ConfigureExteriorLights(", 1)[1].split(
+            "private void EnsureRoadHeadlight()", 1)[0]
+        self.assertEqual(configure.count("AddComponent<Light>()"), 0)
+        lamp = MOTOR.split("private void EnsureRoadHeadlight()", 1)[1].split(
             "private void RefreshExteriorLights()", 1)[0]
-        self.assertIn("LightType.Spot", configure)
-        self.assertIn("LightShadows.None", configure)
-        self.assertIn("roadHeadlight.enabled = false;", configure)
-        self.assertEqual(configure.count("AddComponent<Light>()"), 1)
+        self.assertIn("LightType.Spot", lamp)
+        self.assertIn("LightShadows.None", lamp)
+        self.assertIn("roadHeadlight.enabled = false;", lamp)
+        self.assertEqual(lamp.count("AddComponent<Light>()"), 1)
+        self.assertIn("EnsureRoadHeadlight();", MOTOR.split(
+            "public bool TryTakeDriver(", 1)[1].split(
+                "public void SetInput(", 1)[0])
         self.assertIn("if (lastLampState == lampState) return;", lights)
 
     def test_brake_and_reverse_follow_physics_and_clear_on_exit(self):
