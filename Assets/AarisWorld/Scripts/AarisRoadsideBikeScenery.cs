@@ -161,7 +161,6 @@ namespace Aaris.MapReview
                 }
                 else visibleCount++;
             }
-            if (visibleCount >= MaximumVisibleBikes) return;
             BikePlan nearest = null;
             float best = LoadRadius * LoadRadius;
             foreach (var plan in plans)
@@ -174,9 +173,38 @@ namespace Aaris.MapReview
                 nearest = plan;
             }
             if (nearest == null) return;
+            // Prefer a near-player parked motorcycle when all three slots are
+            // full; an 8m hysteresis prevents distance-based thrashing.
+            BikePlan parkedVictim = null;
+            if (visibleCount >= MaximumVisibleBikes)
+            {
+                const float PriorityMarginMetres = 8f;
+                float minVictimDistance = Mathf.Sqrt(best) + PriorityMarginMetres;
+                float farthestDistanceSq = minVictimDistance * minVictimDistance;
+                foreach (var plan in plans)
+                {
+                    if (plan.visible == null) continue;
+                    float distanceSq =
+                        (plan.visible.transform.position - position).sqrMagnitude;
+                    if (distanceSq <= farthestDistanceSq) continue;
+                    farthestDistanceSq = distanceSq;
+                    parkedVictim = plan;
+                }
+                if (parkedVictim == null) return;
+            }
+            // The parked model stays until the new bay and real mesh validate.
             nearest.nextProbe = now + 3f;
-            if (TryParkingSpot(nearest.point, out Vector3 spot))
-                nearest.visible = CreateBike(nearest.point, spot);
+            if (!TryParkingSpot(nearest.point, out Vector3 spot)) return;
+            GameObject candidate = CreateBike(nearest.point, spot);
+            if (candidate == null) return;
+            if (parkedVictim != null)
+            {
+                if (parkedVictim.visible != null)
+                    Destroy(parkedVictim.visible);
+                parkedVictim.visible = null;
+                parkedVictim.nextProbe = now + 3f;
+            }
+            nearest.visible = candidate;
         }
 
         private bool TryParkingSpot(AarisVehiclePoint point, out Vector3 spot)

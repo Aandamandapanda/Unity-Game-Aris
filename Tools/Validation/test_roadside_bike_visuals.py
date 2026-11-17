@@ -70,7 +70,37 @@ class BikeVisuals(unittest.TestCase):
         update = code.split("private void Update()", 1)[1].split(
             "private bool TryParkingSpot(", 1)[0]
         self.assertEqual(update.count("CreateBike("), 1)
-        self.assertIn("if (visibleCount >= MaximumVisibleBikes) return;", update)
+        self.assertIn("if (visibleCount >= MaximumVisibleBikes)", update)
+
+    def test_full_pool_prefers_closer_bikes_without_churn(self):
+        update = SCRIPT.read_text().split("private void Update()", 1)[1].split(
+            "private bool TryParkingSpot(", 1)[0]
+        for marker in ("BikePlan parkedVictim = null;",
+                       "const float PriorityMarginMetres = 8f;",
+                       "if (parkedVictim == null) return;",
+                       "if (distanceSq <= farthestDistanceSq) continue;"):
+            self.assertIn(marker, update)
+        def victim(distances, nearest):
+            cutoff, choice = (nearest + 8) ** 2, None
+            for i, d in enumerate(distances):
+                if d*d > cutoff:
+                    cutoff, choice = d*d, i
+            return choice
+        self.assertEqual(victim([60, 54, 30], 12), 0)
+        self.assertIsNone(victim([29, 31, 40], 35))
+        self.assertIsNone(victim([18, 23, 25], 20))
+        self.assertEqual(victim([51, 51, 40], 20), 0)
+
+    def test_failed_bike_build_preserves_existing_bikes(self):
+        update = SCRIPT.read_text().split("private void Update()", 1)[1].split(
+            "private bool TryParkingSpot(", 1)[0]
+        self.assertLess(update.index("if (!TryParkingSpot("),
+                        update.index("GameObject candidate = CreateBike("))
+        self.assertLess(update.index("if (candidate == null) return;"),
+                        update.index("Destroy(parkedVictim.visible);"))
+        self.assertLess(update.index("Destroy(parkedVictim.visible);"),
+                        update.index("nearest.visible = candidate;"))
+        self.assertIn("parkedVictim.nextProbe = now + 3f;", update)
 
     def test_automotive_coat_is_paint_only_and_variants_shared(self):
         source = SCRIPT.read_text()
