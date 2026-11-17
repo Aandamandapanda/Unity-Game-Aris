@@ -35,6 +35,12 @@ namespace Aaris.MapReview
                 sharedStucco.SetColor("_BaseColor", new Color(.73f,.70f,.63f));
                 sharedStucco.SetFloat("_Metallic", .015f);
                 sharedStucco.SetFloat("_Smoothness", .23f);
+                // A single offline-baked, tileable 128px limestone texture:
+                // no on-device image generation and no per-house duplication.
+                Texture2D stone = Resources.Load<Texture2D>(
+                    "AarisBuildings/ArchitecturalLimestone");
+                if (stone != null)
+                    sharedStucco.SetTexture("_BaseMap", stone);
             }
 
             Mesh mesh = BuildFacade(width, depth, height);
@@ -48,6 +54,14 @@ namespace Aaris.MapReview
             renderer.sharedMaterial = sharedStucco;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = true;
+            // Building facades are only noticeable at close range. Unity's
+            // native one-step LOD automatically culls the extra draw at a
+            // small screen size; no Update, allocations, or per-house scans.
+            var lod = detail.AddComponent<LODGroup>();
+            lod.fadeMode = LODFadeMode.None;
+            lod.animateCrossFading = false;
+            lod.SetLODs(new[] { new LOD(.08f, new Renderer[] { renderer }) });
+            lod.RecalculateBounds();
             var lifetime = detail.AddComponent<AarisHouseFacadeTrim>();
             lifetime.ownedMesh = mesh;
             materialUsers++;
@@ -152,8 +166,14 @@ namespace Aaris.MapReview
             Vector3 normal = Vector3.Cross(b - a, d - a).normalized;
             v.Add(a+c); v.Add(b+c); v.Add(d+c); v.Add(e+c);
             for (int i = 0; i < 4; i++) n.Add(normal);
-            uv.Add(Vector2.zero); uv.Add(Vector2.up);
-            uv.Add(Vector2.one); uv.Add(Vector2.right);
+            // Real-world UV scale keeps a ten-metre fascia from stretching
+            // the same 128px texture across its entire horizontal span.
+            const float MetresPerTile = .85f;
+            float along = Vector3.Distance(b, d) / MetresPerTile;
+            float across = Vector3.Distance(a, b) / MetresPerTile;
+            uv.Add(Vector2.zero); uv.Add(new Vector2(0f, across));
+            uv.Add(new Vector2(along, across));
+            uv.Add(new Vector2(along, 0f));
             tris.Add(first); tris.Add(first+1); tris.Add(first+2);
             tris.Add(first); tris.Add(first+2); tris.Add(first+3);
         }

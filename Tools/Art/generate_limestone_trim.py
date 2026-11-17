@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Generate the original small seamless stone surface for Aaris house fascias.
+
+This is offline asset authoring. Neither mobile nor Unity runtime uses Python.
+"""
+import math
+import random
+import re
+import uuid
+from pathlib import Path
+
+from PIL import Image
+
+ROOT = Path(__file__).resolve().parents[2]
+ASSET = ROOT / "Assets/Resources/AarisBuildings/ArchitecturalLimestone.png"
+META = Path(str(ASSET) + ".meta")
+REFERENCE = ROOT / "Assets/AarisWorld/Surfaces/Concrete.png.meta"
+SIZE = 128
+SEED = 0xA512026
+rng = random.Random(SEED)
+harmonics = []
+for scale, amplitude in ((2,7.4), (4,5.1), (8,2.5), (16,1.3), (32,.7)):
+    for _ in range(6):
+        kx = rng.randint(0,scale)
+        ky = rng.randint(0,scale)
+        if not kx and not ky: kx = 1
+        harmonics.append((kx, ky, rng.random()*2*math.pi, amplitude/6))
+colors = []
+for y in range(SIZE):
+    for x in range(SIZE):
+        grain = 0.0
+        for kx,ky,phase,amp in harmonics:
+            grain += amp*math.sin(2*math.pi*(kx*x+ky*y)/SIZE+phase)
+        # Subtle 64px stone course, weathered toward the horizontal seams.
+        joint = min(y%64, 64-(y%64))
+        seam = -4.5 if joint < 1.5 else (-1.2 if joint < 4 else 0.0)
+        veining = 2.0*math.sin(2*math.pi*(x*3+y*.25)/SIZE)
+        base = max(192, min(244, round(220 + grain + seam + veining)))
+        colors.append((min(255,base+5), min(255,base+2), max(0,base-5)))
+
+ASSET.parent.mkdir(parents=True,exist_ok=True)
+picture = Image.new("RGB", (SIZE,SIZE))
+picture.putdata(colors)
+picture.save(ASSET,optimize=True)
+# Retain the existing production project TextureImporter settings for
+# trilinear filtering, repeat wrapping, Android compression and mip streaming.
+meta = REFERENCE.read_text()
+meta = re.sub(r"(?m)^guid: [0-9a-f]{32}$",
+              "guid: " + uuid.uuid5(uuid.NAMESPACE_URL,"aaris-limestone-trim-v1").hex,
+              meta)
+meta = meta.replace("maxTextureSize: 2048", "maxTextureSize: 256")
+meta = meta.replace("maxTextureSize: 1024", "maxTextureSize: 256")
+META.write_text("\n".join(line.rstrip() for line in meta.splitlines())+"\n")
+print("LIMESTONE_ORIGINAL",ASSET.stat().st_size,"bytes",
+      "PNG",SIZE,"x",SIZE,"palette_range",
+      tuple(min(c[i] for c in colors) for i in range(3)),
+      tuple(max(c[i] for c in colors) for i in range(3)))
