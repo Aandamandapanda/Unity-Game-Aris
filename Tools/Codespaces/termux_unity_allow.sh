@@ -6,15 +6,20 @@ REPO="$(printenv MAIN_REPO || echo sundamunda289-art/Unity-Game-Aris)"
 PROFILE="$HOME/.config/aaris-ai/codespace-gh"
 command -v pkg >/dev/null || { echo 'Please run inside Termux'; exit 2; }
 pkg install -y gh python openssh jq curl
-if ! GH_CONFIG_DIR="$PROFILE" gh auth status -h github.com >/dev/null 2>&1; then
-  echo 'Codespace GitHub login missing. Run aaris-switch.sh once first.'
-  exit 3
-fi
 export GH_CONFIG_DIR="$PROFILE"
 # Prevent tokens from a different shell environment overriding the selected profile.
 unset GH_TOKEN GITHUB_TOKEN
-LIST="$(gh codespace list -R "$REPO" --json name,displayName,state --limit 30)" || {
-  echo 'Cannot list Codespaces'; exit 4;
+# The selected Codespaces account can host a fork; never query the master
+# repository for a Codespace belonging to that other account.
+CS_USER="$(gh api user --jq .login 2>/dev/null)" || {
+  echo 'Codespace GitHub login missing. Run aaris-switch.sh once first.'
+  exit 3
+}
+[[ "$CS_USER" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]] || {
+  echo 'Unexpected Codespace account identity'; exit 3;
+}
+LIST="$(gh codespace list --json name,displayName,state,repository --limit 100)" || {
+  echo 'Cannot list Codespaces in the selected hosting account'; exit 4;
 }
 # Explicit selection wins: never sign in to a stale Codespace by mistake.
 # Example: AARIS_CODESPACE_NAME=aaris-ai-ubuntu-minimal-... bash termux_unity_allow.sh
@@ -22,13 +27,13 @@ if [[ -n "${AARIS_CODESPACE_NAME:-}" ]]; then
   [[ "$AARIS_CODESPACE_NAME" =~ ^[A-Za-z0-9-]+$ ]] || {
     echo 'Invalid exact Codespace name'; exit 5;
   }
-  CS="$(printf '%s' "$LIST" | jq -r --arg name "$AARIS_CODESPACE_NAME" '[.[] | select(.name == $name)] | if length == 1 then .[0].name else empty end')"
+  CS="$(printf '%s' "$LIST" | jq -r --arg name "$AARIS_CODESPACE_NAME" --arg repo "$CS_USER/Unity-Game-Aris" '[.[] | select(.name == $name and .repository == $repo and .state == "Available")] | if length == 1 then .[0].name else empty end')"
   [[ "$CS" == "$AARIS_CODESPACE_NAME" ]] || {
-    echo 'Exact Codespace missing from authenticated account'; exit 5;
+    echo 'Exact available Codespace missing from selected hosting account'; exit 5;
   }
 else
   # Backward-compatible default only if there is one eligible Ubuntu Codespace.
-  CS="$(printf '%s' "$LIST" | jq -r '[.[] | select(.displayName == "aaris-ai-ubuntu-minimal" or .displayName == "aaris-ai-ubuntu-fallback-2")] | if length == 1 then .[0].name else empty end')"
+  CS="$(printf '%s' "$LIST" | jq -r --arg repo "$CS_USER/Unity-Game-Aris" '[.[] | select(.repository == $repo and .state == "Available" and (.displayName == "aaris-ai-ubuntu-minimal" or .displayName == "aaris-ai-ubuntu-fallback-2"))] | if length == 1 then .[0].name else empty end')"
   [[ -n "$CS" ]] || { echo 'Several Codespaces exist. Set AARIS_CODESPACE_NAME to choose one explicitly.'; exit 5; }
 fi
 [[ "$CS" =~ ^[A-Za-z0-9-]+$ ]] || { echo 'Codespace not found; use CS START first'; exit 5; }
