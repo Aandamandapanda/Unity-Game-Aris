@@ -168,6 +168,7 @@ namespace Aaris.MapReview
         private Text driveCaption;
         private GameObject speedPanel;
         private Text speedCaption;
+        private Text conditionCaption;
         private float nextSpeedUpdate;
         private AarisVehicleArrowButton[] arrows = new AarisVehicleArrowButton[4];
         private readonly bool[] pressed = new bool[4];
@@ -243,8 +244,8 @@ namespace Aaris.MapReview
             speedPanel.transform.SetParent(safeRoot, false);
             var speedRect = (RectTransform)speedPanel.transform;
             speedRect.anchorMin = speedRect.anchorMax = new Vector2(.5f, 1f);
-            speedRect.anchoredPosition = new Vector2(0f, -49f);
-            speedRect.sizeDelta = new Vector2(184f, 57f);
+            speedRect.anchoredPosition = new Vector2(0f, -52f);
+            speedRect.sizeDelta = new Vector2(194f, 68f);
             var speedBackground = speedPanel.GetComponent<Image>();
             speedBackground.color = new Color(.025f, .04f, .075f, .74f);
             speedBackground.raycastTarget = false;
@@ -252,7 +253,7 @@ namespace Aaris.MapReview
                 typeof(RectTransform), typeof(Text));
             speedTextObject.transform.SetParent(speedPanel.transform, false);
             var speedTextRect = (RectTransform)speedTextObject.transform;
-            speedTextRect.anchorMin = Vector2.zero;
+            speedTextRect.anchorMin = new Vector2(0f, .30f);
             speedTextRect.anchorMax = Vector2.one;
             speedTextRect.offsetMin = speedTextRect.offsetMax = Vector2.zero;
             speedCaption = speedTextObject.GetComponent<Text>();
@@ -263,6 +264,23 @@ namespace Aaris.MapReview
             speedCaption.color = Color.white;
             speedCaption.raycastTarget = false;
             speedCaption.text = "0 km/h   N";
+
+            // Small second line appears only after a real vehicle impact.
+            // This reports persistent condition; it is not player health.
+            var conditionObject = new GameObject("Vehicle Damage Condition",
+                typeof(RectTransform), typeof(Text));
+            conditionObject.transform.SetParent(speedPanel.transform, false);
+            var conditionRect = (RectTransform)conditionObject.transform;
+            conditionRect.anchorMin = Vector2.zero;
+            conditionRect.anchorMax = new Vector2(1f, .32f);
+            conditionRect.offsetMin = conditionRect.offsetMax = Vector2.zero;
+            conditionCaption = conditionObject.GetComponent<Text>();
+            conditionCaption.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            conditionCaption.fontSize = 13;
+            conditionCaption.alignment = TextAnchor.MiddleCenter;
+            conditionCaption.color = new Color(1f, .76f, .48f, 1f);
+            conditionCaption.raycastTarget = false;
+            conditionCaption.enabled = false;
             speedPanel.SetActive(false);
             arrowPanel.SetActive(false);
             driveButton.SetActive(false);
@@ -362,6 +380,19 @@ namespace Aaris.MapReview
                 : vehicle.IsServiceBraking
                     ? new Color(1f, .64f, .56f, 1f) : Color.white;
             if (speedCaption.color != textColor) speedCaption.color = textColor;
+            if (conditionCaption != null)
+            {
+                bool damaged = vehicle.Damage01 > .025f;
+                if (conditionCaption.enabled != damaged)
+                    conditionCaption.enabled = damaged;
+                if (damaged)
+                {
+                    string condition = "CAR CONDITION " +
+                        Mathf.RoundToInt((1f - vehicle.Damage01) * 100f) + "%";
+                    if (conditionCaption.text != condition)
+                        conditionCaption.text = condition;
+                }
+            }
         }
 
         private void LateUpdate()

@@ -481,8 +481,12 @@ namespace Aaris.MapReview
                 ? Mathf.Clamp01(speed / 7f)
                 : Mathf.InverseLerp(gearLow, gearHigh, normalized);
             float engineLoad = Mathf.Abs(car.ThrottleInput);
+            // Use the existing single engine loop. Damage makes a worn
+            // motor audibly laboured, without adding more AudioSources or
+            // altering the physical WheelCollider gearbox.
+            float wear = car.Damage01;
             float targetPitch = Mathf.Clamp(0.82f + gearPhase * 0.58f +
-                engineLoad * 0.11f, 0.78f, 1.58f);
+                engineLoad * 0.11f - wear * .12f, 0.78f, 1.58f);
             float engineVolume = Mathf.Clamp01(0.36f + normalized * 0.42f +
                 engineLoad * 0.13f);
             AdjustLoop(engineLoop, engineVolume, targetPitch, dt);

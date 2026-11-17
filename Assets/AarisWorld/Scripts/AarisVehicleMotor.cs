@@ -57,6 +57,10 @@ namespace Aaris.MapReview
         // A short impact pulse communicates a meaningful collision without
         // creating sparks/particles on phones or changing the drive authority.
         private float impactFlashUntil;
+        private float nextDamageAt, damage01, nextExhaustUpdateAt;
+        private Material sharedExhaustMaterial;
+        private Vector3 exhaustAnchor;
+        private ParticleSystem exhaustParticles;
         // Stop native wheel pose queries only after a parked car truly sleeps.
         private bool sleepingWheelPoseCurrent;
         public string VehicleId { get; private set; }
@@ -66,6 +70,7 @@ namespace Aaris.MapReview
         // parking/coasting drag must not illuminate the brake indicator.
         public bool IsServiceBraking => driver != null && appliedBrakeTorque >= 500f;
         public bool IsRecentImpact => driver != null && Time.time < impactFlashUntil;
+        public float Damage01 => damage01;
         public float LateralSlipMetresPerSecond => body == null ? 0f :
             Mathf.Abs(Vector3.Dot(body.linearVelocity, transform.right));
         // Peak contact slip from the same WheelHit samples already used by
@@ -112,6 +117,13 @@ namespace Aaris.MapReview
             if (impactSpeed >= 7f)
             {
                 impactFlashUntil = Time.time + .55f;
+                if (Time.time >= nextDamageAt)
+                {
+                    // One collision can invoke several contacts: limit wear.
+                    damage01 = Mathf.Clamp(damage01 +
+                        Mathf.Max(0f, impactSpeed - 7f) * .011f, 0f, .85f);
+                    nextDamageAt = Time.time + .75f;
+                }
                 RefreshExteriorLights();
             }
         }
@@ -557,6 +569,92 @@ namespace Aaris.MapReview
             rearContactSlip[i] = slip;
         }
 
+        // Exhaust is strictly optional: Shader.Find may be stripped in a
+        // device build. Never replace it with a pink/default particle material.
+        public void ConfigureExhaust(Material particleMaterial,
+            Bounds chassisBounds)
+        {
+            sharedExhaustMaterial = particleMaterial;
+            exhaustAnchor = new Vector3(
+                Mathf.Clamp(-chassisBounds.size.x * .24f, -.48f, -.26f),
+                Mathf.Clamp(chassisBounds.min.y + .16f, .18f, .38f),
+                -chassisBounds.size.z * .5f - .10f);
+        }
+
+        public void RestoreStreamedDamage(float savedDamage)
+        {
+            damage01 = float.IsNaN(savedDamage) || float.IsInfinity(savedDamage)
+                ? 0f : Mathf.Clamp(savedDamage, 0f, .85f);
+        }
+
+        private void EnsureExhaustEmitter()
+        {
+            // Parked cars never instantiate a ParticleSystem.
+            if (sharedExhaustMaterial == null || exhaustParticles != null)
+                return;
+            var nozzle = new GameObject("Occupied Car Exhaust");
+            nozzle.transform.SetParent(transform, false);
+            nozzle.transform.localPosition = exhaustAnchor;
+            nozzle.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            exhaustParticles = nozzle.AddComponent<ParticleSystem>();
+            var main = exhaustParticles.main;
+            main.playOnAwake = false;
+            main.loop = true;
+            main.duration = 1.2f;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.maxParticles = 24;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(.55f, 1.0f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(.25f, .65f);
+            main.startSize = new ParticleSystem.MinMaxCurve(.095f, .20f);
+            main.startColor = new Color(.56f, .58f, .60f, .22f);
+            var shape = exhaustParticles.shape;
+            shape.enabled = false;
+            var emission = exhaustParticles.emission;
+            emission.rateOverTime = 0f;
+            var renderer = nozzle.GetComponent<ParticleSystemRenderer>();
+            renderer.sharedMaterial = sharedExhaustMaterial;
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+            renderer.shadowCastingMode =
+                UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            exhaustParticles.Stop(true,
+                ParticleSystemStopBehavior.StopEmittingAndClear);
+        }
+
+        private void StopExhaust(bool clear)
+        {
+            if (exhaustParticles == null) return;
+            exhaustParticles.Stop(true, clear
+                ? ParticleSystemStopBehavior.StopEmittingAndClear
+                : ParticleSystemStopBehavior.StopEmitting);
+        }
+
+        private void UpdateExhaust()
+        {
+            if (exhaustParticles == null ||
+                Time.unscaledTime < nextExhaustUpdateAt) return;
+            nextExhaustUpdateAt = Time.unscaledTime + .16f;
+            if (driver == null || !driver.isActiveAndEnabled ||
+                !isActiveAndEnabled)
+            {
+                if (exhaustParticles.isPlaying) StopExhaust(false);
+                return;
+            }
+            // No raycasts, dynamic materials or instantiations in this hotpath.
+            float load = Mathf.Abs(forward);
+            float emissionRate = 1.4f + load * 3.5f + damage01 * 10f;
+            if (body != null && body.linearVelocity.sqrMagnitude > 625f)
+                emissionRate *= .6f;
+            var emission = exhaustParticles.emission;
+            emission.rateOverTime = emissionRate;
+            var main = exhaustParticles.main;
+            main.startColor = Color.Lerp(
+                new Color(.56f, .58f, .60f, .20f),
+                new Color(.33f, .34f, .35f, .36f),
+                Mathf.Clamp01(damage01 / .85f));
+            if (!exhaustParticles.isPlaying) exhaustParticles.Play();
+        }
+
         private void SyncVisibleWheels()
         {
             for (int i = 0; i < wheels.Length; i++)
@@ -579,6 +677,7 @@ namespace Aaris.MapReview
             if (parkedSleeping && sleepingWheelPoseCurrent) return;
             SyncVisibleWheels();
             UpdateRearTyreTraces();
+            UpdateExhaust();
             sleepingWheelPoseCurrent = parkedSleeping;
         }
 
@@ -588,6 +687,7 @@ namespace Aaris.MapReview
             appliedDriveTorque = appliedBrakeTorque = appliedSteeringAngle = float.NaN;
             lastLampState = -1;
             StopRearTyreTraces(true);
+            StopExhaust(true);
             RefreshExteriorLights();
         }
 
@@ -609,7 +709,9 @@ namespace Aaris.MapReview
             // first frame falsely displays brake lamps before physics ticks.
             ApplyWheelForces(0f, 155f);
             EnsureRearTyreTraces();
+            EnsureExhaustEmitter();
             StopRearTyreTraces(true);
+            nextExhaustUpdateAt = 0f;
             RefreshExteriorLights();
             return true;
         }
@@ -636,6 +738,7 @@ namespace Aaris.MapReview
             impactFlashUntil = 0f;
             ApplyWheelForces(0f, ParkingBrakeTorque);
             StopRearTyreTraces(false);
+            StopExhaust(false);
             RefreshExteriorLights();
         }
 
@@ -694,6 +797,8 @@ namespace Aaris.MapReview
                 // rather than stopping instantly in mid-air.
                 brake = driver == null ? ParkingBrakeTorque : 155f;
             }
+            // Damage costs only some torque; preserve drivable exits.
+            drive *= Mathf.Lerp(1f, .72f, damage01);
             if (Mathf.Abs(drive) > 0.01f && previousTyreSlip > 0.35f)
             {
                 float slip01 = Mathf.InverseLerp(0.35f, 1.10f, previousTyreSlip);
@@ -868,6 +973,7 @@ namespace Aaris.MapReview
             ApplyWheelForces(0f, ParkingBrakeTorque);
             lastLampState = -1;
             StopRearTyreTraces(true);
+            StopExhaust(true);
             impactFlashUntil = 0f;
             RefreshExteriorLights();
         }

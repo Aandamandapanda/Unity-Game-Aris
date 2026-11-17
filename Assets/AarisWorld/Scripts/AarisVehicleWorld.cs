@@ -55,6 +55,9 @@ namespace Aaris.MapReview
         public AarisVehicleMotor visible;
         public float nextProbe;
         public bool previouslySpawned;
+        // Stored across a streamed-out vehicle instance, just like position
+        // and orientation. A collision must not magically repair after 160m.
+        public float damage01;
         // Rotate the one nearby fallback position only after a failed spawn.
         public int failedSpawnProbes;
     }
@@ -107,6 +110,9 @@ namespace Aaris.MapReview
         // One scene-owned URP mark material shared by both rear trails on
         // every streamed car, instead of allocating one material per wheel.
         private Material skidMarkMaterial;
+        // One shared URP particle shader material for occupied-car exhaust;
+        // the parked 44-car world plan allocates no particle systems.
+        private Material exhaustMaterial;
         // Convert each imported source material once, then share it across all
         // streamed instances. This preserves PBR texture subassets without
         // per-car material duplication on low-memory Android devices.
@@ -358,6 +364,11 @@ namespace Aaris.MapReview
             reverseLampMaterial = CreateLampMaterial(shader, "Reverse Lamps",
                 new Color(.90f, .97f, 1f), new Color(1.7f, 1.85f, 2f));
             skidMarkMaterial = CreateSkidMarkMaterial(shader);
+            // Optional visual feature: absent particle shader must NEVER
+            // abort otherwise valid drivable cars or cause pink materials.
+            Shader smokeShader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (smokeShader != null)
+                exhaustMaterial = CreateExhaustMaterial(smokeShader);
 
             // Stable per-match plan. A multiplayer server can later provide
             // this seed to clients; local standalone has no server authority.
@@ -441,6 +452,32 @@ namespace Aaris.MapReview
             if (material.HasProperty("_ZWrite"))
                 material.SetFloat("_ZWrite", 0f);
             material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.renderQueue =
+                (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            return material;
+        }
+
+        private static Material CreateExhaustMaterial(Shader shader)
+        {
+            var material = new Material(shader)
+            {
+                name = "Aaris Shared Engine Exhaust",
+                enableInstancing = true
+            };
+            material.SetColor("_BaseColor",
+                new Color(.60f, .62f, .64f, .44f));
+            if (material.HasProperty("_Surface"))
+                material.SetFloat("_Surface", 1f);
+            if (material.HasProperty("_SrcBlend"))
+                material.SetFloat("_SrcBlend",
+                    (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (material.HasProperty("_DstBlend"))
+                material.SetFloat("_DstBlend",
+                    (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (material.HasProperty("_ZWrite"))
+                material.SetFloat("_ZWrite", 0f);
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.SetOverrideTag("RenderType", "Transparent");
             material.renderQueue =
                 (int)UnityEngine.Rendering.RenderQueue.Transparent;
             return material;
@@ -1118,6 +1155,9 @@ namespace Aaris.MapReview
                 taillampGlassMaterial, brakeLampMaterial,
                 reverseLampMaterial);
             motor.ConfigureRearTyreTraces(skidMarkMaterial);
+            motor.ConfigureExhaust(exhaustMaterial,
+                new Bounds(new Vector3(0f, .48f, 0f), bounds.size));
+            motor.RestoreStreamedDamage(record.damage01);
             record.visible = motor;
             if (Debug.isDebugBuild)
                 Debug.Log("AARIS_CAR_PLACED " + record.point.id + " " +
@@ -1145,6 +1185,7 @@ namespace Aaris.MapReview
                 {
                     record.position = record.visible.transform.position;
                     record.rotation = record.visible.transform.rotation;
+                    record.damage01 = record.visible.Damage01;
                     Destroy(record.visible.gameObject);
                     record.visible = null;
                     unloaded++;
@@ -1218,6 +1259,7 @@ namespace Aaris.MapReview
                     }
                     parkedVictim.position = retired.transform.position;
                     parkedVictim.rotation = retired.transform.rotation;
+                    parkedVictim.damage01 = retired.Damage01;
                     parkedVictim.nextProbe = now + 3.0f;
                     Destroy(retired.gameObject);
                     parkedVictim.visible = null;
@@ -1271,6 +1313,7 @@ namespace Aaris.MapReview
             if (brakeLampMaterial != null) Destroy(brakeLampMaterial);
             if (reverseLampMaterial != null) Destroy(reverseLampMaterial);
             if (skidMarkMaterial != null) Destroy(skidMarkMaterial);
+            if (exhaustMaterial != null) Destroy(exhaustMaterial);
             // These runtime URP conversions are shared among streamed car
             // instances, not imported asset materials. Release exactly the
             // converted copies on scene teardown to avoid native GPU leaks.
