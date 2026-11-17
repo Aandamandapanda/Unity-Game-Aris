@@ -485,8 +485,10 @@ def test():
     assert "Mathf.Lerp(2.95f, 3.25f, speed01)" in session
     assert "Mathf.Lerp(62f, 70f," in session
     assert "Quaternion.Slerp(" in session
-    assert "Mathf.Clamp(Time.deltaTime, 0f, .05f)" in session
-    assert "float fovDelta = Mathf.Clamp(Time.deltaTime, 0f, .05f);" in session
+    assert "float cameraFrameDt = Mathf.Clamp(Time.deltaTime, 0f, .15f);" in session
+    assert ".12f, Mathf.Infinity, cameraFrameDt);" in session
+    assert "1f - Mathf.Exp(-10f * cameraFrameDt)" in session
+    assert "float fovDelta = cameraFrameDt;" in session
     assert "1f - Mathf.Exp(-5f * fovDelta)" in session
     for speed01 in (0.0, .25, .5, .75, 1.0):
         distance = 6.25 + (7.40 - 6.25) * speed01

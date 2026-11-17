@@ -366,10 +366,14 @@ namespace Aaris.MapReview
             // Smooth the intended orbit first, then collision-test the camera's
             // actual rendered position. Clamping the goal before SmoothDamp
             // allowed interpolation to cross walls on sharp vehicle turns.
+            // Retain real elapsed time at 10-15 FPS instead of making the
+            // chase camera move at half speed. Bound only exceptional hitches;
+            // position, rotation and lens use one consistent frame budget.
             // Keep exactly one bounded physics sweep per frame on low-RAM phones.
+            float cameraFrameDt = Mathf.Clamp(Time.deltaTime, 0f, .15f);
             Vector3 next = Vector3.SmoothDamp(
                 followCamera.transform.position, requested, ref cameraVelocity,
-                .12f, Mathf.Infinity, Mathf.Min(.05f, Time.deltaTime));
+                .12f, Mathf.Infinity, cameraFrameDt);
             Vector3 ray = next - start;
             float length = ray.magnitude;
             if (length > .001f)
@@ -428,8 +432,7 @@ namespace Aaris.MapReview
             if (look.sqrMagnitude > .001f)
             {
                 Quaternion targetRotation = Quaternion.LookRotation(look);
-                float rotationAlpha = 1f - Mathf.Exp(-10f *
-                    Mathf.Clamp(Time.deltaTime, 0f, .05f));
+                float rotationAlpha = 1f - Mathf.Exp(-10f * cameraFrameDt);
                 followCamera.transform.rotation = Quaternion.Slerp(
                     followCamera.transform.rotation, targetRotation, rotationAlpha);
             }
@@ -439,7 +442,7 @@ namespace Aaris.MapReview
             float fovError = Mathf.Abs(targetFov - currentFov);
             if (fovError > 0.001f)
             {
-                float fovDelta = Mathf.Clamp(Time.deltaTime, 0f, .05f);
+                float fovDelta = cameraFrameDt;
                 followCamera.fieldOfView = fovError <= 0.1f
                     ? targetFov
                     : Mathf.Lerp(currentFov, targetFov, 1f - Mathf.Exp(-5f * fovDelta));
