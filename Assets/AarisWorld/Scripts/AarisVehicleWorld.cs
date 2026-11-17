@@ -1216,6 +1216,11 @@ namespace Aaris.MapReview
                 Destroy(root);
                 return false;
             }
+            // Only the genuine FBX chassis banks/squats visually; all four
+            // real wheel renderers have already been detached to Rigidbody
+            // space by AttachEmbeddedWheelModels. This keeps tire contact and
+            // physics fixed while headlights/exhaust follow the body itself.
+            motor.ConfigureBodyDynamics(mesh.transform);
             // Do this only after the body was reoriented, scaled, and the
             // authored wheel set passed inspection. Lamp placement is in the
             // same fitted local chassis space as the physical wheelbase.

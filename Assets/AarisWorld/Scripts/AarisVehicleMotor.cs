@@ -19,6 +19,12 @@ namespace Aaris.MapReview
         private readonly WheelCollider[] wheels = new WheelCollider[4];
         private readonly float[] surfaceGripMultipliers = new float[4];
         private readonly Transform[] visualWheels = new Transform[4];
+        // The FBX chassis is visual-only. WheelCollider meshes remain under
+        // the true Rigidbody, so tyre contact/steering never inherit body sway.
+        private Transform visualBodyPivot;
+        private Vector3 previousPhysicsVelocity;
+        private bool hasPreviousPhysicsVelocity;
+        private float visualPitchTarget, visualRollTarget, visualJounceTarget;
         // Wear is only applied to verified body-paint submeshes, never to
         // tyres, lights or transparent glass renderers.
         private struct BodyPaintSlot
@@ -435,26 +441,28 @@ namespace Aaris.MapReview
             var lampSize = new Vector3(lampWidth, lampHeight, 1f);
             var bezelSize = new Vector3(lampWidth * 1.20f,
                 lampHeight * 1.32f, 1f);
+            Transform lampChassis =
+                visualBodyPivot != null ? visualBodyPivot : transform;
             for (int side = 0; side < 2; side++)
             {
                 float x = side == 0 ? -halfTrack : halfTrack;
                 // Dark narrow bezels give the front/back glass real visual
                 // contrast without covering the detailed body textures.
-                CreateLampLens(transform, "Headlight Bezel " + side,
+                CreateLampLens(lampChassis, "Headlight Bezel " + side,
                     new Vector3(x, frontY, frontZ - .007f),
                     bezelSize, darkBezel, sharedLensMesh, false);
-                CreateLampLens(transform, "Taillight Bezel " + side,
+                CreateLampLens(lampChassis, "Taillight Bezel " + side,
                     new Vector3(x, backY, backZ + .007f),
                     bezelSize, darkBezel, sharedLensMesh, true);
-                frontLamps[side] = CreateLampLens(transform,
+                frontLamps[side] = CreateLampLens(lampChassis,
                     "Beveled Headlamp " + side,
                     new Vector3(x, frontY, frontZ), lampSize,
                     headlampGlass, sharedLensMesh, false);
-                rearLamps[side] = CreateLampLens(transform,
+                rearLamps[side] = CreateLampLens(lampChassis,
                     "Beveled Brake Lamp " + side,
                     new Vector3(x, backY, backZ), lampSize,
                     taillampGlass, sharedLensMesh, true);
-                reversingLamps[side] = CreateLampLens(transform,
+                reversingLamps[side] = CreateLampLens(lampChassis,
                     "Recessed Reverse Lamp " + side,
                     new Vector3(x * .68f, backY - lampHeight * .96f, backZ),
                     new Vector3(lampWidth * .38f, lampHeight * .56f, 1f),
@@ -465,7 +473,7 @@ namespace Aaris.MapReview
             // Only the player's actively driven vehicle illuminates the road.
             // Parked cars have visible dark glass, not costly spotlights.
             var beamObject = new GameObject("Player Car Headlight Beam");
-            beamObject.transform.SetParent(transform, false);
+            beamObject.transform.SetParent(lampChassis, false);
             beamObject.transform.localPosition =
                 new Vector3(0f, frontY, frontZ + .10f);
             roadHeadlight = beamObject.AddComponent<Light>();
@@ -511,6 +519,89 @@ namespace Aaris.MapReview
         // stable paint variant. Darken only those paint overrides when wear
         // grows: no mesh cloning, texture loss, property-block allocations
         // per crash or shared-material mutation across parked cars.
+        /// <summary>
+        /// Install a cosmetic body-only pivot AFTER real wheel meshes are
+        /// attached/detached. Never tilt colliders, wheel meshes or the car's
+        /// Rigidbody; they remain the sole physical authority.
+        /// </summary>
+        public void ConfigureBodyDynamics(Transform bodyModel)
+        {
+            if (bodyModel == null || visualBodyPivot != null ||
+                bodyModel == transform || !bodyModel.IsChildOf(transform))
+                return;
+            var pivot = new GameObject("Visual Body Suspension Pivot");
+            pivot.transform.SetParent(transform, false);
+            // Identity chassis-space pivot: old FBX pose and local bounds stay
+            // exactly identical until the first REAL physics acceleration.
+            pivot.transform.localPosition = Vector3.zero;
+            pivot.transform.localRotation = Quaternion.identity;
+            pivot.transform.localScale = Vector3.one;
+            bodyModel.SetParent(pivot.transform, true);
+            visualBodyPivot = pivot.transform;
+            previousPhysicsVelocity = body != null ? body.linearVelocity :
+                Vector3.zero;
+            hasPreviousPhysicsVelocity = body != null;
+            visualPitchTarget = visualRollTarget = visualJounceTarget = 0f;
+        }
+
+        private void SampleBodyDynamics()
+        {
+            if (body == null || visualBodyPivot == null) return;
+            Vector3 velocity = body.linearVelocity;
+            if (!hasPreviousPhysicsVelocity)
+            {
+                previousPhysicsVelocity = velocity;
+                hasPreviousPhysicsVelocity = true;
+                return;
+            }
+            Vector3 acceleration = (velocity - previousPhysicsVelocity) /
+                Mathf.Max(.005f, Time.fixedDeltaTime);
+            previousPhysicsVelocity = velocity;
+            bool driving = driver != null && driver.isActiveAndEnabled &&
+                isActiveAndEnabled;
+            int grounded = 0;
+            for (int i = 0; i < wheels.Length; i++)
+                if (wheels[i] != null && wheels[i].isGrounded) grounded++;
+            // Airborne, overturned, parked and disabled cars must not lean
+            // sideways because of gravity, collisions or stale input.
+            if (!driving || grounded < 2 ||
+                Vector3.Dot(transform.up, Vector3.up) < .45f)
+            {
+                visualPitchTarget = visualRollTarget = visualJounceTarget = 0f;
+                return;
+            }
+            Vector3 local = transform.InverseTransformDirection(acceleration);
+            if (float.IsNaN(local.x) || float.IsInfinity(local.x) ||
+                float.IsNaN(local.y) || float.IsInfinity(local.y) ||
+                float.IsNaN(local.z) || float.IsInfinity(local.z))
+            {
+                visualPitchTarget = visualRollTarget = visualJounceTarget = 0f;
+                return;
+            }
+            // Rigidbody remains physically stable. A 1.8 degree cap makes
+            // braking squat and corners readable without cartoon body lean
+            // or visible tyre/body separation in sports cars and long vans.
+            visualPitchTarget = Mathf.Clamp(-local.z * .18f, -1.8f, 1.8f);
+            visualRollTarget = Mathf.Clamp(local.x * .18f, -1.8f, 1.8f);
+            visualJounceTarget = Mathf.Clamp(-local.y * .0025f, -.022f, .022f);
+        }
+
+        private void UpdateVisualBodyDynamics()
+        {
+            if (visualBodyPivot == null) return;
+            float dt = Mathf.Clamp(Time.deltaTime, 0f, .12f);
+            float blend = 1f - Mathf.Exp(-8f * dt);
+            Quaternion goal = Quaternion.Euler(
+                visualPitchTarget, 0f, visualRollTarget);
+            visualBodyPivot.localRotation = Quaternion.Slerp(
+                visualBodyPivot.localRotation, goal, blend);
+            // Vertical jounce is almost imperceptible, just enough to link
+            // the cabin to spring motion without moving physics contact.
+            Vector3 pos = visualBodyPivot.localPosition;
+            pos.y = Mathf.Lerp(pos.y, visualJounceTarget, blend);
+            visualBodyPivot.localPosition = pos;
+        }
+
         public void ConfigureBodyWear(Transform bodyModel, Color carPaint)
         {
             if (bodyModel == null) return;
@@ -696,7 +787,8 @@ namespace Aaris.MapReview
             if (sharedExhaustMaterial == null || exhaustParticles != null)
                 return;
             var nozzle = new GameObject("Occupied Car Exhaust");
-            nozzle.transform.SetParent(transform, false);
+            nozzle.transform.SetParent(
+                visualBodyPivot != null ? visualBodyPivot : transform, false);
             nozzle.transform.localPosition = exhaustAnchor;
             nozzle.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
             exhaustParticles = nozzle.AddComponent<ParticleSystem>();
@@ -779,6 +871,7 @@ namespace Aaris.MapReview
             bool parkedSleeping = driver == null && body.IsSleeping();
             if (parkedSleeping && sleepingWheelPoseCurrent) return;
             SyncVisibleWheels();
+            UpdateVisualBodyDynamics();
             UpdateRearTyreTraces();
             UpdateExhaust();
             sleepingWheelPoseCurrent = parkedSleeping;
@@ -811,6 +904,8 @@ namespace Aaris.MapReview
             // Release parked-car brake cache on boarding, otherwise the
             // first frame falsely displays brake lamps before physics ticks.
             ApplyWheelForces(0f, 155f);
+            previousPhysicsVelocity = body.linearVelocity;
+            hasPreviousPhysicsVelocity = true;
             EnsureRearTyreTraces();
             EnsureExhaustEmitter();
             StopRearTyreTraces(true);
@@ -842,6 +937,7 @@ namespace Aaris.MapReview
             ApplyWheelForces(0f, ParkingBrakeTorque);
             StopRearTyreTraces(false);
             StopExhaust(false);
+            visualPitchTarget = visualRollTarget = visualJounceTarget = 0f;
             RefreshExteriorLights();
         }
 
@@ -934,6 +1030,7 @@ namespace Aaris.MapReview
             rearContactsGrounded[0] = rearContactsGrounded[1] = false;
             ApplyAntiRoll(0, 1);
             ApplyAntiRoll(2, 3);
+            SampleBodyDynamics();
 
             // Mild aero downforce supports handling but cannot defeat walls.
             if (planarSpeed > 6f)
@@ -1077,6 +1174,12 @@ namespace Aaris.MapReview
             lastLampState = -1;
             StopRearTyreTraces(true);
             StopExhaust(true);
+            visualPitchTarget = visualRollTarget = visualJounceTarget = 0f;
+            if (visualBodyPivot != null)
+            {
+                visualBodyPivot.localRotation = Quaternion.identity;
+                visualBodyPivot.localPosition = Vector3.zero;
+            }
             impactFlashUntil = 0f;
             RefreshExteriorLights();
         }
