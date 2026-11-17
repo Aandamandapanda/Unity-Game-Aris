@@ -29,5 +29,22 @@ class GunPbrImport(unittest.TestCase):
   for name in ("Reload()","DropCurrent()","SwapWeapons()"):
    self.assertIn(name,src)
   self.assertIn("ApplyTextureAwareWeaponFinish(",src)
+ def test_invisible_weapon_meshes_cannot_pass_bounds_validation(self):
+  pickup=(R/"Assets/AarisWorld/Scripts/AarisWeaponPickup.cs").read_text("utf-8")
+  source=pickup.split("internal static bool TryMeasure(",1)[1].split(
+   "internal static class AarisLootBeaconMaterial",1)[0]
+  for required in ("!renderer.enabled", "renderer.forceRenderingOff",
+                   "!renderer.gameObject.activeInHierarchy",
+                   "skinned.sharedMesh.vertexCount <= 0",
+                   "meshFilter.sharedMesh.vertexCount <= 0",
+                   "renderer is MeshRenderer",
+                   "return found && bounds.size.sqrMagnitude > 0.000001f;"):
+   self.assertIn(required,source)
+  for forbidden in ("renderer.bounds", "GetComponentsInChildren", "new Material("):
+   self.assertNotIn(forbidden,source)
+  inventory=(R/"Assets/AarisWorld/Scripts/AarisWeaponInventory.cs").read_text("utf-8")
+  self.assertIn("AarisWeaponMeshBounds.TryMeasure(root.transform,",inventory)
+  self.assertIn("AarisWeaponMeshBounds.TryMeasure(transform,",pickup)
+
 if __name__=="__main__":
  unittest.main()

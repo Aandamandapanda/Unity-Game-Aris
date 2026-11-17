@@ -228,20 +228,29 @@ namespace Aaris.MapReview
             if (root == null || renderers == null) return false;
             foreach (var renderer in renderers)
             {
-                if (renderer == null) continue;
+                // An imported FBX can have valid MeshFilter bounds while every
+                // drawing component is disabled/culled or carries zero vertices.
+                // Do not accept invisible floor loot or hand-held equipment.
+                // Called only on spawn/equip, never once per gameplay frame.
+                if (renderer == null || !renderer.enabled ||
+                    renderer.forceRenderingOff ||
+                    !renderer.gameObject.activeInHierarchy) continue;
                 Bounds meshBounds;
                 if (renderer is SkinnedMeshRenderer skinned)
                 {
-                    if (skinned.sharedMesh == null) continue;
+                    if (skinned.sharedMesh == null ||
+                        skinned.sharedMesh.vertexCount <= 0) continue;
                     meshBounds = skinned.localBounds;
                 }
-                else
+                else if (renderer is MeshRenderer)
                 {
                     var meshFilter = renderer.GetComponent<MeshFilter>();
-                    if (meshFilter == null || meshFilter.sharedMesh == null)
+                    if (meshFilter == null || meshFilter.sharedMesh == null ||
+                        meshFilter.sharedMesh.vertexCount <= 0)
                         continue;
                     meshBounds = meshFilter.sharedMesh.bounds;
                 }
+                else continue;
                 Vector3 c = meshBounds.center, e = meshBounds.extents;
                 for (int corner = 0; corner < 8; corner++)
                 {
