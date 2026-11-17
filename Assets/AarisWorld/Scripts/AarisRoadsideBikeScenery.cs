@@ -15,10 +15,11 @@ namespace Aaris.MapReview
         private const int MaximumVisibleBikes = 3;
         private const float LoadRadius = 45f;
         private const float UnloadRadius = 66f;
-        private readonly List<BikePlan> plans = new List<BikePlan>(6);
+        private readonly List<BikePlan> plans = new List<BikePlan>(18);
         private readonly RaycastHit[] supportHits = new RaycastHit[20];
         private readonly Collider[] blockingHits = new Collider[24];
         private readonly Material[] surfaces = new Material[8];
+        private readonly Material[] paintVariants = new Material[4];
         private Transform player;
         private AarisNearbyColliders nearbyColliders;
         private GameObject bikeSource;
@@ -66,7 +67,8 @@ namespace Aaris.MapReview
             foreach (var point in file.candidates)
             {
                 if (point == null || point.kind != "roadside") continue;
-                if (index++ % 6 == 2) plans.Add(new BikePlan { point = point });
+                // More authored roads, same maximum of three visible models.
+                if (index++ % 2 == 0) plans.Add(new BikePlan { point = point });
             }
             SetupMaterials();
         }
@@ -98,6 +100,23 @@ namespace Aaris.MapReview
                     surfaces[i].SetColor("_EmissionColor", tones[i] * .65f);
                     surfaces[i].EnableKeyword("_EMISSION");
                 }
+            }
+            // Three extra shared paint finishes; never create a material per bike.
+            paintVariants[0] = surfaces[0];
+            Color[] paints = {
+                new Color(.08f,.23f,.40f),
+                new Color(.36f,.054f,.062f),
+                new Color(.095f,.11f,.13f),
+                new Color(.05f,.30f,.26f)
+            };
+            for (int i = 1; i < paintVariants.Length; i++)
+            {
+                paintVariants[i] = new Material(surfaces[0])
+                {
+                    name = "Aaris Road Bike Paint " + i,
+                    enableInstancing = true
+                };
+                paintVariants[i].SetColor("_BaseColor", paints[i]);
             }
         }
 
@@ -207,6 +226,18 @@ namespace Aaris.MapReview
             return fallback;
         }
 
+        private static int StablePaintIndex(string id)
+        {
+            // Deterministic across Android launches; unlike GetHashCode.
+            if (string.IsNullOrEmpty(id)) return 0;
+            uint hash = 2166136261u;
+            unchecked
+            {
+                foreach (char c in id) hash = (hash ^ c) * 16777619u;
+            }
+            return (int)(hash % 4u);
+        }
+
         private GameObject CreateBike(AarisVehiclePoint point, Vector3 location)
         {
             var root = new GameObject("Aaris parked motorcycle " + point.id);
@@ -225,15 +256,19 @@ namespace Aaris.MapReview
             }
             // One shared URP material per authored surface, reused across
             // all visible bikes. No per-bike Material instances or per-frame GC.
-            int[] fallbackOrder = {1,2,3,4,0,7,5,6};
+            int[] fallbackOrder = {0,1,2,3,4,5,6,7};
+            int paintIndex = StablePaintIndex(point.id);
             foreach (var renderer in renderers)
             {
                 Material[] source = renderer.sharedMaterials;
                 if (source == null || source.Length == 0) continue;
                 Material[] converted = new Material[source.Length];
                 for (int i = 0; i < source.Length; i++)
-                    converted[i] = surfaces[SurfaceIndex(source[i],
-                        fallbackOrder[Mathf.Min(i, fallbackOrder.Length - 1)])];
+                {
+                    int kind = SurfaceIndex(source[i],
+                        fallbackOrder[Mathf.Min(i, fallbackOrder.Length - 1)]);
+                    converted[i] = kind == 0 ? paintVariants[paintIndex] : surfaces[kind];
+                }
                 renderer.sharedMaterials = converted;
             }
             var collider = root.AddComponent<BoxCollider>();
@@ -246,6 +281,9 @@ namespace Aaris.MapReview
         {
             foreach (Material material in surfaces)
                 if (material != null) Destroy(material);
+            // Paint variant zero aliases surfaces[0], so do not destroy twice.
+            for (int i = 1; i < paintVariants.Length; i++)
+                if (paintVariants[i] != null) Destroy(paintVariants[i]);
         }
     }
 }

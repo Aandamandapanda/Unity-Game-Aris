@@ -6,11 +6,11 @@ python3 Tools/Art/generate_road_bike.py
 The mesh is original project geometry (no downloaded game assets).
 It has independent tyre profiles, alloy rims, chassis bars, forks, fuel
 tank, engine, saddle, handlebars, and distinct head/tail/indicator surfaces.
-Eight shared URP Lit materials control body paint, rubber, alloy, trim and
+Eight shared URP Lit surface materials and three extra paint variants control body paint, rubber, alloy, trim and
 lamp appearance. There are no network requests at game runtime.
 
 The AarisRoadsideBikeScenery scene boot component places **parked scenery**,
-not rideable motorcycles. It samples six reviewed roadside candidates
+not rideable motorcycles. It samples 17 reviewed roadside candidates
 from the same existing 2km map, checks real floor normal and height,
 tests box clearance and inactive author colliders, and streams at most
 three visible motorcycles with one spawn attempt each 400ms poll.

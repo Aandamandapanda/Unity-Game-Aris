@@ -34,10 +34,23 @@ class BikeVisuals(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         self.assertIn("Original", (ROOT / "Tools/Art/generate_road_bike.py").read_text())
 
+    def test_body_paint_variants_preserve_wheel_and_light_materials(self):
+        source = SCRIPT.read_text()
+        self.assertIn("int[] fallbackOrder = {0,1,2,3,4,5,6,7};", source)
+        self.assertIn("private readonly Material[] paintVariants = new Material[4];", source)
+        self.assertIn("paintVariants[0] = surfaces[0];", source)
+        self.assertIn("paintVariants[i] = new Material(surfaces[0])", source)
+        self.assertIn("StablePaintIndex(point.id)", source)
+        self.assertIn("hash = (hash ^ c) * 16777619u;", source)
+        self.assertIn("kind == 0 ? paintVariants[paintIndex] : surfaces[kind]", source)
+        self.assertIn("for (int i = 1; i < paintVariants.Length; i++)", source)
+        self.assertNotIn("new Material(surfaces[0])", source.split(
+            "private GameObject CreateBike(", 1)[1])
+
     def test_mobile_streaming_is_bounded_and_ground_validated(self):
         code = SCRIPT.read_text()
         for marker in ("MaximumVisibleBikes = 3", "LoadRadius = 45f",
-                       "UnloadRadius = 66f", "index++ % 6 == 2",
+                       "UnloadRadius = 66f", "index++ % 2 == 0",
                        "nextPoll = now + .4f", "Physics.RaycastNonAlloc(",
                        "Physics.OverlapBoxNonAlloc(", "HasPotentialInactiveObstacle(",
                        "root.AddComponent<BoxCollider>()",
