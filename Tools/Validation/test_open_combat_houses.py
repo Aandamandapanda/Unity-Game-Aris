@@ -125,6 +125,16 @@ class OpenCombatHouseContracts(unittest.TestCase):
         self.assertIn("WestSolidWall", src)
         self.assertIn("EastSolidWall", src)
 
+    def test_static_batching_and_roof_shape_contracts(self):
+        src = MODULAR.read_text(encoding="utf-8")
+        for term in ("PitchedRoof(t,width,depth,h);",
+                     "CombineStaticSurfaces(t);",
+                     "combined.CombineMeshes(", "combined.UploadMeshData(true);",
+                     "mesh.RecalculateNormals();"):
+            self.assertIn(term, src)
+        self.assertIn("source.isReadable", src)
+        self.assertIn("new Dictionary<Material, List<CombineInstance>>()", src)
+
     def test_existing_local_cc0_prefabs_are_stored_and_physically_bounded(self):
         catalog = CATALOG.read_text(encoding="utf-8")
         self.assertEqual(len(json.loads(PLAN.read_text())["sites"]), 21)

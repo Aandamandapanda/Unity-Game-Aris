@@ -227,75 +227,29 @@ def audit():
     assert "QualitySettings.streamingMipmapsMemoryBudget" in quality
     assert "memoryMB <= 2304 ? 160f : 224f" in quality
     assert "originalRenderScale = androidPipeline.renderScale;" in quality
-    # Current product policy never lowers the authored URP render target.
-    # The legacy scaler remains compiled for a future explicit opt-in, while
-    # low-RAM shadow/foliage/mip controls stay active.
-    assert "private const bool PreserveNativeRenderScale = true;" in quality
+    # New Android policy begins at full authored clarity.
+    assert "PreserveNativeRenderScale" not in quality
     quality_setup = quality[quality.index("private void ConfigureAndroidQuality()"):
                             quality.index("private void TuneAndroidResolution(")]
-    native_guard = "if (!PreserveNativeRenderScale && adaptiveAndroidResolution)"
-    assert native_guard in quality_setup
-    assert quality_setup.index(native_guard) < quality_setup.index(
-        "androidPipeline.renderScale = Mathf.Min(originalRenderScale, initialScale);")
+    assert "lastAppliedRenderScale = originalRenderScale;" in quality_setup
+    assert "androidPipeline.renderScale = Mathf.Min(originalRenderScale, initialScale);" not in quality_setup
     assert "if (!adaptiveAndroidResolution) return;" not in quality_setup
     assert "lastAppliedRenderScale = originalRenderScale;" in quality_setup
     assert "QualitySettings.streamingMipmapsMemoryBudget" in quality_setup
     assert "androidPipeline.shadowDistance = appliedShadowDistance;" in quality_setup
     assert "ConfigureLowMemoryVegetation();" in quality_setup
-    # Map clarity must depend on physical display pixel load only in the dormant
-    # legacy scaler, never in the active native-resolution policy: a 720p phone
-    # needs fewer pixels than a 1080p phone, even with the same 2 GB RAM.
-    assert "(long)Screen.width * Screen.height <= 1280L * 720L" in quality
-    assert "Screen.width > 0 && Screen.height > 0" in quality
-    assert "(compactDisplay ? 0.92f : 0.85f)" in quality
-    assert "(compactDisplay ? 0.96f : 0.92f)" in quality
-    assert "androidPipeline.renderScale = Mathf.Min(originalRenderScale, initialScale);" in quality
-
-    def startup_scale(ram, width, height, original, budget_gpu=False):
-        constrained = ram <= 2304 or budget_gpu
-        if ram <= 0 or (ram > 3072 and not constrained):
-            return original
-        compact = width > 0 and height > 0 and width * height <= 1280 * 720
-        requested = (
-            (.92 if compact else .85) if constrained
-            else (.96 if compact else .92)
-        )
-        return min(original, requested)
-
-    # Keep high-end 4 GB and unknown-RAM devices untouched, while entry-level
-    # 4 GB Mali-G52 (e.g. Helio G85) gets the same bounded GPU relief as 2 GB.
-    for ram, width, height, native, budget_gpu, expected in (
-        (2048, 1280, 720, 1., False, .92),
-        (2048, 720, 1280, 1., False, .92),
-        (2048, 1600, 900, 1., False, .85),
-        (3072, 1280, 720, 1., False, .96),
-        (3072, 1920, 1080, 1., False, .92),
-        (2048, 1280, 720, .8, False, .8),
-        (3072, 1280, 720, .7, False, .7),
-        (2048, 0, 720, 1., False, .85),
-        (4096, 1280, 720, 1., False, 1.),
-        (4096, 1280, 720, 1., True, .92),
-        (4096, 1600, 900, 1., True, .85),
-        (4096, 1280, 720, .8, True, .8),
-        (0, 1280, 720, 1., False, 1.)
-    ):
-        assert startup_scale(ram, width, height, native, budget_gpu) == expected, (
-            ram, width, height, native, budget_gpu
-        )
-    assert startup_scale(2048, 1280, 720, 1.) ** 2 < 1.
-    # 2 GB / 720p: initial render target has only ~17% more pixels than
-    # before, not the ~38% extra of immediate native scale 1.0.
-    relative_pixel_increase = (.92 / .85) ** 2 - 1.
-    assert 0.16 < relative_pixel_increase < 0.18
+    # Old serialized values cannot force unreadably soft phone rendering.
+    assert "minimumAndroidRenderScale = 0.84f;" in quality
+    assert "Mathf.Max(0.82f, Mathf.Clamp(minimumAndroidRenderScale, 0.65f, 1f))" in quality
+    assert "if (memoryMB > 3072 && !constrainedGraphics) return;" in quality_setup
     # The existing two-slow-window governor still restores fill-rate relief.
     assert "slowIntervals >= 2" in quality
     assert "current - 0.05f" in quality
-    # A RAM-only eligibility gate misses entry GPUs even with 4 GB. However
-    # unknown-RAM and stronger >3 GB devices must still skip adaptation.
-    gate = "if (memoryMB <= 0 || (memoryMB > 3072 && !constrainedGraphics)) return;"
-    assert gate in quality_setup
-    assert quality_setup.index(gate) < quality_setup.index(
-        "androidPipeline = GraphicsSettings.currentRenderPipeline")
+    # Runtime governor may apply to all Android GPUs, but low-end
+    # foliage/shadow degradation is restricted to constrained hardware.
+    assert "if (memoryMB <= 0) return;" in quality_setup
+    assert quality_setup.index("androidPipeline = GraphicsSettings.currentRenderPipeline") < quality_setup.index(
+        "if (memoryMB > 3072 && !constrainedGraphics) return;")
     assert "if (androidPipeline == null || !adaptiveAndroidResolution) return;" in quality
     assert "memoryMB <= 2304 || IsBudgetAndroidGpu()" in quality_setup
     assert '"Mali-G52"' in quality_setup and '"Mali-G31"' in quality_setup
@@ -352,15 +306,11 @@ def audit():
     assert "Mathf.Abs(lastEffectiveTargetFps - effectiveFps) > 0.5f" in quality
     governor = quality[quality.index("private void TuneAndroidResolution("):
                        quality.index("private void Update()")]
-    assert "if (PreserveNativeRenderScale)" in governor
-    assert governor.index("if (PreserveNativeRenderScale)") < governor.index(
-        "float effectiveFps = EffectiveAndroidTargetFps(targetFps);")
-    native_short_circuit = governor[governor.index("if (PreserveNativeRenderScale)"):
-                                    governor.index("int targetFps = Application.targetFrameRate;")]
-    assert "sample.renderScale = androidPipeline.renderScale;" in native_short_circuit
-    assert "slowIntervals = steadyIntervals = 0;" in native_short_circuit
-    assert "return;" in native_short_circuit
-    assert "androidPipeline.renderScale =" not in native_short_circuit
+    assert "PreserveNativeRenderScale" not in governor
+    assert "bool reliableTimings = sample.gpuTimingSamples >= 4;" in governor
+    assert "if (slowIntervals < 3) return;" in governor
+    assert "originalRenderScale * 0.92f" in governor
+    assert "measuredCpuBound || (reliableTimings && !measuredGpuBound)" in governor
     assert governor.index("float effectiveFps = EffectiveAndroidTargetFps(targetFps);") < governor.index(
         "Mathf.Abs(lastEffectiveTargetFps - effectiveFps) > 0.5f")
     assert governor.index("frameIndex = frameCount = 0;") < governor.index(
@@ -425,7 +375,7 @@ def audit():
     assert "double cpuRender = Math.Max(0d, timing.cpuRenderThreadFrameTime);" in quality
     assert "timing.gpuFrameTime <= 0d || (cpuMain <= 0d && cpuRender <= 0d)" in quality
     assert "timing.cpuRenderThreadFrameTime <= 0d) return" not in quality
-    assert 'if (measuredCpuBound)' in governor
+    assert 'if (measuredCpuBound ||' in governor
     assert 'sample.cpuLimitedSamples >= sample.gpuLimitedSamples * 2' in governor
     assert "frameIndex = frameCount = 0;" in quality
     assert "slowIntervals = steadyIntervals = 0;" in quality
@@ -444,7 +394,7 @@ def audit():
 
     # Adaptive URP is temporary: its globally shared render scale and mipmap
     # residency must not become the starting quality after death/scene reload.
-    assert "lastAppliedRenderScale = androidPipeline.renderScale;" in quality_setup
+    assert "lastAppliedRenderScale = originalRenderScale;" in quality_setup
     assert "lastAppliedRenderScale = reduced;" in governor
     assert "lastAppliedRenderScale = recovered;" in governor
     assert "originalMipBudgetMB = QualitySettings.streamingMipmapsMemoryBudget;" in quality_setup
@@ -1096,7 +1046,7 @@ def audit():
     assert phase_writes == 31
 
     print("PASS: airborne support reuse, single motor, steady FOV writes, "
-          "bounded player/animation optional-component lookup, budgeted vehicle/loot streaming, legacy idle pose, collision-safe camera, idle-first pooled SFX, deadline-gated SFX, offscreen loot spin, audio/gloo hotpaths, refresh-aware pacing and native-resolution Android quality contracts")
+          "bounded player/animation optional-component lookup, budgeted vehicle/loot streaming, legacy idle pose, collision-safe camera, idle-first pooled SFX, deadline-gated SFX, offscreen loot spin, audio/gloo hotpaths, refresh-aware pacing and adaptive Android quality contracts")
     print("NOT TESTED: Unity compilation, live camera occlusion and device FPS.")
 
 
