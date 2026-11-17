@@ -1,0 +1,47 @@
+newmtl Paint
+Kd 0.095 0.200 0.340
+Ka 0 0 0
+Ks 0.2 0.2 0.2
+Ns 60
+
+newmtl Tyre
+Kd 0.035 0.039 0.045
+Ka 0 0 0
+Ks 0.2 0.2 0.2
+Ns 60
+
+newmtl Rim
+Kd 0.530 0.580 0.640
+Ka 0 0 0
+Ks 0.2 0.2 0.2
+Ns 60
+
+newmtl Engine
+Kd 0.170 0.190 0.220
+Ka 0 0 0
+Ks 0.2 0.2 0.2
+Ns 60
+
+newmtl Seat
+Kd 0.058 0.063 0.071
+Ka 0 0 0
+Ks 0.2 0.2 0.2
+Ns 60
+
+newmtl Headlamp
+Kd 0.950 0.910 0.740
+Ka 0 0 0
+Ks 0.2 0.2 0.2
+Ns 60
+
+newmtl TailLamp
+Kd 0.760 0.055 0.038
+Ka 0 0 0
+Ks 0.2 0.2 0.2
+Ns 60
+
+newmtl Amber
+Kd 0.920 0.450 0.040
+Ka 0 0 0
+Ks 0.2 0.2 0.2
+Ns 60
