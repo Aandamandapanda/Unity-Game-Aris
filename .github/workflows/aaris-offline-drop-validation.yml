@@ -14,6 +14,7 @@ on:
       - 'Assets/Resources/AarisDrop/**'
       - 'Assets/Resources/AarisCombat/**'
       - 'Tools/Validation/test_offline_drop_assets.py'
+      - '.github/workflows/aaris-offline-drop-validation.yml'
   workflow_dispatch:
 jobs:
   asset-integrity:
@@ -23,8 +24,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          # Only the scoped LFS fetch below needs repository read access.
+          # Remove checkout credentials before executing checked-out Python.
+          persist-credentials: true
           lfs: false
+      - name: Fetch only two required rival-animation LFS files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git lfs install --local
+          git -c lfs.url=https://github.com/sundamunda289-art/Unity-Game-Aris.git/info/lfs \
+            lfs pull --include="Assets/Resources/AarisCharacters/Primary/Animations/idle.fbx,Assets/Resources/AarisCharacters/Primary/Animations/run.fbx" --exclude=""
+          test "$(wc -c < Assets/Resources/AarisCharacters/Primary/Animations/idle.fbx)" -gt 100000
+          test "$(wc -c < Assets/Resources/AarisCharacters/Primary/Animations/run.fbx)" -gt 100000
+      - name: Clear checkout credentials before Python validation
+        if: always()
+        run: git config --local --unset-all http.https://github.com/.extraheader || true
       - name: Validate local geometry and offline combat integration
         run: python3 Tools/Validation/test_offline_drop_assets.py
       - name: Clarify what has and has not been tested
