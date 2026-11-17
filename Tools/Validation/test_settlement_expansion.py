@@ -300,7 +300,8 @@ class ExpansionIntegrity(unittest.TestCase):
                        "WebRequest", "TerrainData.SetHeights", "DestroyImmediate"]:
             self.assertNotIn(banned, script)
         self.assertIn("height = origin.y + t.terrainData.GetInterpolatedHeight(", script)
-        self.assertIn("if (TreesBlock(site, terrains))", script)
+        self.assertIn("bool blockedByTrees = TreesBlock(site, terrains);", script)
+        self.assertIn("if (blockedByTrees || blockedByCollider)", script)
         self.assertIn("foreach (Terrain terrain in all)", script)
         self.assertIn("float.IsNaN(site.width)", script)
         self.assertIn("FootprintHalfExtents(site, ObstacleMargin", script)

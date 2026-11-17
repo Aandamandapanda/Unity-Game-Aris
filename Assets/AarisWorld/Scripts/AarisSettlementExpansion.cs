@@ -145,18 +145,26 @@ namespace Aaris.MapReview
                     skippedTerrain++;
                     continue;
                 }
-                if (TreesBlock(site, terrains))
+                // Vegetation can obstruct a planned interactive entrance just as
+                // a building can. Both cases must use the SAME bounded, fully
+                // revalidated relocation search before an interactive home is
+                // skipped. Closed houses remain pinned to their authored sites.
+                bool blockedByTrees = TreesBlock(site, terrains);
+                bool blockedByCollider = !blockedByTrees && CollidersBlock(site, y);
+                if (blockedByTrees || blockedByCollider)
                 {
-                    skippedTrees++;
-                    continue;
-                }
-                if (CollidersBlock(site, y) &&
-                    (!site.interactive || !TryRelocateInteractiveSite(site, terrains, out y)))
-                {
-                    skippedObstacle++;
-                    Debug.LogWarning("AARIS_EXPANSION_OBSTACLE_SITE " + site.name +
-                        " x=" + site.x.ToString("F1") + " z=" + site.z.ToString("F1"));
-                    continue;
+                    if (!site.interactive ||
+                        !TryRelocateInteractiveSite(site, terrains, out y))
+                    {
+                        if (blockedByTrees) skippedTrees++;
+                        else
+                        {
+                            skippedObstacle++;
+                            Debug.LogWarning("AARIS_EXPANSION_OBSTACLE_SITE " + site.name +
+                                " x=" + site.x.ToString("F1") + " z=" + site.z.ToString("F1"));
+                        }
+                        continue;
+                    }
                 }
 
                 Vector3 position = new Vector3(site.x, y - 0.025f, site.z);

@@ -49,5 +49,37 @@ class StreamedSettlementSafety(unittest.TestCase):
             self.assertIn(phrase, code)
 
 
+    def test_tree_blocked_interactive_homes_try_safe_relocation(self):
+        setup = EXPANSION[EXPANSION.index("foreach (var site in plan.sites)"):
+                          EXPANSION.index("private bool TryRelocateInteractiveSite(")]
+        self.assertIn("bool blockedByTrees = TreesBlock(site, terrains);", setup)
+        self.assertIn("bool blockedByCollider = !blockedByTrees && CollidersBlock(site, y);", setup)
+        self.assertIn("if (blockedByTrees || blockedByCollider)", setup)
+        self.assertIn("!TryRelocateInteractiveSite(site, terrains, out y)", setup)
+        # No early unconditional tree skip before the relocation decision.
+        self.assertNotIn("if (TreesBlock(site, terrains))", setup)
+        self.assertLess(setup.index("bool blockedByTrees ="),
+                        setup.index("!TryRelocateInteractiveSite("))
+        # Noninteractive sites must never be moved.
+        self.assertIn("if (!site.interactive ||", setup)
+
+    def test_obstacle_classification_only_counts_abandoned_sites(self):
+        setup = EXPANSION[EXPANSION.index("bool blockedByTrees ="):
+                          EXPANSION.index("Vector3 position = new Vector3(site.x, y - 0.025f")]
+        self.assertIn("if (blockedByTrees) skippedTrees++;", setup)
+        self.assertIn("skippedObstacle++;", setup)
+        self.assertIn('Debug.LogWarning("AARIS_EXPANSION_OBSTACLE_SITE "', setup)
+        self.assertLess(setup.index("!TryRelocateInteractiveSite("),
+                        setup.index("if (blockedByTrees) skippedTrees++;"))
+        # Accepting a relocated candidate still requires independent terrain,
+        # foliage and collider verification. Invalid sites retain old values.
+        relocate = EXPANSION[EXPANSION.index("private bool TryRelocateInteractiveSite("):
+                             EXPANSION.index("private static bool CoordinatesValid(")]
+        self.assertIn("!TryGround(site, terrains, out _, out float candidateY)", relocate)
+        self.assertIn("TreesBlock(site, terrains) || CollidersBlock(site, candidateY)", relocate)
+        self.assertIn("site.x = originalX;", relocate)
+        self.assertIn("site.z = originalZ;", relocate)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
