@@ -47,6 +47,9 @@ namespace Aaris.MapReview
         private readonly Dictionary<Terrain, TreeInstance[]> treeCache =
             new Dictionary<Terrain, TreeInstance[]>();
         private readonly List<GameObject> placed = new List<GameObject>(24);
+        // The physics engine cannot query distant authored colliders while
+        // the nearby streamer has disabled them. Keep its cached bounds.
+        private AarisNearbyColliders nearbyColliderBounds;
         private int skippedTerrain, skippedTrees, skippedObstacle, skippedResources;
         private static bool spawnPending;
 
@@ -108,6 +111,9 @@ namespace Aaris.MapReview
                 if (t != null && t.terrainData != null)
                     treeCache[t] = t.terrainData.treeInstances;
             }
+            // The streamer's Awake runs at order -250 before this Start.
+            // Inspect its already cached bounds without re-enabling physics.
+            nearbyColliderBounds = FindFirstObjectByType<AarisNearbyColliders>();
 
             var player = FindFirstObjectByType<AarisThirdPersonPlayer>();
             Transform interactionTarget = player != null ? player.transform : null;
@@ -331,6 +337,12 @@ namespace Aaris.MapReview
                 site.height * 0.5f + 0.3f,
                 site.depth * 0.5f + ObstacleMargin);
             Vector3 center = new Vector3(site.x, y + half.y + 0.05f, site.z);
+            // Physics.OverlapBox omits disabled distant walls and houses.
+            // Conservative streamed bounds prevent invisible intersections;
+            // existing safe relocation may search alternative foundations.
+            if (nearbyColliderBounds != null &&
+                nearbyColliderBounds.HasPotentialInactiveObstacle(center, half, rotation))
+                return true;
             int n = Physics.OverlapBoxNonAlloc(center, half, obstacles,
                 rotation, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
             Collider[] candidates = obstacles;

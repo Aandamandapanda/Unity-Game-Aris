@@ -75,7 +75,7 @@ class FragDensityContracts(unittest.TestCase):
 
     def test_full_cover_query_never_assumes_missing_hits(self):
         start = TEXT.index("private bool HasBlastLineOfSight(")
-        end = TEXT.index("private static IAarisDamageable FindDamageable", start)
+        end = TEXT.index("private IAarisDamageable FindDamageable", start)
         body = TEXT[start:end]
         self.assertIn("Physics.RaycastNonAlloc(ray, rays, length,", body)
         self.assertIn("RaycastHit[] candidates = rays;", body)
