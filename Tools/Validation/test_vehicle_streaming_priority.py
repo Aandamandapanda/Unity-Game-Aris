@@ -49,6 +49,15 @@ class VehicleStreamingPriority(unittest.TestCase):
         self.assertIn("parkedVictim.rotation = retired.transform.rotation;", update)
         self.assertIn("parkedVictim.nextProbe = now + 3.0f;", update)
 
+    def test_authored_car_pbr_conversion_is_released_on_scene_teardown(self):
+        # Runtime materials are shared for streamed cars and must not leak
+        # when the level reloads. Imported shared source assets remain alive.
+        cleanup = WORLD.split("private void OnDestroy()", 1)[1].split(
+            "public AarisVehicleMotor NearestAvailable(", 1)[0]
+        self.assertIn("foreach (Material converted in authoredMaterialCache.Values)", cleanup)
+        self.assertIn("if (converted != null) Destroy(converted);", cleanup)
+        self.assertIn("authoredMaterialCache.Clear();", cleanup)
+
     def test_nearest_ready_vehicle_wins_regardless_of_match_plan_order(self):
         update = WORLD.split("private void Update()", 1)[1].split(
             "private AarisVehicleRecord FarthestReplaceableParkedCar(", 1)[0]

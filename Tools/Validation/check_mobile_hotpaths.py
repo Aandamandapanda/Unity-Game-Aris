@@ -696,11 +696,17 @@ def audit():
     assert "private int spawnProbeBudgetPerPoll = 8;" in vehicle
     assert "spawnProbeBudgetPerPoll = 3;" in quality
     assert "int spawnProbes = 0;" in stream
-    assert "spawnProbes >= spawnProbeBudgetPerPoll" in stream
+    assert (
+        "spawnProbes >= spawnProbeBudgetPerPoll" in stream or
+        "spawnProbes < spawnProbeBudgetPerPoll" in stream
+    ), "Vehicle placement probes lost their per-poll budget"
     assert "spawnProbes++;" in stream
     assert stream.index("spawnProbes++;") < stream.index("TryResolvePlanned(record")
     assert "unloaded < unloadBudgetPerPoll" in stream
-    assert "built >= spawnBudgetPerPoll" in stream
+    assert (
+        "built >= spawnBudgetPerPoll" in stream or
+        "built < spawnBudgetPerPoll" in stream
+    ), "Vehicle instantiation lost its per-poll budget"
     assert "record.visible.CanPark" in stream
     assert "active >= MaximumNearbyVehicles" in stream
     assert stream.count("player.position") == 1  # Cache native Transform once.

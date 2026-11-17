@@ -1076,6 +1076,12 @@ namespace Aaris.MapReview
         {
             if (paletteMaterial != null) Destroy(paletteMaterial);
             if (wheelPaletteMaterial != null) Destroy(wheelPaletteMaterial);
+            // These runtime URP conversions are shared among streamed car
+            // instances, not imported asset materials. Release exactly the
+            // converted copies on scene teardown to avoid native GPU leaks.
+            foreach (Material converted in authoredMaterialCache.Values)
+                if (converted != null) Destroy(converted);
+            authoredMaterialCache.Clear();
         }
 
         public AarisVehicleMotor NearestAvailable(Vector3 origin, float maxDistance)
