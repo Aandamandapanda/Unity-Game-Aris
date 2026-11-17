@@ -78,6 +78,8 @@ namespace Aaris.MapReview
         private const float ServiceBrakeTorque = 3200f;
         private const float ParkingBrakeTorque = 3600f;
         private const float AntiRollStrength = 4800f;
+        private float antiRollMassScale = 1f;
+        private int groundedWheelCount;
         private float nextTelemetryAt;
         // A short impact pulse communicates a meaningful collision without
         // creating sparks/particles on phones or changing the drive authority.
@@ -166,6 +168,11 @@ namespace Aaris.MapReview
             body.mass = Mathf.Clamp(kilograms, 850f, 2300f);
             driveTorqueScale = Mathf.Clamp(Mathf.Sqrt(body.mass / 1250f),
                 .88f, 1.28f);
+            // Mass-aware sway resistance: the same fixed anti-roll force
+            // leaves heavy vans leaning excessively and over-stiffens light
+            // sports cars. One bounded one-time calculation per spawn.
+            antiRollMassScale = Mathf.Clamp(
+                Mathf.Sqrt(body.mass / 1250f), .85f, 1.24f);
             steeringMassFactor = Mathf.Lerp(1f, .88f,
                 Mathf.InverseLerp(1150f, 2100f, body.mass));
             body.interpolation = RigidbodyInterpolation.Interpolate;
@@ -1146,13 +1153,16 @@ namespace Aaris.MapReview
             // Reset once per physics step; ApplyAntiRoll reuses each WheelHit
             // to accumulate real longitudinal/lateral tyre slip.
             tyreSlip = 0f;
+            groundedWheelCount = 0;
             rearContactsGrounded[0] = rearContactsGrounded[1] = false;
             ApplyAntiRoll(0, 1);
             ApplyAntiRoll(2, 3);
             SampleBodyDynamics();
 
-            // Mild aero downforce supports handling but cannot defeat walls.
-            if (planarSpeed > 6f)
+            // An airborne car must NOT get a gravity-like downward suction
+            // simply because it passed 6 m/s. Contact counts are reused
+            // from the four already-sampled WheelHits, no new physics probes.
+            if (planarSpeed > 6f && groundedWheelCount >= 2)
                 body.AddForce(-transform.up * Mathf.Min(18000f, 20f * planarSpeed * planarSpeed),
                     ForceMode.Force);
 
@@ -1253,6 +1263,7 @@ namespace Aaris.MapReview
             float leftTravel = 1f, rightTravel = 1f;
             if (leftGrounded)
             {
+                groundedWheelCount++;
                 ApplySurfaceGrip(leftIndex, left, leftHit.collider);
                 leftTravel = Mathf.Clamp01(
                     (-left.transform.InverseTransformPoint(leftHit.point).y -
@@ -1264,6 +1275,7 @@ namespace Aaris.MapReview
             }
             if (rightGrounded)
             {
+                groundedWheelCount++;
                 ApplySurfaceGrip(rightIndex, right, rightHit.collider);
                 rightTravel = Mathf.Clamp01(
                     (-right.transform.InverseTransformPoint(rightHit.point).y -
@@ -1278,8 +1290,9 @@ namespace Aaris.MapReview
             // ONLY grounded wheel at a curb and roll the car further over.
             // Still sample slip/surface grip above for all grounded wheels.
             if (!leftGrounded || !rightGrounded) return;
-            float force = Mathf.Clamp((leftTravel - rightTravel) * AntiRollStrength,
-                -AntiRollStrength, AntiRollStrength);
+            float effectiveAntiRoll = AntiRollStrength * antiRollMassScale;
+            float force = Mathf.Clamp((leftTravel - rightTravel) * effectiveAntiRoll,
+                -effectiveAntiRoll, effectiveAntiRoll);
             if (leftGrounded)
                 body.AddForceAtPosition(left.transform.up * -force,
                     left.transform.position, ForceMode.Force);

@@ -47,6 +47,33 @@ class AutomotiveRefinement(unittest.TestCase):
             self.assertGreaterEqual(steer_rate, .63)
             self.assertLessEqual(steer_rate, 1)
 
+    def test_mass_aware_roll_and_no_airborne_suction(self):
+        motor = MOTOR
+        configure = motor.split("public void Configure(string id,", 1)[1].split(
+            "private static float SafeHandlingScale(", 1)[0]
+        antiroll = motor.split("private void ApplyAntiRoll(", 1)[1].split(
+            "private void OnDisable()", 1)[0]
+        step = motor.split("private void FixedUpdate()", 1)[1].split(
+            "private void ApplyAckermannSteering(", 1)[0]
+        self.assertIn("AntiRollStrength = 4800f", motor)
+        self.assertIn("antiRollMassScale = Mathf.Clamp(", configure)
+        self.assertIn("Mathf.Sqrt(body.mass / 1250f), .85f, 1.24f", configure)
+        self.assertIn("groundedWheelCount = 0;", step)
+        self.assertEqual(antiroll.count("groundedWheelCount++;"), 2)
+        self.assertEqual(antiroll.count("GetGroundHit(out WheelHit"), 2)
+        self.assertIn("effectiveAntiRoll = AntiRollStrength * antiRollMassScale", antiroll)
+        self.assertIn("if (planarSpeed > 6f && groundedWheelCount >= 2)", step)
+        self.assertNotIn("Physics.Raycast(", step)
+        for mass in (850, 1050, 1250, 1650, 1950, 2300):
+            factor = max(.85, min(1.24, math.sqrt(mass / 1250)))
+            self.assertTrue(.85 <= factor <= 1.24)
+            self.assertTrue(math.isfinite(4800 * factor))
+        for velocity in (0, 6, 12, 28):
+            for grounded in range(5):
+                applies = velocity > 6 and grounded >= 2
+                if grounded == 0:
+                    self.assertFalse(applies)
+
     def test_shared_pbr_textures_no_per_frame_allocations(self):
         method = WORLD.split("private Material AuthoredUrpMaterial(", 1)[1].split(
             "private void ApplyAuthoredMaterials(", 1)[0]
