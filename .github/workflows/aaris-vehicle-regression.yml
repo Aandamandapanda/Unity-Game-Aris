@@ -10,6 +10,7 @@ on:
       - "Assets/Resources/AarisVehicles/**"
       - "Tools/Validation/check_vehicle_system.py"
       - "Tools/Validation/test_hud_pointer_orphan_recovery.py"
+      - "Tools/Validation/test_vehicle_hud_state_restoration.py"
       - "Tools/Validation/test_vehicle_camera_pacing.py"
       - "Docs/MAP_LAYOUT.json"
 
@@ -35,5 +36,7 @@ jobs:
         run: python3 Tools/Validation/check_vehicle_system.py
       - name: Verify orphaned HUD pointer release during EventSystem interruptions
         run: python3 Tools/Validation/test_hud_pointer_orphan_recovery.py
+      - name: Verify original on-foot HUD states survive repeated vehicle transitions
+        run: python3 Tools/Validation/test_vehicle_hud_state_restoration.py
       - name: Verify vehicle camera pacing from 10 to 120 FPS
         run: python3 Tools/Validation/test_vehicle_camera_pacing.py

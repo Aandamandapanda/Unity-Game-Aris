@@ -13,6 +13,7 @@ on:
       - 'Tools/Validation/test_open_combat_houses.py'
       - 'Tools/Validation/test_player_streamer_lifecycle.py'
       - 'Tools/Validation/test_hud_pointer_orphan_recovery.py'
+      - 'Tools/Validation/test_vehicle_hud_state_restoration.py'
       - '.github/workflows/aaris-mobile-gameplay-regression.yml'
   push:
     branches: [main]
@@ -27,6 +28,7 @@ on:
       - 'Tools/Validation/test_open_combat_houses.py'
       - 'Tools/Validation/test_player_streamer_lifecycle.py'
       - 'Tools/Validation/test_hud_pointer_orphan_recovery.py'
+      - 'Tools/Validation/test_vehicle_hud_state_restoration.py'
       - '.github/workflows/aaris-mobile-gameplay-regression.yml'
   workflow_dispatch:
 
@@ -62,6 +64,7 @@ jobs:
           python Tools/Validation/test_open_combat_houses.py
           python Tools/Validation/test_player_streamer_lifecycle.py
           python Tools/Validation/test_hud_pointer_orphan_recovery.py
+          python Tools/Validation/test_vehicle_hud_state_restoration.py
       - name: Parse every saved AarisWorld C# gameplay script
         run: |
           python - <<'PY'

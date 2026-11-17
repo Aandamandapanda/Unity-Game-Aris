@@ -35,6 +35,9 @@ namespace Aaris.MapReview
         private bool[] wasRendererEnabled;
         private Canvas[] footCanvases;
         private GraphicRaycaster[] footRaycasters;
+        private bool[] previousFootCanvasEnabled;
+        private bool[] previousFootRaycasterEnabled;
+        private bool footHudHidden;
         private float nextVehicleSearch;
         private float touchMove, touchSteer;
         private AarisVehicleMotor nearbyCar;
@@ -197,8 +200,9 @@ namespace Aaris.MapReview
 
         private void SetFootHudVisible(bool show)
         {
-            // Toggle only the two existing on-foot canvases and raycasters;
-            // do not destroy their EventSystem, touch state or gun data.
+            // A second hide must not overwrite the saved authored state.
+            if (footHudHidden == !show) return;
+            // Resolve the existing controls once, with no per-frame allocations.
             if (footCanvases == null)
             {
                 var battle = FindFirstObjectByType<AarisBattleHUD>();
@@ -211,11 +215,32 @@ namespace Aaris.MapReview
                     first != null ? first.GetComponent<GraphicRaycaster>() : null,
                     second != null ? second.GetComponent<GraphicRaycaster>() : null
                 };
+                previousFootCanvasEnabled = new bool[footCanvases.Length];
+                previousFootRaycasterEnabled = new bool[footRaycasters.Length];
             }
-            foreach (var canvas in footCanvases)
-                if (canvas != null) canvas.enabled = show;
-            foreach (var raycaster in footRaycasters)
-                if (raycaster != null) raycaster.enabled = show;
+            for (int i = 0; i < footCanvases.Length; i++)
+            {
+                Canvas canvas = footCanvases[i];
+                if (!show)
+                {
+                    previousFootCanvasEnabled[i] = canvas != null && canvas.enabled;
+                    if (canvas != null) canvas.enabled = false;
+                }
+                else if (canvas != null)
+                    canvas.enabled = previousFootCanvasEnabled[i];
+            }
+            for (int i = 0; i < footRaycasters.Length; i++)
+            {
+                GraphicRaycaster raycaster = footRaycasters[i];
+                if (!show)
+                {
+                    previousFootRaycasterEnabled[i] = raycaster != null && raycaster.enabled;
+                    if (raycaster != null) raycaster.enabled = false;
+                }
+                else if (raycaster != null)
+                    raycaster.enabled = previousFootRaycasterEnabled[i];
+            }
+            footHudHidden = !show;
         }
 
         private bool TryFindExit(out Vector3 position)
