@@ -38,7 +38,10 @@ class OriginalBuggyTests(unittest.TestCase):
 
     def test_catalog_physics_paint_and_urp_clearcoat_contracts(self):
         cars=json.loads((R/"Assets/Resources/AarisVehicles/vehicle_catalog.json").read_text())["vehicles"]
-        self.assertEqual(len(cars),7)
+        # New vehicle types are welcome; protect the original fleet and unique IDs.
+        self.assertGreaterEqual(len(cars), 7)
+        ids = [v["id"] for v in cars]
+        self.assertEqual(len(ids), len(set(ids)))
         buggy=next(v for v in cars if v["id"]=="Buggy")
         self.assertEqual(buggy["authoredModelResource"],"AarisVehicles/Authored/AarisBuggy")
         self.assertEqual(buggy["modelResource"],"AarisVehicles/Models/truck-flat")
