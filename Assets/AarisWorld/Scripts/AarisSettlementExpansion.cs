@@ -183,6 +183,14 @@ namespace Aaris.MapReview
                     continue;
                 }
                 instance.name = site.name;
+                // Reuse ONE shared URP Lit material and ONE combined mesh per
+                // house for roof fascia, foundation plinth and corner trim.
+                // No extra colliders, so door and window apertures stay open.
+                if (site.prefabKey == "cottage" ||
+                    site.prefabKey == "bungalow" ||
+                    site.prefabKey == "detached")
+                    AarisHouseFacadeTrim.Install(instance,
+                        site.width, site.depth, site.height);
                 placed.Add(instance);
             }
             treeCache.Clear();

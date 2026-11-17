@@ -14,6 +14,7 @@ on:
       - 'Tools/Validation/check_battle_hardening.py'
       - 'Tools/Validation/check_mobile_hotpaths.py'
       - 'Tools/Validation/test_open_combat_houses.py'
+      - 'Tools/Validation/test_house_facade_details.py'
       - 'Tools/Validation/test_player_streamer_lifecycle.py'
       - 'Tools/Validation/test_hud_pointer_orphan_recovery.py'
       - 'Tools/Validation/test_vehicle_hud_state_restoration.py'
@@ -34,6 +35,7 @@ on:
       - 'Tools/Validation/check_battle_hardening.py'
       - 'Tools/Validation/check_mobile_hotpaths.py'
       - 'Tools/Validation/test_open_combat_houses.py'
+      - 'Tools/Validation/test_house_facade_details.py'
       - 'Tools/Validation/test_player_streamer_lifecycle.py'
       - 'Tools/Validation/test_hud_pointer_orphan_recovery.py'
       - 'Tools/Validation/test_vehicle_hud_state_restoration.py'
@@ -72,6 +74,7 @@ jobs:
           python Tools/Validation/test_jump_contact_transition.py
           python Tools/Validation/check_battle_hardening.py
           python Tools/Validation/test_open_combat_houses.py
+          python Tools/Validation/test_house_facade_details.py
           python Tools/Validation/test_player_streamer_lifecycle.py
           python Tools/Validation/test_hud_pointer_orphan_recovery.py
           python Tools/Validation/test_vehicle_hud_state_restoration.py
