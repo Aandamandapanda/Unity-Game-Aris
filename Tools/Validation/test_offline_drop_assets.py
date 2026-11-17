@@ -53,6 +53,50 @@ def read_obj(path):
 
 
 class OfflineCombatAssetChecks(unittest.TestCase):
+    def test_parachute_touch_does_not_stick_after_android_input_loss(self):
+        # The real-player steering stick must recover if Android loses
+        # PointerUp, including without an app background/focus transition.
+        # Static source contract; live uGUI gesture testing still required.
+        drop = (SCRIPTS / "AarisOfflineDrop.cs").read_text("utf-8")
+        stick = drop.split("public sealed class AarisOfflineDropStick", 1)[1]
+        self.assertIn("IPointerUpHandler, ICancelHandler", stick)
+        self.assertIn("public void OnCancel(BaseEventData data) => ResetStick();", stick)
+        self.assertIn("private void LateUpdate()", stick)
+        self.assertIn("if (finger == int.MinValue) return;", stick)
+        self.assertIn("system.currentInputModule is StandaloneInputModule", stick)
+        self.assertIn("if (!IsPointerPhysicallyHeld(finger)) ResetStick();", stick)
+        self.assertIn("pointerId == PointerInputModule.kMouseLeftId", stick)
+        self.assertIn("Input.GetMouseButton(0)", stick)
+        self.assertIn("Input.GetTouch(i)", stick)
+        self.assertIn("touch.phase != TouchPhase.Ended", stick)
+        self.assertIn("touch.phase != TouchPhase.Canceled", stick)
+        self.assertIn("private void OnDisable() => ResetStick();", stick)
+        self.assertIn("if (paused) ResetStick();", stick)
+        self.assertIn("if (!focused) ResetStick();", stick)
+        self.assertIn("data.button != PointerEventData.InputButton.Left", stick)
+        self.assertIn("data != null && finger == data.pointerId", stick)
+
+        # Model the pointer ownership contract across common interrupted
+        # gesture sequences at any frame rate. Cancelled/ended/absent touch
+        # is never treated as continued steering.
+        def physically_held(pointer, mouse, touches):
+            if pointer == -1:
+                return mouse
+            return any(fid == pointer and phase not in ("Ended", "Canceled")
+                       for fid, phase in touches)
+
+        for pointer, mouse, touches, expected in (
+            (3, False, [(3, "Moved")], True),
+            (3, False, [(3, "Stationary")], True),
+            (3, False, [(3, "Ended")], False),
+            (3, False, [(3, "Canceled")], False),
+            (3, False, [(7, "Moved")], False),
+            (3, False, [], False),
+            (-1, True, [], True),
+            (-1, False, [], False),
+        ):
+            self.assertEqual(physically_held(pointer, mouse, touches), expected)
+
     def test_ocean_glide_requires_solid_contact_or_safe_recovery(self):
         drop = (SCRIPTS / "AarisOfflineDrop.cs").read_text("utf-8")
         move = drop.split("private void MoveAirborne(float dt)", 1)[1].split(

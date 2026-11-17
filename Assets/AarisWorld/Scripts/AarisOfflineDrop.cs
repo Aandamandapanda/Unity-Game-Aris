@@ -1006,7 +1006,7 @@ namespace Aaris.MapReview
     }
 
     public sealed class AarisOfflineDropStick : MonoBehaviour,
-        IPointerDownHandler, IDragHandler, IPointerUpHandler
+        IPointerDownHandler, IDragHandler, IPointerUpHandler, ICancelHandler
     {
         private RectTransform area, knob;
         private int finger = int.MinValue;
@@ -1025,13 +1025,15 @@ namespace Aaris.MapReview
         }
         public void OnPointerDown(PointerEventData data)
         {
-            if (finger != int.MinValue) return;
+            // Only one actual left-button/touch pointer may steer the canopy.
+            if (data == null || data.button != PointerEventData.InputButton.Left ||
+                finger != int.MinValue) return;
             finger = data.pointerId;
             OnDrag(data);
         }
         public void OnDrag(PointerEventData data)
         {
-            if (finger != data.pointerId || area == null) return;
+            if (data == null || finger != data.pointerId || area == null) return;
             if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
                 area, data.position, data.pressEventCamera, out Vector2 local)) return;
             Value = Vector2.ClampMagnitude(local / 60f, 1f);
@@ -1039,8 +1041,42 @@ namespace Aaris.MapReview
         }
         public void OnPointerUp(PointerEventData data)
         {
-            if (finger == data.pointerId) ResetStick();
+            if (data != null && finger == data.pointerId) ResetStick();
         }
+
+        // Android occasionally drops PointerUp/Cancel on a system gesture or
+        // touch snapshot loss, without pausing the app. A stuck parachute
+        // stick would otherwise keep steering indefinitely. Reconcile after
+        // StandaloneInputModule.Update; no work or allocation when idle.
+        private void LateUpdate()
+        {
+            if (finger == int.MinValue) return;
+            EventSystem system = EventSystem.current;
+            if (system == null || system.currentInputModule == null)
+            {
+                ResetStick();
+                return;
+            }
+            if (!(system.currentInputModule is StandaloneInputModule)) return;
+            if (!IsPointerPhysicallyHeld(finger)) ResetStick();
+        }
+
+        private static bool IsPointerPhysicallyHeld(int pointerId)
+        {
+            if (pointerId == PointerInputModule.kMouseLeftId)
+                return Input.GetMouseButton(0);
+            for (int i = 0; i < Input.touchCount; i++)
+            {
+                Touch touch = Input.GetTouch(i);
+                if (touch.fingerId == pointerId)
+                    return touch.phase != TouchPhase.Ended &&
+                        touch.phase != TouchPhase.Canceled;
+            }
+            return false;
+        }
+
+        public void OnCancel(BaseEventData data) => ResetStick();
+
         private void ResetStick()
         {
             finger = int.MinValue;
