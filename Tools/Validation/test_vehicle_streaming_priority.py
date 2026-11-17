@@ -32,9 +32,9 @@ class VehicleStreamingPriority(unittest.TestCase):
         self.assertIn("if (active >= MaximumNearbyVehicles)", update)
         self.assertIn("if (unloaded >= unloadBudgetPerPoll) break;", update)
         self.assertIn("FarthestReplaceableParkedCar(", update)
-        self.assertIn("if (parkedVictim == null) continue;", update)
-        self.assertIn("spawnProbes >= spawnProbeBudgetPerPoll", update)
-        self.assertIn("built >= spawnBudgetPerPoll", update)
+        self.assertIn("if (parkedVictim == null) break;", update)
+        self.assertIn("spawnProbes < spawnProbeBudgetPerPoll", update)
+        self.assertIn("built < spawnBudgetPerPoll", update)
         self.assertIn("active--;", update)
         self.assertIn("active++;", update)
 
@@ -43,10 +43,38 @@ class VehicleStreamingPriority(unittest.TestCase):
             "private AarisVehicleRecord FarthestReplaceableParkedCar(", 1)[0]
         self.assertLess(update.index("!TryResolvePlanned(record, out Vector3 pos)"),
                         update.index("Destroy(retired.gameObject);"))
-        self.assertIn("if (retired == null || !retired.CanPark) continue;", update)
+        self.assertIn("if (retired == null || !retired.CanPark)", update)
+        self.assertIn("record.nextProbe = now + .3f;", update)
         self.assertIn("parkedVictim.position = retired.transform.position;", update)
         self.assertIn("parkedVictim.rotation = retired.transform.rotation;", update)
         self.assertIn("parkedVictim.nextProbe = now + 3.0f;", update)
+
+    def test_nearest_ready_vehicle_wins_regardless_of_match_plan_order(self):
+        update = WORLD.split("private void Update()", 1)[1].split(
+            "private AarisVehicleRecord FarthestReplaceableParkedCar(", 1)[0]
+        self.assertIn("float nearestDistanceSq = LoadRadius * LoadRadius;", update)
+        self.assertIn("foreach (var pending in plans)", update)
+        self.assertIn("pending.visible != null || now < pending.nextProbe", update)
+        self.assertIn("!authoredBodyResolved[pendingType]", update)
+        self.assertIn("(distanceSq == nearestDistanceSq && record != null)", update)
+        self.assertIn("record = pending;", update)
+        self.assertIn("if (record == null) break;", update)
+        self.assertLess(update.index("record = pending;"),
+                        update.index("TryResolvePlanned(record, out Vector3 pos)"))
+        def nearest(records):
+            best, found = 105 ** 2, None
+            for index, (distance, ready) in enumerate(records):
+                distance_squared = distance ** 2
+                if not ready or distance_squared > best or (
+                    distance_squared == best and found is not None
+                ):
+                    continue
+                best, found = distance_squared, index
+            return found
+        self.assertEqual(nearest([(94, True), (12, True), (51, True)]), 1)
+        self.assertEqual(nearest([(4, False), (32, True), (10, False)]), 1)
+        self.assertEqual(nearest([(27, True), (27, True), (30, True)]), 0)
+        self.assertIsNone(nearest([(106, True), (200, True)]))
 
     def test_hysteresis_and_occupied_safety(self):
         helper = WORLD.split("private AarisVehicleRecord FarthestReplaceableParkedCar(", 1)[1].split(

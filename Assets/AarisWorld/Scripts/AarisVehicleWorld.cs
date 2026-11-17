@@ -980,31 +980,39 @@ namespace Aaris.MapReview
             }
             if (closestType >= 0) StartAuthoredBodyPrewarm(closestType);
 
-            foreach (var record in plans)
+            // The catalog is in match plan order, NOT player distance order.
+            // On a low-end phone with a two-build budget, always give the
+            // closest ready car the first slot, even in a crowded sector.
+            // Scan at most 44 immutable plans per attempt; no sorting or GC.
+            while (built < spawnBudgetPerPoll &&
+                   spawnProbes < spawnProbeBudgetPerPoll)
             {
-                if (built >= spawnBudgetPerPoll ||
-                    spawnProbes >= spawnProbeBudgetPerPoll) break;
-                if (record.visible != null || now < record.nextProbe) continue;
-                float candidateDistanceSq =
-                    (record.position - playerPosition).sqrMagnitude;
-                if (candidateDistanceSq > LoadRadius * LoadRadius) continue;
-                int typeIndex = TypeIndex(record.type);
-                if (typeIndex >= 0 && !authoredBodyResolved[typeIndex]) continue;
+                AarisVehicleRecord record = null;
+                float nearestDistanceSq = LoadRadius * LoadRadius;
+                foreach (var pending in plans)
+                {
+                    if (pending.visible != null || now < pending.nextProbe) continue;
+                    float distanceSq = (pending.position - playerPosition).sqrMagnitude;
+                    if (distanceSq > nearestDistanceSq ||
+                        (distanceSq == nearestDistanceSq && record != null)) continue;
+                    int pendingType = TypeIndex(pending.type);
+                    if (pendingType >= 0 && !authoredBodyResolved[pendingType]) continue;
+                    nearestDistanceSq = distanceSq;
+                    record = pending;
+                }
+                if (record == null) break;
 
-                // A full pool can include distant parked cars between the
-                // 105 m load and 160 m release radii. Do not let those parked
-                // meshes hide a much closer vehicle from the player.
                 AarisVehicleRecord parkedVictim = null;
                 if (active >= MaximumNearbyVehicles)
                 {
                     if (unloaded >= unloadBudgetPerPoll) break;
                     parkedVictim = FarthestReplaceableParkedCar(
-                        playerPosition, candidateDistanceSq);
-                    if (parkedVictim == null) continue;
+                        playerPosition, nearestDistanceSq);
+                    // If the closest candidate cannot win a slot by 20m,
+                    // no farther candidate can win one in this poll either.
+                    if (parkedVictim == null) break;
                 }
 
-                // Resolve the real road/floor/collider BEFORE evicting anything.
-                // Bad placement never removes an existing visible vehicle.
                 spawnProbes++;
                 if (!TryResolvePlanned(record, out Vector3 pos))
                 {
@@ -1014,7 +1022,11 @@ namespace Aaris.MapReview
                 if (parkedVictim != null)
                 {
                     AarisVehicleMotor retired = parkedVictim.visible;
-                    if (retired == null || !retired.CanPark) continue;
+                    if (retired == null || !retired.CanPark)
+                    {
+                        record.nextProbe = now + .3f;
+                        continue;
+                    }
                     parkedVictim.position = retired.transform.position;
                     parkedVictim.rotation = retired.transform.rotation;
                     parkedVictim.nextProbe = now + 3.0f;
