@@ -982,16 +982,48 @@ namespace Aaris.MapReview
 
             foreach (var record in plans)
             {
-                if (active >= MaximumNearbyVehicles ||
-                    built >= spawnBudgetPerPoll ||
+                if (built >= spawnBudgetPerPoll ||
                     spawnProbes >= spawnProbeBudgetPerPoll) break;
                 if (record.visible != null || now < record.nextProbe) continue;
-                if ((record.position - playerPosition).sqrMagnitude > LoadRadius * LoadRadius)
-                    continue;
+                float candidateDistanceSq =
+                    (record.position - playerPosition).sqrMagnitude;
+                if (candidateDistanceSq > LoadRadius * LoadRadius) continue;
                 int typeIndex = TypeIndex(record.type);
                 if (typeIndex >= 0 && !authoredBodyResolved[typeIndex]) continue;
+
+                // A full pool can include distant parked cars between the
+                // 105 m load and 160 m release radii. Do not let those parked
+                // meshes hide a much closer vehicle from the player.
+                AarisVehicleRecord parkedVictim = null;
+                if (active >= MaximumNearbyVehicles)
+                {
+                    if (unloaded >= unloadBudgetPerPoll) break;
+                    parkedVictim = FarthestReplaceableParkedCar(
+                        playerPosition, candidateDistanceSq);
+                    if (parkedVictim == null) continue;
+                }
+
+                // Resolve the real road/floor/collider BEFORE evicting anything.
+                // Bad placement never removes an existing visible vehicle.
                 spawnProbes++;
-                if (TryResolvePlanned(record, out Vector3 pos) && Build(record, pos))
+                if (!TryResolvePlanned(record, out Vector3 pos))
+                {
+                    record.nextProbe = now + 3.0f;
+                    continue;
+                }
+                if (parkedVictim != null)
+                {
+                    AarisVehicleMotor retired = parkedVictim.visible;
+                    if (retired == null || !retired.CanPark) continue;
+                    parkedVictim.position = retired.transform.position;
+                    parkedVictim.rotation = retired.transform.rotation;
+                    parkedVictim.nextProbe = now + 3.0f;
+                    Destroy(retired.gameObject);
+                    parkedVictim.visible = null;
+                    unloaded++;
+                    active--;
+                }
+                if (Build(record, pos))
                 {
                     active++;
                     built++;
@@ -1003,6 +1035,29 @@ namespace Aaris.MapReview
                     record.nextProbe = now + 3.0f;
                 }
             }
+        }
+
+        // Only an unoccupied, stationary car beyond a distance hysteresis
+        // can yield a slot. This is a bounded scan of the 44 match plans and
+        // never takes away a driver's car or a nearby visible parked model.
+        private AarisVehicleRecord FarthestReplaceableParkedCar(
+            Vector3 playerPosition, float candidateDistanceSq)
+        {
+            const float PriorityMarginMetres = 20f;
+            float minimumVictimDistance =
+                Mathf.Sqrt(candidateDistanceSq) + PriorityMarginMetres;
+            float farthestDistanceSq = minimumVictimDistance * minimumVictimDistance;
+            AarisVehicleRecord farthest = null;
+            foreach (var record in plans)
+            {
+                AarisVehicleMotor car = record.visible;
+                if (car == null || !car.CanPark) continue;
+                float distanceSq = (car.transform.position - playerPosition).sqrMagnitude;
+                if (distanceSq <= farthestDistanceSq) continue;
+                farthest = record;
+                farthestDistanceSq = distanceSq;
+            }
+            return farthest;
         }
 
         private void OnDestroy()
