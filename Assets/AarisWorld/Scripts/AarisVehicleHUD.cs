@@ -166,6 +166,9 @@ namespace Aaris.MapReview
         private GameObject arrowPanel;
         private GameObject driveButton;
         private Text driveCaption;
+        private GameObject speedPanel;
+        private Text speedCaption;
+        private float nextSpeedUpdate;
         private AarisVehicleArrowButton[] arrows = new AarisVehicleArrowButton[4];
         private readonly bool[] pressed = new bool[4];
         private Vector2 lastScreen;
@@ -231,6 +234,36 @@ namespace Aaris.MapReview
             driveCaption.fontSize = 17;
             driveCaption.color = Color.white;
             driveCaption.raycastTarget = false;
+
+            // Real physics speed + forward/reverse direction, not a fake
+            // animated speedometer. Anchored to the notch-safe viewport.
+            // No world-space gauges, physics queries or per-frame materials.
+            speedPanel = new GameObject("Vehicle Speedometer",
+                typeof(RectTransform), typeof(Image));
+            speedPanel.transform.SetParent(safeRoot, false);
+            var speedRect = (RectTransform)speedPanel.transform;
+            speedRect.anchorMin = speedRect.anchorMax = new Vector2(.5f, 1f);
+            speedRect.anchoredPosition = new Vector2(0f, -49f);
+            speedRect.sizeDelta = new Vector2(184f, 57f);
+            var speedBackground = speedPanel.GetComponent<Image>();
+            speedBackground.color = new Color(.025f, .04f, .075f, .74f);
+            speedBackground.raycastTarget = false;
+            var speedTextObject = new GameObject("Live speed and direction",
+                typeof(RectTransform), typeof(Text));
+            speedTextObject.transform.SetParent(speedPanel.transform, false);
+            var speedTextRect = (RectTransform)speedTextObject.transform;
+            speedTextRect.anchorMin = Vector2.zero;
+            speedTextRect.anchorMax = Vector2.one;
+            speedTextRect.offsetMin = speedTextRect.offsetMax = Vector2.zero;
+            speedCaption = speedTextObject.GetComponent<Text>();
+            speedCaption.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            speedCaption.fontSize = 22;
+            speedCaption.fontStyle = FontStyle.Bold;
+            speedCaption.alignment = TextAnchor.MiddleCenter;
+            speedCaption.color = Color.white;
+            speedCaption.raycastTarget = false;
+            speedCaption.text = "0 km/h   N";
+            speedPanel.SetActive(false);
             arrowPanel.SetActive(false);
             driveButton.SetActive(false);
             AarisHudGlyphs.ApplyCanvasShader(obj.transform);
@@ -303,6 +336,30 @@ namespace Aaris.MapReview
             safeRoot.offsetMin = safeRoot.offsetMax = Vector2.zero;
         }
 
+        private void UpdateSpeedIndicator()
+        {
+            if (speedCaption == null || session == null ||
+                Time.unscaledTime < nextSpeedUpdate) return;
+            var vehicle = session.DrivenCar;
+            if (vehicle == null) return;
+            // UI updates at 8 Hz instead of allocating formatted strings on
+            // every mobile frame. The motor supplies true PhysX velocity.
+            nextSpeedUpdate = Time.unscaledTime + .125f;
+            float metresPerSecond = vehicle.TotalSpeedMetresPerSecond;
+            int kmh = float.IsNaN(metresPerSecond) || float.IsInfinity(metresPerSecond)
+                ? 0 : Mathf.Clamp(Mathf.RoundToInt(metresPerSecond * 3.6f), 0, 350);
+            float longitudinal = vehicle.SpeedMetresPerSecond;
+            float throttle = vehicle.ThrottleInput;
+            string direction = longitudinal < -.4f ||
+                (Mathf.Abs(longitudinal) <= .4f && throttle < -.1f) ? "R" :
+                longitudinal > .4f || throttle > .1f ? "F" : "N";
+            string caption = kmh + " km/h   " + direction;
+            if (speedCaption.text != caption) speedCaption.text = caption;
+            Color textColor = vehicle.IsServiceBraking
+                ? new Color(1f, .64f, .56f, 1f) : Color.white;
+            if (speedCaption.color != textColor) speedCaption.color = textColor;
+        }
+
         private void LateUpdate()
         {
             UpdateSafe(false);
@@ -319,6 +376,8 @@ namespace Aaris.MapReview
                     arrowPanel.SetActive(false);
                 }
                 if (driveButton.activeSelf) driveButton.SetActive(false);
+                if (speedPanel != null && speedPanel.activeSelf)
+                    speedPanel.SetActive(false);
                 return;
             }
             bool driving = session.IsDriving;
@@ -327,6 +386,12 @@ namespace Aaris.MapReview
                 if (!driving) ClearArrows();
                 arrowPanel.SetActive(driving);
             }
+            if (speedPanel != null && speedPanel.activeSelf != driving)
+            {
+                speedPanel.SetActive(driving);
+                nextSpeedUpdate = 0f;
+            }
+            if (driving) UpdateSpeedIndicator();
             bool show = driving || session.CanEnter;
             if (driveButton.activeSelf != show) driveButton.SetActive(show);
             if (show)
@@ -345,6 +410,10 @@ namespace Aaris.MapReview
         {
             if (!focused) ClearArrows();
         }
-        private void OnDisable() => ClearArrows();
+        private void OnDisable()
+        {
+            ClearArrows();
+            if (speedPanel != null) speedPanel.SetActive(false);
+        }
     }
 }

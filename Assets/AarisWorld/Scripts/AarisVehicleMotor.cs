@@ -26,6 +26,11 @@ namespace Aaris.MapReview
         private AarisVehicleSession driver;
         private float forward, steering, smoothSteer;
         private float topSpeed, tyreSlip;
+        // Derived once from authored mass, never from per-frame model queries.
+        // Heavier SUVs/utility cars need more wheel torque yet still accelerate
+        // more slowly than light sports cars under the same WheelCollider model.
+        private float driveTorqueScale = 1f;
+        private float steeringMassFactor = 1f;
         private float appliedDriveTorque = float.NaN, appliedBrakeTorque = float.NaN;
         private float appliedSteeringAngle = float.NaN;
         private const float ServiceBrakeTorque = 3200f;
@@ -37,6 +42,9 @@ namespace Aaris.MapReview
         public string VehicleId { get; private set; }
         public float TopSpeedMetresPerSecond => topSpeed;
         public float ThrottleInput => driver == null ? 0f : forward;
+        // True only when the active driver is asking the wheels to slow down;
+        // parking/coasting drag must not illuminate the brake indicator.
+        public bool IsServiceBraking => driver != null && appliedBrakeTorque >= 500f;
         public float LateralSlipMetresPerSecond => body == null ? 0f :
             Mathf.Abs(Vector3.Dot(body.linearVelocity, transform.right));
         // Peak contact slip from the same WheelHit samples already used by
@@ -85,6 +93,10 @@ namespace Aaris.MapReview
             topSpeed = Mathf.Clamp(maxSpeedMetres, 16f, 28f);
             body = GetComponent<Rigidbody>();
             body.mass = Mathf.Clamp(kilograms, 850f, 2300f);
+            driveTorqueScale = Mathf.Clamp(Mathf.Sqrt(body.mass / 1250f),
+                .88f, 1.28f);
+            steeringMassFactor = Mathf.Lerp(1f, .88f,
+                Mathf.InverseLerp(1150f, 2100f, body.mass));
             body.interpolation = RigidbodyInterpolation.Interpolate;
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             body.linearDamping = .12f;
@@ -414,8 +426,9 @@ namespace Aaris.MapReview
 
             // Four progressive torque bands are speed-derived, not arbitrary
             // teleporting 9/16/22/28 m/s velocities after an input timer.
-            float torque = speedAbs < 7f ? 1500f : speedAbs < 14f ? 1180f :
+            float baseTorque = speedAbs < 7f ? 1500f : speedAbs < 14f ? 1180f :
                 speedAbs < 21f ? 850f : 580f;
+            float torque = baseTorque * driveTorqueScale;
             float drive = 0f, brake = 0f;
             if (throttle > .08f)
             {
@@ -449,7 +462,8 @@ namespace Aaris.MapReview
             // road speed. Reduce steering by actual planar vehicle speed.
             float planarSpeed = Vector3.ProjectOnPlane(
                 body.linearVelocity, transform.up).magnitude;
-            float maxAngle = Mathf.Lerp(32f, 10f, Mathf.InverseLerp(0f, 24f, planarSpeed));
+            float maxAngle = Mathf.Lerp(32f, 10f,
+                Mathf.InverseLerp(0f, 24f, planarSpeed)) * steeringMassFactor;
             float target = turn * maxAngle;
             smoothSteer = Mathf.MoveTowards(smoothSteer, target, 125f * Time.fixedDeltaTime);
             ApplyAckermannSteering(smoothSteer);
@@ -581,6 +595,11 @@ namespace Aaris.MapReview
                     Mathf.Abs(rightHit.sidewaysSlip),
                     Mathf.Abs(rightHit.forwardSlip) * 0.78f));
             }
+            // A lifted wheel has no suspension contact. The legacy
+            // leftTravel/rightTravel default of 1 would push upward on the
+            // ONLY grounded wheel at a curb and roll the car further over.
+            // Still sample slip/surface grip above for all grounded wheels.
+            if (!leftGrounded || !rightGrounded) return;
             float force = Mathf.Clamp((leftTravel - rightTravel) * AntiRollStrength,
                 -AntiRollStrength, AntiRollStrength);
             if (leftGrounded)
