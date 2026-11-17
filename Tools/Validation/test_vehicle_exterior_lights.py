@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Source-level guards for low-overhead URP vehicle lights.
+
+The Unity Editor and Android runtime must still validate shader variants,
+visible FBX lamp alignment, actual headlight illumination and frame timing.
+"""
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2] / "Assets/AarisWorld/Scripts"
+MOTOR = (ROOT / "AarisVehicleMotor.cs").read_text("utf-8")
+WORLD = (ROOT / "AarisVehicleWorld.cs").read_text("utf-8")
+
+
+class VehicleExteriorLighting(unittest.TestCase):
+    def test_lamps_follow_verified_aligned_chassis_not_prefab_axes(self):
+        builder = WORLD.split("private bool Build(", 1)[1].split(
+            "private void Update()", 1)[0]
+        self.assertIn("motor.ConfigureExteriorLights(", builder)
+        self.assertLess(builder.index("FaceEmbeddedVehicleForward("),
+                        builder.index("motor.ConfigureExteriorLights("))
+        self.assertLess(builder.index("motor.AttachEmbeddedWheelModels("),
+                        builder.index("motor.ConfigureExteriorLights("))
+        self.assertLess(builder.index("if (!wheelsAttached)"),
+                        builder.index("motor.ConfigureExteriorLights("))
+        self.assertIn("new Bounds(new Vector3(0f, .48f, 0f), bounds.size)", builder)
+        lights = MOTOR.split("public void ConfigureExteriorLights(", 1)[1].split(
+            "private void RefreshExteriorLights()", 1)[0]
+        self.assertIn("fittedBounds.size.x * .395f", lights)
+        self.assertIn("fittedBounds.size.z * .5f + .025f", lights)
+        self.assertIn("new Vector3(x, y, z)", lights)
+        self.assertIn("new Vector3(x, y, -z)", lights)
+
+    def test_never_add_interactive_collision_to_lamp_visuals(self):
+        lenses = MOTOR.split("private static Renderer CreateLampLens(", 1)[1].split(
+            "public void ConfigureExteriorLights(", 1)[0]
+        self.assertIn("collider.enabled = false;", lenses)
+        self.assertIn("Destroy(collider);", lenses)
+        self.assertLess(lenses.index("collider.enabled = false;"),
+                        lenses.index("Destroy(collider);"))
+        self.assertIn("renderer.shadowCastingMode =", lenses)
+        self.assertIn("renderer.receiveShadows = false;", lenses)
+
+    def test_shared_materials_and_cleanup(self):
+        for label in (
+            "headlampGlassMaterial", "headlampOnMaterial",
+            "taillampGlassMaterial", "brakeLampMaterial", "reverseLampMaterial"
+        ):
+            self.assertIn(label + " = CreateLampMaterial(", WORLD)
+            self.assertIn("Destroy(" + label + ");", WORLD)
+        self.assertIn("lamp.EnableKeyword(\"_EMISSION\");", WORLD)
+        self.assertIn("lamp.SetColor(\"_EmissionColor\", emission);", WORLD)
+        self.assertIn("enableInstancing = true", WORLD)
+        lights = MOTOR.split("private void RefreshExteriorLights()", 1)[1].split(
+            "private void SyncVisibleWheels()", 1)[0]
+        self.assertNotIn("new Material(", lights)
+        self.assertNotIn("Instantiate(", lights)
+        self.assertNotIn("GetComponent(", lights)
+        self.assertNotIn("Physics.", lights)
+
+    def test_headlight_only_while_driver_active(self):
+        lights = MOTOR.split("private void RefreshExteriorLights()", 1)[1].split(
+            "private void SyncVisibleWheels()", 1)[0]
+        self.assertIn("driver != null && driver.isActiveAndEnabled &&", lights)
+        self.assertIn("isActiveAndEnabled;", lights)
+        self.assertIn("roadHeadlight.enabled = driving;", lights)
+        configure = MOTOR.split("public void ConfigureExteriorLights(", 1)[1].split(
+            "private void RefreshExteriorLights()", 1)[0]
+        self.assertIn("LightType.Spot", configure)
+        self.assertIn("LightShadows.None", configure)
+        self.assertIn("roadHeadlight.enabled = false;", configure)
+        self.assertEqual(configure.count("AddComponent<Light>()"), 1)
+        self.assertIn("if (lastLampState == lampState) return;", lights)
+
+    def test_brake_and_reverse_follow_physics_and_clear_on_exit(self):
+        lights = MOTOR.split("private void RefreshExteriorLights()", 1)[1].split(
+            "private void SyncVisibleWheels()", 1)[0]
+        self.assertIn("appliedBrakeTorque >= 500f", lights)
+        self.assertIn("SpeedMetresPerSecond < .55f", lights)
+        self.assertIn("forward < -.08f", lights)
+        self.assertIn("reversingLamps[side].enabled = reversing;", lights)
+        self.assertIn("rearLamps[side].sharedMaterial =", lights)
+        self.assertIn("frontLamps[side].sharedMaterial =", lights)
+        taking = MOTOR.split("public bool TryTakeDriver(", 1)[1].split(
+            "public void SetInput(", 1)[0]
+        self.assertIn("ApplyWheelForces(0f, 155f);", taking)
+        self.assertIn("RefreshExteriorLights();", taking)
+        release = MOTOR.split("public void ReleaseDriver(", 1)[1].split(
+            "private void ApplyWheelForces(", 1)[0]
+        self.assertIn("driver = null;", release)
+        self.assertIn("RefreshExteriorLights();", release)
+        disable = MOTOR.split("private void OnDisable()", 1)[1]
+        self.assertIn("RefreshExteriorLights();", disable)
+        fixed = MOTOR.split("private void FixedUpdate()", 1)[1].split(
+            "private void ApplyAckermannSteering(", 1)[0]
+        self.assertLess(fixed.index("ApplyWheelForces(drive, brake);"),
+                        fixed.index("RefreshExteriorLights();"))
+        self.assertIn("RefreshExteriorLights();", MOTOR.split(
+            "private void OnEnable()", 1)[1].split(
+            "public bool TryTakeDriver(", 1)[0])
+
+
+if __name__ == "__main__":
+    unittest.main()

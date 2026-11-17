@@ -17,6 +17,14 @@ namespace Aaris.MapReview
         private readonly WheelCollider[] wheels = new WheelCollider[4];
         private readonly float[] surfaceGripMultipliers = new float[4];
         private readonly Transform[] visualWheels = new Transform[4];
+        // Two compact lamp clusters per end, plus two white reversing lenses.
+        // Every car shares the World-owned URP materials; no runtime clones.
+        private readonly Renderer[] frontLamps = new Renderer[2];
+        private readonly Renderer[] rearLamps = new Renderer[2];
+        private readonly Renderer[] reversingLamps = new Renderer[2];
+        private Material headlampGlass, headlampOn, taillampGlass, brakeLamp;
+        private Light roadHeadlight;
+        private int lastLampState = -1;
         // Imported vehicle bodies may carry four real wheel meshes with their
         // own authored local axes. Preserve that rest orientation while the
         // WheelCollider supplies steering, suspension and spin.
@@ -323,6 +331,111 @@ namespace Aaris.MapReview
             return true;
         }
 
+        // Thin, chassis-mounted lamp lenses work on both the verified Kenney
+        // fallback and the reoriented FBX body, without editing imported art.
+        // All six lenses are simple shared cube meshes with NO physics.
+        private static Renderer CreateLampLens(Transform chassis, string label,
+            Vector3 position, Vector3 dimensions, Material material)
+        {
+            var obj = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            obj.name = label;
+            obj.transform.SetParent(chassis, false);
+            obj.transform.localPosition = position;
+            obj.transform.localScale = dimensions;
+            var collider = obj.GetComponent<Collider>();
+            if (collider != null)
+            {
+                // Destroy is deferred until the end of the Unity frame.
+                // Disable immediately so fresh lenses cannot block bullets,
+                // parking collision probes or the player's exit capsule.
+                collider.enabled = false;
+                Destroy(collider);
+            }
+            var renderer = obj.GetComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode =
+                UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            return renderer;
+        }
+
+        public void ConfigureExteriorLights(Bounds fittedBounds,
+            Material frontGlass, Material frontActive,
+            Material backGlass, Material backBrake, Material reverseWhite)
+        {
+            if (frontGlass == null || frontActive == null ||
+                backGlass == null || backBrake == null || reverseWhite == null ||
+                fittedBounds.size.x < .5f || fittedBounds.size.z < 1f ||
+                frontLamps[0] != null) return;
+            headlampGlass = frontGlass;
+            headlampOn = frontActive;
+            taillampGlass = backGlass;
+            brakeLamp = backBrake;
+
+            float halfTrack = Mathf.Clamp(fittedBounds.size.x * .395f, .47f, .84f);
+            float z = fittedBounds.size.z * .5f + .025f;
+            float y = Mathf.Clamp(
+                fittedBounds.center.y + fittedBounds.size.y * .08f, .49f, .86f);
+            for (int side = 0; side < 2; side++)
+            {
+                float x = side == 0 ? -halfTrack : halfTrack;
+                frontLamps[side] = CreateLampLens(transform,
+                    "Headlamp " + side, new Vector3(x, y, z),
+                    new Vector3(.24f, .11f, .048f), headlampGlass);
+                rearLamps[side] = CreateLampLens(transform,
+                    "Brake Lamp " + side, new Vector3(x, y, -z),
+                    new Vector3(.26f, .115f, .048f), taillampGlass);
+                reversingLamps[side] = CreateLampLens(transform,
+                    "Reverse Lamp " + side,
+                    new Vector3(x * .65f, y - .085f, -z),
+                    new Vector3(.115f, .063f, .048f), reverseWhite);
+                reversingLamps[side].enabled = false;
+            }
+
+            // Only the PLAYER'S active vehicle emits a road-facing light.
+            // A dozen parked cars never introduce additional dynamic lights;
+            // no expensive realtime shadows or secondary headlight Light.
+            var beamObject = new GameObject("Player Car Headlight Beam");
+            beamObject.transform.SetParent(transform, false);
+            beamObject.transform.localPosition = new Vector3(0f, y, z + .09f);
+            roadHeadlight = beamObject.AddComponent<Light>();
+            roadHeadlight.type = LightType.Spot;
+            roadHeadlight.color = new Color(1f, .94f, .80f);
+            roadHeadlight.range = 17f;
+            roadHeadlight.spotAngle = 64f;
+            roadHeadlight.intensity = 1.2f;
+            roadHeadlight.shadows = LightShadows.None;
+            roadHeadlight.enabled = false;
+            lastLampState = -1;
+            RefreshExteriorLights();
+        }
+
+        private void RefreshExteriorLights()
+        {
+            if (frontLamps[0] == null) return;
+            bool driving = driver != null && driver.isActiveAndEnabled &&
+                isActiveAndEnabled;
+            bool braking = driving && appliedBrakeTorque >= 500f;
+            // Reverse lamps turn on when the driver requests backward travel
+            // and the car has slowed enough to engage reverse, not when a
+            // moving-forward car is merely braking with the down arrow.
+            bool reversing = driving && forward < -.08f &&
+                SpeedMetresPerSecond < .55f;
+            int lampState = (driving ? 1 : 0) |
+                (braking ? 2 : 0) | (reversing ? 4 : 0);
+            if (lastLampState == lampState) return;
+            lastLampState = lampState;
+            for (int side = 0; side < 2; side++)
+            {
+                frontLamps[side].sharedMaterial =
+                    driving ? headlampOn : headlampGlass;
+                rearLamps[side].sharedMaterial =
+                    braking ? brakeLamp : taillampGlass;
+                reversingLamps[side].enabled = reversing;
+            }
+            if (roadHeadlight != null) roadHeadlight.enabled = driving;
+        }
+
         private void SyncVisibleWheels()
         {
             for (int i = 0; i < wheels.Length; i++)
@@ -351,6 +464,8 @@ namespace Aaris.MapReview
         {
             sleepingWheelPoseCurrent = false;
             appliedDriveTorque = appliedBrakeTorque = appliedSteeringAngle = float.NaN;
+            lastLampState = -1;
+            RefreshExteriorLights();
         }
 
         public bool TryTakeDriver(AarisVehicleSession session)
@@ -366,6 +481,10 @@ namespace Aaris.MapReview
                 !IsSafeToExit) return false;
             driver = session;
             forward = steering = smoothSteer = 0f;
+            // Release parked-car brake cache on boarding, otherwise the
+            // first frame falsely displays brake lamps before physics ticks.
+            ApplyWheelForces(0f, 155f);
+            RefreshExteriorLights();
             return true;
         }
 
@@ -389,6 +508,7 @@ namespace Aaris.MapReview
             driver = null;
             forward = steering = 0f;
             ApplyWheelForces(0f, ParkingBrakeTorque);
+            RefreshExteriorLights();
         }
 
         private void ApplyWheelForces(float drive, float brake)
@@ -456,6 +576,7 @@ namespace Aaris.MapReview
             if (speed > topSpeed + .6f || speed < -8f)
                 brake = Mathf.Max(brake, 1100f);
             ApplyWheelForces(drive, brake);
+            RefreshExteriorLights();
             // Gradually reduce steering angle at speed so 100km/h inputs
             // cannot instantaneously rotate a multi-ton vehicle by 70°/s.
             // A sideways skid can have near-zero forward speed even at
@@ -614,6 +735,8 @@ namespace Aaris.MapReview
         {
             forward = steering = 0f;
             ApplyWheelForces(0f, ParkingBrakeTorque);
+            lastLampState = -1;
+            RefreshExteriorLights();
         }
     }
 }

@@ -99,6 +99,11 @@ namespace Aaris.MapReview
         private int validModels;
         private Material paletteMaterial;
         private Material wheelPaletteMaterial;
+        // Scene-shared lamp materials. At most ten streamed cars use these
+        // exact instances; never allocate one material for every vehicle.
+        private Material headlampGlassMaterial, headlampOnMaterial;
+        private Material taillampGlassMaterial, brakeLampMaterial;
+        private Material reverseLampMaterial;
         // Convert each imported source material once, then share it across all
         // streamed instances. This preserves PBR texture subassets without
         // per-car material duplication on low-memory Android devices.
@@ -339,6 +344,17 @@ namespace Aaris.MapReview
             wheelPaletteMaterial.SetFloat("_Smoothness", .18f);
             wheelPaletteMaterial.enableInstancing = true;
 
+            headlampGlassMaterial = CreateLampMaterial(shader, "Headlamp Glass",
+                new Color(.53f, .63f, .70f), Color.black);
+            headlampOnMaterial = CreateLampMaterial(shader, "Active Headlights",
+                new Color(1f, .94f, .75f), new Color(1.8f, 1.65f, 1.25f));
+            taillampGlassMaterial = CreateLampMaterial(shader, "Rear Red Lenses",
+                new Color(.42f, .028f, .024f), Color.black);
+            brakeLampMaterial = CreateLampMaterial(shader, "Active Brake Lamps",
+                new Color(1f, .065f, .045f), new Color(2.2f, .06f, .025f));
+            reverseLampMaterial = CreateLampMaterial(shader, "Reverse Lamps",
+                new Color(.90f, .97f, 1f), new Color(1.7f, 1.85f, 2f));
+
             // Stable per-match plan. A multiplayer server can later provide
             // this seed to clients; local standalone has no server authority.
             randomState = unchecked((uint)DateTime.UtcNow.Ticks) ^
@@ -375,6 +391,24 @@ namespace Aaris.MapReview
                 " hubs=45 authoredCandidates=" + file.candidates.Length +
                 " sectorCoverage=" + sectors.Count + " (physics validated when nearby)");
             return plans.Count >= 18;
+        }
+
+        // URP Lit is already validated at scene startup. Keeping the emission
+        // keyword on these shared materials avoids unique per-car GPU copies.
+        private static Material CreateLampMaterial(Shader shader, string label,
+            Color baseColour, Color emission)
+        {
+            var lamp = new Material(shader)
+            {
+                name = "Aaris Vehicle " + label,
+                enableInstancing = true
+            };
+            lamp.SetColor("_BaseColor", baseColour);
+            lamp.SetFloat("_Metallic", .05f);
+            lamp.SetFloat("_Smoothness", .86f);
+            lamp.SetColor("_EmissionColor", emission);
+            lamp.EnableKeyword("_EMISSION");
+            return lamp;
         }
 
         private static Transform FindNamedWheel(Transform root, string token)
@@ -1040,6 +1074,14 @@ namespace Aaris.MapReview
                 Destroy(root);
                 return false;
             }
+            // Do this only after the body was reoriented, scaled, and the
+            // authored wheel set passed inspection. Lamp placement is in the
+            // same fitted local chassis space as the physical wheelbase.
+            motor.ConfigureExteriorLights(
+                new Bounds(new Vector3(0f, .48f, 0f), bounds.size),
+                headlampGlassMaterial, headlampOnMaterial,
+                taillampGlassMaterial, brakeLampMaterial,
+                reverseLampMaterial);
             record.visible = motor;
             if (Debug.isDebugBuild)
                 Debug.Log("AARIS_CAR_PLACED " + record.point.id + " " +
@@ -1187,6 +1229,11 @@ namespace Aaris.MapReview
         {
             if (paletteMaterial != null) Destroy(paletteMaterial);
             if (wheelPaletteMaterial != null) Destroy(wheelPaletteMaterial);
+            if (headlampGlassMaterial != null) Destroy(headlampGlassMaterial);
+            if (headlampOnMaterial != null) Destroy(headlampOnMaterial);
+            if (taillampGlassMaterial != null) Destroy(taillampGlassMaterial);
+            if (brakeLampMaterial != null) Destroy(brakeLampMaterial);
+            if (reverseLampMaterial != null) Destroy(reverseLampMaterial);
             // These runtime URP conversions are shared among streamed car
             // instances, not imported asset materials. Release exactly the
             // converted copies on scene teardown to avoid native GPU leaks.
