@@ -62,5 +62,26 @@ class VehicleSessionSuspension(unittest.TestCase):
                         self.assertTrue(can_dispatch)
 
 
+    def test_disabled_hud_cannot_leave_drive_ui_interactive(self):
+        click = HUD.split("button.onClick.AddListener(() =>", 1)[1].split("});", 1)[0]
+        self.assertIn("if (isActiveAndEnabled && session != null)", click)
+        arrow = HUD.split("public void ArrowState(int dir, bool on)", 1)[1].split(
+            "private void ApplyInput()", 1)[0]
+        self.assertIn("(on && !isActiveAndEnabled)", arrow)
+        # A release must still be accepted while shutting down the HUD.
+        self.assertIn("pressed[dir] = on;", arrow)
+        disabled = HUD.rsplit("private void OnDisable()", 1)[1]
+        required = (
+            "ClearArrows();",
+            "if (arrowPanel != null) arrowPanel.SetActive(false);",
+            "if (driveButton != null) driveButton.SetActive(false);",
+            "if (speedPanel != null) speedPanel.SetActive(false);",
+        )
+        for guard in required:
+            self.assertIn(guard, disabled)
+        self.assertEqual([disabled.index(v) for v in required],
+                         sorted(disabled.index(v) for v in required))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

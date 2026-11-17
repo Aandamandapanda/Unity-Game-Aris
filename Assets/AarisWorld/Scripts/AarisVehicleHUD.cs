@@ -218,7 +218,7 @@ namespace Aaris.MapReview
             button.targetGraphic = bg;
             button.onClick.AddListener(() =>
             {
-                if (session != null)
+                if (isActiveAndEnabled && session != null)
                 {
                     ClearArrows();
                     session.TryEnterOrExit();
@@ -318,7 +318,8 @@ namespace Aaris.MapReview
 
         public void ArrowState(int dir, bool on)
         {
-            if (dir < 0 || dir >= pressed.Length) return;
+            if (dir < 0 || dir >= pressed.Length ||
+                (on && !isActiveAndEnabled)) return;
             pressed[dir] = on;
             ApplyInput();
         }
@@ -447,7 +448,12 @@ namespace Aaris.MapReview
         }
         private void OnDisable()
         {
+            // Disabling only this MonoBehaviour leaves child UI objects active.
+            // Release held input, then remove every interactive control until
+            // LateUpdate can restore valid controls after re-enabling.
             ClearArrows();
+            if (arrowPanel != null) arrowPanel.SetActive(false);
+            if (driveButton != null) driveButton.SetActive(false);
             if (speedPanel != null) speedPanel.SetActive(false);
         }
     }
