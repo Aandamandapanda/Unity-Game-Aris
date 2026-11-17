@@ -185,6 +185,16 @@ namespace Aaris.MapReview
             return false;
         }
 
+        // Imported FBX wheel transforms may have valid bounds while their
+        // renderer is disabled, forced off, inactive, or missing real geometry.
+        // Validate only once at car creation; never query art per physics frame.
+        internal static bool HasRenderableWheelGeometry(Transform wheelRoot)
+        {
+            return wheelRoot != null && wheelRoot.gameObject.activeInHierarchy &&
+                HasRenderableVehicleBody(
+                    wheelRoot.GetComponentsInChildren<Renderer>(true));
+        }
+
         internal static bool TryGetVisualBoundsLocal(Transform localSpace, out Bounds combined)
         {
             return TryGetVisualBoundsLocal(localSpace, localSpace, out combined);

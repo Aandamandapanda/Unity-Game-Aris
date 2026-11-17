@@ -38,6 +38,28 @@ class VehicleVisibleBodyGuard(unittest.TestCase):
             self.assertIn(requirement, lookup)
         self.assertIn("!terrain.isActiveAndEnabled", W)
 
+    def test_wheel_geometry_guard_reuses_renderable_mesh_validation(self):
+        helper = W.split("internal static bool HasRenderableWheelGeometry(", 1)[1].split(
+            "internal static bool TryGetVisualBoundsLocal(", 1)[0]
+        self.assertIn("wheelRoot.gameObject.activeInHierarchy", helper)
+        self.assertIn("HasRenderableVehicleBody(", helper)
+        self.assertIn("GetComponentsInChildren<Renderer>(true)", helper)
+
+    def test_embedded_and_separate_wheels_require_visible_geometry(self):
+        motor = (Path(__file__).resolve().parents[2] /
+                 "Assets/AarisWorld/Scripts/AarisVehicleMotor.cs").read_text("utf-8")
+        separate = motor.split("public bool AttachWheelModels(", 1)[1].split(
+            "public bool AttachEmbeddedWheelModels(", 1)[0]
+        embedded = motor.split("public bool AttachEmbeddedWheelModels(", 1)[1].split(
+            "private static Renderer CreateLampLens(", 1)[0]
+        self.assertIn("HasRenderableWheelGeometry(instance.transform)", separate)
+        self.assertIn("HasRenderableWheelGeometry(found[i])", embedded)
+        self.assertLess(separate.index("HasRenderableWheelGeometry("),
+                        separate.index("visualWheels[i] = instance.transform;"))
+        self.assertLess(embedded.index("HasRenderableWheelGeometry("),
+                        embedded.index("wheelVisual.SetParent(transform, true);"))
+
+
 
 if __name__ == "__main__":
     unittest.main()

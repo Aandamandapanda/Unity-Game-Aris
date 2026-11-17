@@ -336,8 +336,10 @@ namespace Aaris.MapReview
                 foreach (var obstacle in instance.GetComponentsInChildren<Collider>(true))
                     obstacle.enabled = false;
                 var renderers = instance.GetComponentsInChildren<Renderer>(true);
-                if (renderers.Length == 0)
+                if (renderers.Length == 0 ||
+                    !AarisVehicleWorld.HasRenderableWheelGeometry(instance.transform))
                 {
+                    // A Renderer component alone does not make this tyre visible.
                     Destroy(instance);
                     return false;
                 }
@@ -399,6 +401,7 @@ namespace Aaris.MapReview
             for (int i = 0; i < found.Length; i++)
             {
                 if (found[i] == null || wheels[i] == null ||
+                    !AarisVehicleWorld.HasRenderableWheelGeometry(found[i]) ||
                     !AarisVehicleWorld.TryGetVisualBoundsLocal(
                         transform, found[i], out bounds[i])) return false;
                 Vector3 size = bounds[i].size;
