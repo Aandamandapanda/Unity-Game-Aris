@@ -24,6 +24,20 @@ class OceanShoreRecoveryTests(unittest.TestCase):
         self.assertIn("Land();", recovery)
         self.assertIn("AARIS_DROP_OCEAN_RECOVERY_NEAR_SHORE", recovery)
 
+    def test_ocean_rescue_faces_walkable_shore_and_hands_off_camera_yaw(self):
+        recovery = self.recovery
+        for token in (
+            "Vector3 inland = shore - waterPosition;",
+            "inland.y = 0f;",
+            "if (inland.sqrMagnitude > 1f)",
+            "Quaternion.LookRotation(inland, Vector3.up)",
+            "yaw = inlandFacing.eulerAngles.y;",
+            "transform.SetPositionAndRotation(preFlightGroundPosition, cachedPlayerRotation);",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, recovery)
+        self.assertIn("footMotor.PrepareAerialCameraHandoff(yaw, -pitch);", self.source)
+
     def test_shore_search_is_bounded_and_only_during_recovery(self):
         self.assertEqual(self.source.count("TryFindNearbyShore(waterPosition, out Vector3 shore)"), 1)
         self.assertIn("float[] radii = { 0f, 8f, 16f, 32f, 64f, 96f, 144f, 192f };",

@@ -574,7 +574,21 @@ namespace Aaris.MapReview
             capsule.enabled = false;
             bool hasNearbyShore = TryFindNearbyShore(waterPosition, out Vector3 shore);
             if (hasNearbyShore)
-                transform.SetPositionAndRotation(shore, cachedPlayerRotation);
+            {
+                // Recovery should face toward walkable shore, not back out to
+                // sea: forward input and the first grounded camera then agree.
+                Vector3 inland = shore - waterPosition;
+                inland.y = 0f;
+                if (inland.sqrMagnitude > 1f)
+                {
+                    Quaternion inlandFacing = Quaternion.LookRotation(inland, Vector3.up);
+                    transform.SetPositionAndRotation(shore, inlandFacing);
+                    // RestoreFootControls hands aerial yaw to the ground camera.
+                    yaw = inlandFacing.eulerAngles.y;
+                }
+                else
+                    transform.SetPositionAndRotation(shore, cachedPlayerRotation);
+            }
             else
                 transform.SetPositionAndRotation(preFlightGroundPosition, cachedPlayerRotation);
             capsule.enabled = true;
