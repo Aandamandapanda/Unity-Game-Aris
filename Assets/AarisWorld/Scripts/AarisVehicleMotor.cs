@@ -646,9 +646,9 @@ namespace Aaris.MapReview
             previousPhysicsVelocity = velocity;
             bool driving = driver != null && driver.isActiveAndEnabled &&
                 isActiveAndEnabled;
-            int grounded = 0;
-            for (int i = 0; i < wheels.Length; i++)
-                if (wheels[i] != null && wheels[i].isGrounded) grounded++;
+            // Reuse all four WheelHit samples already gathered by the two
+            // axle anti-roll calls. No duplicate isGrounded lookups per tick.
+            int grounded = groundedWheelCount;
             // Airborne, overturned, parked and disabled cars must not lean
             // sideways because of gravity, collisions or stale input.
             if (!driving || grounded < 2 ||
@@ -711,13 +711,21 @@ namespace Aaris.MapReview
                     bool sedan = label.IndexOf("AarisCivilianSurface",
                         StringComparison.OrdinalIgnoreCase) >= 0;
                     if (!separate && !atlas && !sedan) continue;
-                    var tint = atlas ? Color.Lerp(Color.white, carPaint, .30f)
+                    Color paintFactor = atlas ? Color.Lerp(Color.white, carPaint, .30f)
                         : sedan ? Color.Lerp(Color.white, carPaint, .45f)
                         : carPaint;
+                    // The world already multiplied this imported paint's
+                    // original PBR base tint. Wear must start from EXACTLY
+                    // that colour, not replace it with a raw palette swatch.
+                    Color original = material.GetColor("_BaseColor");
+                    Color fresh = new Color(
+                        original.r * paintFactor.r,
+                        original.g * paintFactor.g,
+                        original.b * paintFactor.b, original.a);
                     bodyPaintSlots.Add(new BodyPaintSlot
                     {
                         renderer = renderer, index = slot,
-                        fresh = tint, atlas = atlas
+                        fresh = fresh, atlas = atlas
                     });
                 }
             }
@@ -1176,7 +1184,12 @@ namespace Aaris.MapReview
             // simply because it passed 6 m/s. Contact counts are reused
             // from the four already-sampled WheelHits, no new physics probes.
             if (planarSpeed > 6f && groundedWheelCount >= 2)
-                body.AddForce(-transform.up * Mathf.Min(18000f, 20f * planarSpeed * planarSpeed),
+                // Realistic road-car aero: the old force reached >1g on
+                // light hatchbacks at motorway speed. Bound added contact
+                // load to 0.36g across every catalog mass without altering
+                // Rigidbody velocity or introducing another raycast.
+                body.AddForce(-transform.up * (body.mass *
+                    Mathf.Min(3.5f, .007f * planarSpeed * planarSpeed)),
                     ForceMode.Force);
 
             // Diagnostic telemetry is development-build only and bounded to

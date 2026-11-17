@@ -127,6 +127,48 @@ class AutomotiveRefinement(unittest.TestCase):
         self.assertNotIn("new Material(", body)
         self.assertNotIn("renderer.material", body)
 
+    def test_body_wear_retains_original_pbr_paint_at_zero_damage(self):
+        wear = MOTOR.split("public void ConfigureBodyWear(", 1)[1].split(
+            "public void ConfigureRearTyreTraces(", 1)[0]
+        world = WORLD.split("private static void PaintVerifiedBodySlots(", 1)[1].split(
+            "private void FallBackToVerifiedModel(", 1)[0]
+        for source in (wear, world):
+            self.assertIn('material.GetColor("_BaseColor")', source)
+            for term in ("original.r * paintFactor.r",
+                         "original.g * paintFactor.g",
+                         "original.b * paintFactor.b", "original.a"):
+                self.assertIn(term, source)
+        self.assertIn("fresh = fresh, atlas = atlas", wear)
+        self.assertNotIn("fresh = tint", wear)
+        self.assertIn("entry.renderer.GetPropertyBlock(bodyPaintBlock, entry.index)", wear)
+        self.assertIn('bodyPaintBlock.SetColor("_BaseColor", worn)', wear)
+        # The zero-damage wear pass must produce the spawn tint exactly.
+        for base in ((.12, .24, .45, .5), (.70, .64, .60, 1)):
+            for paint in ((.4, .8, .3), (.95, .2, .1)):
+                for coverage in (.3, .45, 1):
+                    tint = [1 - coverage + coverage * c for c in paint]
+                    fresh = [base[i] * tint[i] for i in range(3)] + [base[3]]
+                    self.assertNotAlmostEqual(fresh[0], tint[0])
+                    self.assertEqual(fresh[3], base[3])
+        self.assertNotIn("new Material(", wear)
+
+    def test_grounded_aero_load_is_mass_bounded_without_duplicate_queries(self):
+        step = MOTOR.split("private void FixedUpdate()", 1)[1].split(
+            "private void ApplyAckermannSteering(", 1)[0]
+        dynamics = MOTOR.split("private void SampleBodyDynamics()", 1)[1].split(
+            "private void UpdateVisualBodyDynamics()", 1)[0]
+        self.assertIn("if (planarSpeed > 6f && groundedWheelCount >= 2)", step)
+        self.assertIn("body.mass *", step)
+        self.assertIn("Mathf.Min(3.5f, .007f * planarSpeed * planarSpeed)", step)
+        self.assertIn("int grounded = groundedWheelCount;", dynamics)
+        self.assertNotIn(".isGrounded", dynamics)
+        self.assertNotIn("Physics.Raycast(", step)
+        for mass in (850, 1040, 1250, 1650, 2050, 2300):
+            for speed in (0, 6, 10, 20, 25, 28):
+                force = mass * min(3.5, .007 * speed * speed)
+                self.assertLessEqual(force / mass, 3.5)
+                self.assertGreaterEqual(force, 0)
+
     def test_camera_uses_velocity_but_keeps_wall_sweep(self):
         camera = SESSION.split("private void FollowCarCamera()", 1)[1].split(
             "private void ClearHeldDrivingInput()", 1)[0]

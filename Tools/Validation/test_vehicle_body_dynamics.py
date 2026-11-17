@@ -49,13 +49,14 @@ class VehicleBodyDynamics(unittest.TestCase):
             "Mathf.Max(.005f, Time.fixedDeltaTime)",
             "previousPhysicsVelocity = velocity;",
             "driver != null && driver.isActiveAndEnabled",
-            "wheels[i].isGrounded",
+            "int grounded = groundedWheelCount;",
             "grounded < 2",
             "Vector3.Dot(transform.up, Vector3.up) < .45f",
             "transform.InverseTransformDirection(acceleration)",
             "float.IsNaN(local.x)", "float.IsInfinity(local.x)",
             "float.IsNaN(local.y)", "float.IsInfinity(local.z)"):
             self.assertIn(token, sample)
+        self.assertNotIn("wheels[i].isGrounded", sample)
         self.assertIn("visualPitchTarget = Mathf.Clamp(-local.z * .18f, -1.8f, 1.8f);", sample)
         self.assertIn("visualRollTarget = Mathf.Clamp(local.x * .18f, -1.8f, 1.8f);", sample)
         self.assertIn("visualJounceTarget = Mathf.Clamp(-local.y * .0025f, -.022f, .022f);", sample)
