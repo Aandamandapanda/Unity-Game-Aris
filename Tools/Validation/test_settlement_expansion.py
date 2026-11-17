@@ -86,7 +86,7 @@ class ExpansionIntegrity(unittest.TestCase):
         self.assertIn("if (examinedThisFrame >= attemptsPerFrame)", routine)
         self.assertLess(routine.index("if (mobile) yield return null;"),
                         routine.index("foreach (var site in plan.sites)"))
-        self.assertRegex(routine, r"finally\\s*\\{[\\s\\S]*?treeCache\\.Clear\\(\\);")
+        self.assertRegex(routine, r"finally\s*\{[\s\S]*?treeCache\.Clear\(\);")
         self.assertEqual(routine.count("if (mobile) yield return null;"), 2)
         self.assertIn("foreach (Terrain t in terrains)", routine)
         self.assertIn("treeCache[t] = t.terrainData.treeInstances;", routine)
