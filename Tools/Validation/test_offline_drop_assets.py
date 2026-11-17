@@ -143,7 +143,7 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         # When every first-attempt site is a blocked house or steep cliff,
         # the match continues to search, rather than permanently claiming
         the_match_is_over = "spawnComplete = true;"
-        self.assertIn("if (spawnedRivals == 0 ||", br)
+        self.assertIn("if (spawnedRivals < RivalCount &&", br)
         self.assertIn("spawnPasses < MaximumSpawnPasses", br)
         self.assertIn("private const int MaximumSpawnPasses = 4;", br)
         self.assertIn("private readonly bool[] populatedSlots = new bool[RivalCount];", br)
@@ -181,6 +181,26 @@ class OfflineCombatAssetChecks(unittest.TestCase):
             sim_distance = sum(2.85 * min(1.0 / fps, .12)
                                for _ in range(fps * seconds))
             self.assertAlmostEqual(sim_distance, 2.85 * seconds, places=5)
+
+    def test_zero_rival_spawn_retry_is_bounded_and_recoverable(self):
+        br = (SCRIPTS / "AarisOfflineBRDirector.cs").read_text("utf-8")
+        end = (SCRIPTS / "AarisOfflineMatchEnd.cs").read_text("utf-8")
+        self.assertIn("spawnPasses < MaximumSpawnPasses)", br)
+        self.assertIn("if (spawnedRivals == 0)", br)
+        self.assertIn("matchEnd.FailMatchSetup();", br)
+        self.assertIn("else if (activeRivals == 0)", br)
+        self.assertNotIn("if (spawnedRivals == 0 ||", br)
+        self.assertIn("public void FailMatchSetup()", end)
+        self.assertIn('FinishMatch(false, "MATCH UNAVAILABLE");', end)
+        self.assertIn('titleOverride ?? (winner ? "VICTORY" : "DEFEATED")', end)
+        # Model zero-spawn, partial-spawn and full-spawn exit gates.
+        for spawned in (0, 1, 3, 6):
+            passes = 1
+            while spawned < 6 and passes < 4:
+                passes += 1
+            self.assertLessEqual(passes, 4)
+            if spawned == 0:
+                self.assertEqual(passes, 4)
 
     def test_offline_br_is_a_bounded_real_match_not_an_empty_map(self):
         br = (SCRIPTS / "AarisOfflineBRDirector.cs").read_text("utf-8")

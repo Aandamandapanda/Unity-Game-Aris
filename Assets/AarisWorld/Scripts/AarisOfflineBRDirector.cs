@@ -146,8 +146,8 @@ namespace Aaris.MapReview
                 nextSpawn = Time.time + 0.5f;
                 if (attemptedSlots >= RivalCount)
                 {
-                    if (spawnedRivals == 0 || 
-                        (spawnedRivals < RivalCount && spawnPasses < MaximumSpawnPasses))
+                    if (spawnedRivals < RivalCount &&
+                        spawnPasses < MaximumSpawnPasses)
                     {
                         // Retry each still-empty slot from the player's CURRENT
                         // position, with a cooldown between waves. A dense
@@ -160,7 +160,12 @@ namespace Aaris.MapReview
                     else
                     {
                         spawnComplete = true;
-                        if (activeRivals == 0) matchEnd.WinMatch();
+                        // A blocked/missing spawn map must not loop forever or
+                        // report a fake solo victory. Offer a clean restart.
+                        if (spawnedRivals == 0)
+                            matchEnd.FailMatchSetup();
+                        else if (activeRivals == 0)
+                            matchEnd.WinMatch();
                     }
                 }
             }

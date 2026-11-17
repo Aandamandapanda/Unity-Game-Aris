@@ -31,10 +31,17 @@ namespace Aaris.MapReview
             FinishMatch(true);
         }
 
-        private void FinishMatch(bool winner)
+        public void FailMatchSetup()
         {
             if (pausedForDefeat) return;
-            CreateResultScreen(winner);
+            Debug.LogWarning("Aaris BR: no valid rival spawn after all bounded passes.");
+            FinishMatch(false, "MATCH UNAVAILABLE");
+        }
+
+        private void FinishMatch(bool winner, string titleOverride = null)
+        {
+            if (pausedForDefeat) return;
+            CreateResultScreen(winner, titleOverride);
             previousTimeScale = Time.timeScale;
             previousAudioPause = AudioListener.pause;
             Time.timeScale = 0f;
@@ -59,7 +66,7 @@ namespace Aaris.MapReview
             if (behaviour != null) behaviour.enabled = false;
         }
 
-        private void CreateResultScreen(bool winner)
+        private void CreateResultScreen(bool winner, string titleOverride)
         {
             var overlay = new GameObject(winner ? "Victory Screen" : "Defeat Screen", typeof(RectTransform),
                 typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
@@ -78,8 +85,10 @@ namespace Aaris.MapReview
             Fill(shade.GetComponent<RectTransform>());
             shade.GetComponent<Image>().color = new Color(.04f, .06f, .08f, .92f);
 
-            var title = MakeText(shade.transform, winner ? "VICTORY" : "DEFEATED", 42);
-            title.rectTransform.sizeDelta = new Vector2(400f, 70f);
+            var title = MakeText(shade.transform,
+                titleOverride ?? (winner ? "VICTORY" : "DEFEATED"), 42);
+            title.rectTransform.sizeDelta = new Vector2(
+                titleOverride == null ? 400f : 670f, 70f);
             title.rectTransform.anchoredPosition = new Vector2(0f, 36f);
 
             var action = new GameObject("Play Again", typeof(RectTransform), typeof(Image), typeof(Button));
