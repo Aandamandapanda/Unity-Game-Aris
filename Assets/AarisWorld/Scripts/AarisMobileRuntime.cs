@@ -18,9 +18,9 @@ namespace Aaris.MapReview
         [SerializeField] private Terrain[] terrains;
         [SerializeField] private bool releaseTerrainPaintCpuCopies = false;
         [SerializeField] private int targetFrameRate = 60;
-        [Header("Android runtime performance (native render resolution locked)")]
+        [Header("Android runtime performance (adaptive internal render scale)")]
         [SerializeField] private bool adaptiveAndroidResolution = true;
-        [SerializeField, Range(0.65f, 1f)] private float minimumAndroidRenderScale = 0.72f;
+        [SerializeField, Range(0.65f, 1f)] private float minimumAndroidRenderScale = 0.84f;
         private readonly float[] frameTimes = new float[180];
         private readonly float[] sortedTimes = new float[180];
         private int frameIndex, frameCount;
@@ -40,10 +40,7 @@ namespace Aaris.MapReview
         private float startupTime;
         private int startupSampleIndex;
         private Task<string> pendingLogWrite;
-        // Product policy: preserve the authored URP render target resolution.
-        // Keep the legacy adaptive governor compiled for diagnostics/future opt-in,
-        // but never trade image sharpness for FPS in the current battle-royale build.
-        private const bool PreserveNativeRenderScale = true;
+        // Begin at native sharpness and adapt only after sustained FPS misses.
         private UniversalRenderPipelineAsset androidPipeline;
         private float originalRenderScale = 1f;
         private float lastAppliedRenderScale = 1f;
@@ -203,28 +200,16 @@ namespace Aaris.MapReview
             // Enable the constrained-GPU path without blurring stronger GPUs.
             int memoryMB = SystemInfo.systemMemorySize;
             bool constrainedGraphics = memoryMB <= 2304 || IsBudgetAndroidGpu();
-            if (memoryMB <= 0 || (memoryMB > 3072 && !constrainedGraphics)) return;
+            if (memoryMB <= 0) return;
             androidPipeline = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
             if (androidPipeline == null) return;
             originalRenderScale = androidPipeline.renderScale;
             lastAppliedRenderScale = originalRenderScale;
             lastTargetFps = Application.targetFrameRate;
             lastEffectiveTargetFps = EffectiveAndroidTargetFps(lastTargetFps);
-            // Keep the older display-aware scaler available for a future,
-            // explicitly reviewed opt-in. The current game preserves native
-            // render resolution; GPU relief comes from less visible work below.
-            if (!PreserveNativeRenderScale && adaptiveAndroidResolution)
-            {
-                bool compactDisplay = Screen.width > 0 && Screen.height > 0 &&
-                    (long)Screen.width * Screen.height <= 1280L * 720L;
-                float initialScale = constrainedGraphics
-                    ? (compactDisplay ? 0.92f : 0.85f)
-                    : (compactDisplay ? 0.96f : 0.92f);
-                initialScale = Mathf.Max(initialScale,
-                    Mathf.Clamp(minimumAndroidRenderScale, 0.65f, 1f));
-                androidPipeline.renderScale = Mathf.Min(originalRenderScale, initialScale);
-                lastAppliedRenderScale = androidPipeline.renderScale;
-            }
+            // Only budget phones need extra foliage/shadow restrictions.
+            // All Android phones can use the sustained-frame GPU governor.
+            if (memoryMB > 3072 && !constrainedGraphics) return;
             // Mipmap streaming was already enabled by the saved QualitySettings.
             // Bound its texture residency on low-RAM phones without modifying
             // the four native TerrainData control textures or their readability.
@@ -422,14 +407,6 @@ namespace Aaris.MapReview
         private void TuneAndroidResolution(Sample sample)
         {
             if (androidPipeline == null || !adaptiveAndroidResolution) return;
-            if (PreserveNativeRenderScale)
-            {
-                // Still report the real scale, but never blur a sustained GPU
-                // miss. Shadow/foliage/instancing controls carry the low-end load.
-                sample.renderScale = androidPipeline.renderScale;
-                slowIntervals = steadyIntervals = 0;
-                return;
-            }
             int targetFps = Application.targetFrameRate;
             if (targetFps <= 0) return;
             float effectiveFps = EffectiveAndroidTargetFps(targetFps);
@@ -468,20 +445,29 @@ namespace Aaris.MapReview
 
             float current = androidPipeline.renderScale;
             float floor = Mathf.Min(originalRenderScale,
-                Mathf.Clamp(minimumAndroidRenderScale, 0.65f, 1f));
+                Mathf.Max(0.82f, Mathf.Clamp(minimumAndroidRenderScale, 0.65f, 1f)));
             if (slowIntervals >= 2)
             {
-                // If actual Unity timings prove CPU work dominates, reducing
-                // URP resolution cannot repair it and only damages clarity.
-                // Unsupported GPU timers retain the old, conservative governor.
-                bool measuredCpuBound = sample.gpuTimingSamples >= 4 &&
+                bool reliableTimings = sample.gpuTimingSamples >= 4;
+                bool measuredCpuBound = reliableTimings &&
                     sample.cpuLimitedSamples >= 3 &&
                     sample.cpuLimitedSamples >= sample.gpuLimitedSamples * 2;
-                if (measuredCpuBound)
+                bool measuredGpuBound = reliableTimings &&
+                    sample.gpuLimitedSamples >= 3 &&
+                    sample.gpuLimitedSamples >= sample.cpuLimitedSamples * 2;
+                // CPU-bound or mixed workloads should not lose clarity.
+                if (measuredCpuBound || (reliableTimings && !measuredGpuBound))
                 {
                     slowIntervals = 0;
                     sample.renderScale = androidPipeline.renderScale;
                     return;
+                }
+                if (!reliableTimings)
+                {
+                    // No GPU timer: only a small fallback reduction after
+                    // three slow windows, to preserve legibility and detail.
+                    if (slowIntervals < 3) return;
+                    floor = Mathf.Max(floor, originalRenderScale * 0.92f);
                 }
                 float reduced = Mathf.Max(floor, current - 0.05f);
                 if (reduced < current - 0.001f)

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -39,6 +40,29 @@ namespace Aaris.MapReview
             return m;
         }
 
+        // Reuse the existing baked limestone PBR maps already loaded by facade
+        // trims. No extra runtime texture generation, material clones or shaders.
+        private static void ApplySharedMasonryMaps(Material material)
+        {
+            Texture2D albedo = Resources.Load<Texture2D>(
+                "AarisBuildings/ArchitecturalLimestone");
+            if (albedo != null && material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture("_BaseMap", albedo);
+                // Preserve visible grain across long straight facade walls.
+                material.SetTextureScale("_BaseMap", new Vector2(2.5f, 1.5f));
+            }
+            Texture2D normal = Resources.Load<Texture2D>(
+                "AarisBuildings/ArchitecturalLimestoneNormal");
+            if (normal != null && material.HasProperty("_BumpMap"))
+            {
+                material.SetTexture("_BumpMap", normal);
+                material.SetTextureScale("_BumpMap", new Vector2(2.5f, 1.5f));
+                material.SetFloat("_BumpScale", .42f);
+                material.EnableKeyword("_NORMALMAP");
+            }
+        }
+
         private static bool Prepare(bool includePanels)
         {
             if (wall != null && roof != null && trim != null &&
@@ -47,7 +71,11 @@ namespace Aaris.MapReview
             var shader = Shader.Find("Universal Render Pipeline/Lit");
             if (shader == null) return false;
             if (wall == null)
-                wall = Make(shader, "Aaris Warm Stucco", new Color(.74f, .70f, .62f), .16f);
+            {
+                wall = Make(shader, "Aaris Baked Limestone Stucco",
+                    new Color(.85f, .82f, .77f), .16f);
+                ApplySharedMasonryMaps(wall);
+            }
             if (roof == null)
                 roof = Make(shader, "Aaris Slate Roof", new Color(.28f, .32f, .36f), .23f);
             if (trim == null)
@@ -187,6 +215,97 @@ namespace Aaris.MapReview
             Window(root,0f,z,"Rear",includePanels);
         }
 
+        // A pitched silhouette and eaves break the flat box look without
+        // transparent surfaces, expensive shaders or extra roof colliders.
+        private static void PitchedRoof(Transform root, float width,
+            float depth, float wallHeight)
+        {
+            float x = width * .5f + .32f, z = depth * .5f + .34f;
+            float baseY = wallHeight + .11f;
+            float peakY = baseY + Mathf.Clamp(width * .12f, .75f, 1.35f);
+            Vector3[] vertices = {
+                new Vector3(-x,baseY,-z), new Vector3(0f,peakY,-z),
+                new Vector3(x,baseY,-z), new Vector3(-x,baseY,z),
+                new Vector3(0f,peakY,z), new Vector3(x,baseY,z)
+            };
+            Mesh mesh = new Mesh { name = "Aaris_PitchedRoof" };
+            mesh.vertices = vertices;
+            mesh.triangles = new[] {
+                0,3,1, 1,3,4, 1,4,2, 2,4,5, 0,1,2, 3,5,4
+            };
+            mesh.uv = new[] {
+                new Vector2(0,0), new Vector2(.5f,1f),
+                new Vector2(1f,0), new Vector2(0,depth/4f),
+                new Vector2(.5f,1f+depth/4f), new Vector2(1f,depth/4f)
+            };
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            GameObject roofObject = new GameObject("GabledPitchedRoof");
+            roofObject.transform.SetParent(root, false);
+            roofObject.AddComponent<MeshFilter>().sharedMesh = mesh;
+            roofObject.AddComponent<MeshRenderer>().sharedMaterial = roof;
+        }
+
+        // The static walls, roof and trim share a handful of materials.
+        // Merge by material once at spawning time, while keeping every
+        // original BoxCollider and interactive door/glass renderer intact.
+        // Replaces dozens of renderer submissions with a few per house.
+        private static void CombineStaticSurfaces(Transform root)
+        {
+            var groups = new Dictionary<Material, List<CombineInstance>>();
+            var originals = new List<MeshRenderer>(48);
+            Matrix4x4 toRoot = root.worldToLocalMatrix;
+            foreach (MeshFilter filter in root.GetComponentsInChildren<MeshFilter>(true))
+            {
+                MeshRenderer renderer = filter.GetComponent<MeshRenderer>();
+                Mesh source = filter.sharedMesh;
+                if (renderer == null || !renderer.enabled || source == null ||
+                    !source.isReadable ||
+                    filter.GetComponentInParent<AarisBreakablePanel>() != null)
+                    continue;
+                Material[] materials = renderer.sharedMaterials;
+                if (materials.Length != 1 || materials[0] == null ||
+                    source.subMeshCount != 1)
+                    continue;
+                Material material = materials[0];
+                if (!groups.TryGetValue(material, out List<CombineInstance> group))
+                {
+                    group = new List<CombineInstance>(24);
+                    groups.Add(material, group);
+                }
+                group.Add(new CombineInstance {
+                    mesh = source, subMeshIndex = 0,
+                    transform = toRoot * filter.transform.localToWorldMatrix
+                });
+                originals.Add(renderer);
+            }
+            if (groups.Count == 0) return;
+            // Built-in mobile GPUs may not support 32-bit mesh indices.
+            // These houses have small meshes; keep combined geometry on 16-bit
+            // indices and decline batching if an asset ever exceeds that cap.
+            foreach (var pair in groups)
+            {
+                long vertices = 0;
+                foreach (CombineInstance part in pair.Value)
+                    vertices += part.mesh.vertexCount;
+                if (vertices > 65534) return;
+            }
+            foreach (var pair in groups)
+            {
+                Mesh combined = new Mesh { name = "Aaris_StaticHouse_" + pair.Key.name };
+                combined.indexFormat = IndexFormat.UInt16;
+                combined.CombineMeshes(pair.Value.ToArray(), true, true, false);
+                combined.RecalculateBounds();
+                GameObject section = new GameObject("Batched_" + pair.Key.name);
+                section.transform.SetParent(root, false);
+                section.AddComponent<MeshFilter>().sharedMesh = combined;
+                section.AddComponent<MeshRenderer>().sharedMaterial = pair.Key;
+                // Only the GPU needs these static vertices after merging.
+                combined.UploadMeshData(true);
+            }
+            foreach (MeshRenderer original in originals) original.enabled = false;
+        }
+
         public static GameObject Create(Vector3 position,Quaternion rotation,
             float width,float depth,float height,Transform parent,Transform player,
             GameObject originalPrefab,bool includePanels = false)
@@ -214,8 +333,13 @@ namespace Aaris.MapReview
                 float h=height-.48f;
                 Box(t,"FloorWithRealCollider",new Vector3(0f,-.075f,0f),
                     new Vector3(width-.18f,.15f,depth-.18f),roof);
-                Box(t,"FlatRoofWithRealCollider",new Vector3(0f,h+.24f,0f),
-                    new Vector3(width+.4f,.48f,depth+.4f),roof);
+                GameObject roofCollision = Box(t,"FlatRoofWithRealCollider",
+                    new Vector3(0f,h+.04f,0f),
+                    new Vector3(width+.4f,.12f,depth+.4f),roof);
+                // Retain the original safe collision plane but render a
+                // more realistic pitched roof instead of a thick flat cube.
+                roofCollision.GetComponent<MeshRenderer>().enabled = false;
+                PitchedRoof(t,width,depth,h);
                 Box(t,"WestSolidWall",new Vector3(-width*.5f,h*.5f,0f),
                     new Vector3(WallThickness,h,depth),wall);
                 Box(t,"EastSolidWall",new Vector3(width*.5f,h*.5f,0f),
@@ -226,6 +350,15 @@ namespace Aaris.MapReview
                     new Vector3(2.35f,.12f,.64f),roof);
                 Box(t,"RainAwning",new Vector3(0f,DoorHeight+.32f,-depth*.5f-.50f),
                     new Vector3(2.7f,.14f,1.13f),roof);
+                Box(t,"FoundationBand",new Vector3(0f,.07f,0f),
+                    new Vector3(width+.28f,.15f,depth+.28f),trim,false);
+                Box(t,"FrontPorchLeftSupport",
+                    new Vector3(-1.28f,DoorHeight*.5f,-depth*.5f-.51f),
+                    new Vector3(.13f,DoorHeight,.13f),trim,false);
+                Box(t,"FrontPorchRightSupport",
+                    new Vector3(1.28f,DoorHeight*.5f,-depth*.5f-.51f),
+                    new Vector3(.13f,DoorHeight,.13f),trim,false);
+                CombineStaticSurfaces(t);
                 return home;
             }
             finally
