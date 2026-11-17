@@ -41,6 +41,16 @@ namespace Aaris.MapReview
                     "AarisBuildings/ArchitecturalLimestone");
                 if (stone != null)
                     sharedStucco.SetTexture("_BaseMap", stone);
+                // Optional original 128px normal map. A missing importer
+                // texture leaves the existing flat stone fully functional.
+                Texture2D stoneNormal = Resources.Load<Texture2D>(
+                    "AarisBuildings/ArchitecturalLimestoneNormal");
+                if (stoneNormal != null && sharedStucco.HasProperty("_BumpMap"))
+                {
+                    sharedStucco.SetTexture("_BumpMap", stoneNormal);
+                    sharedStucco.SetFloat("_BumpScale", .68f);
+                    sharedStucco.EnableKeyword("_NORMALMAP");
+                }
             }
 
             Mesh mesh = BuildFacade(width, depth, height);

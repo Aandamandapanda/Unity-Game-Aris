@@ -656,7 +656,10 @@ namespace Aaris.MapReview
             bool glass = label.Contains("glass") || label.Contains("window");
             bool darkTrim = label.Contains("dark") || label.Contains("black") ||
                 label.Contains("grey") || label.Contains("tire") ||
-                label.Contains("tyre") || label.Contains("rubber");
+                label.Contains("tyre") || label.Contains("rubber") ||
+                label.Contains("seat") || label.Contains("interior");
+            bool bareMetal = label.Contains("aarismetal") ||
+                label.Contains("chrome") || label.Contains("alloy");
             bool headlight = label.Contains("headlight");
             bool taillight = label.Contains("taillight") ||
                 label.Contains("tail_light");
@@ -698,12 +701,28 @@ namespace Aaris.MapReview
                 if (result.HasProperty("_Metallic")) result.SetFloat("_Metallic", .06f);
                 if (result.HasProperty("_Smoothness")) result.SetFloat("_Smoothness", .20f);
             }
+            else if (bareMetal)
+            {
+                // Exposed alloy is a separate PBR material from matte rubber.
+                if (result.HasProperty("_Metallic")) result.SetFloat("_Metallic", .66f);
+                if (result.HasProperty("_Smoothness")) result.SetFloat("_Smoothness", .52f);
+            }
             else
             {
                 // Painted steel: enough reflection to read body curvature but
                 // not the mirror-like toy finish produced by smoothness=1.
                 if (result.HasProperty("_Metallic")) result.SetFloat("_Metallic", .32f);
                 if (result.HasProperty("_Smoothness")) result.SetFloat("_Smoothness", .58f);
+                // Clear coat only on single-purpose painted panels;
+                // never on shared atlases, tyres, lamps or glass.
+                if (label.Contains("aarispaint") &&
+                    result.HasProperty("_ClearCoatMask"))
+                {
+                    result.SetFloat("_ClearCoatMask", .34f);
+                    if (result.HasProperty("_ClearCoatSmoothness"))
+                        result.SetFloat("_ClearCoatSmoothness", .74f);
+                    result.EnableKeyword("_CLEARCOAT");
+                }
             }
             authoredMaterialCache[source] = result;
             return result;
@@ -1087,10 +1106,18 @@ namespace Aaris.MapReview
             // Paint-only per-car finish: never re-shade glass, wheel rubber,
             // light lenses, decals or the shared PBR texture atlas.
             float targetMetallic = .34f, targetSmoothness = .64f;
+            float paintClearCoat = .31f;
             switch (record.type.id)
             {
-                case "SUV": targetMetallic = .23f; targetSmoothness = .49f; break;
-                case "Sports": targetMetallic = .46f; targetSmoothness = .73f; break;
+                case "SUV":
+                    targetMetallic = .23f; targetSmoothness = .49f;
+                    paintClearCoat = .11f; break;
+                case "Buggy":
+                    targetMetallic = .27f; targetSmoothness = .50f;
+                    paintClearCoat = .15f; break;
+                case "Sports":
+                    targetMetallic = .46f; targetSmoothness = .73f;
+                    paintClearCoat = .57f; break;
                 case "Hatchback": targetMetallic = .30f; targetSmoothness = .61f; break;
                 case "Van": targetMetallic = .20f; targetSmoothness = .46f; break;
                 case "Utility": targetMetallic = .18f; targetSmoothness = .43f; break;
@@ -1136,6 +1163,8 @@ namespace Aaris.MapReview
                             block.SetFloat("_Metallic", Mathf.Clamp(
                                 Mathf.Lerp(material.GetFloat("_Metallic"),
                                     targetMetallic, .76f), .16f, .50f));
+                        if (material.HasProperty("_ClearCoatMask"))
+                            block.SetFloat("_ClearCoatMask", paintClearCoat);
                     }
                     renderer.SetPropertyBlock(block, slot);
                 }

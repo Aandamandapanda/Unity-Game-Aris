@@ -210,7 +210,68 @@ namespace Aaris.MapReview
             AarisWeaponSpec spec, Material source)
         {
             if (source == null) return WeaponFinish(spec);
-            if (HasAuthoredTexture(source)) return source;
+            if (HasAuthoredTexture(source))
+            {
+                // Imported textured weapons can use legacy Standard shaders.
+                // Preserve any already-correct URP material, and convert
+                // others ONCE, with all authored texture maps and UVs intact.
+                string shaderName = source.shader != null ?
+                    source.shader.name : string.Empty;
+                if (shaderName == "Universal Render Pipeline/Lit" ||
+                    shaderName == "Universal Render Pipeline/Simple Lit")
+                    return source;
+                if (weaponFinishCache.TryGetValue(source, out Material textured) &&
+                    textured != null) return textured;
+                Shader urp = Shader.Find("Universal Render Pipeline/Lit");
+                if (urp == null) return source;
+                var converted = new Material(urp)
+                {
+                    name = "AarisWeaponTexturedURP_" + source.name,
+                    enableInstancing = true
+                };
+                string texProperty = source.HasProperty("_BaseMap") &&
+                    source.GetTexture("_BaseMap") != null ?
+                    "_BaseMap" : "_MainTex";
+                Texture diffuse = source.HasProperty(texProperty) ?
+                    source.GetTexture(texProperty) : source.mainTexture;
+                if (diffuse != null && converted.HasProperty("_BaseMap"))
+                {
+                    converted.SetTexture("_BaseMap", diffuse);
+                    if (source.HasProperty(texProperty))
+                    {
+                        converted.SetTextureScale("_BaseMap",
+                            source.GetTextureScale(texProperty));
+                        converted.SetTextureOffset("_BaseMap",
+                            source.GetTextureOffset(texProperty));
+                    }
+                }
+                Color tint = source.HasProperty("_BaseColor") ?
+                    source.GetColor("_BaseColor") :
+                    source.HasProperty("_Color") ? source.GetColor("_Color") :
+                    Color.white;
+                converted.SetColor("_BaseColor", tint);
+                if (source.HasProperty("_BumpMap") &&
+                    source.GetTexture("_BumpMap") != null)
+                {
+                    converted.SetTexture("_BumpMap", source.GetTexture("_BumpMap"));
+                    converted.EnableKeyword("_NORMALMAP");
+                }
+                if (source.HasProperty("_MetallicGlossMap") &&
+                    source.GetTexture("_MetallicGlossMap") != null)
+                {
+                    converted.SetTexture("_MetallicGlossMap",
+                        source.GetTexture("_MetallicGlossMap"));
+                    converted.EnableKeyword("_METALLICSPECGLOSSMAP");
+                }
+                converted.SetFloat("_Metallic", source.HasProperty("_Metallic")
+                    ? Mathf.Clamp01(source.GetFloat("_Metallic")) : .18f);
+                converted.SetFloat("_Smoothness", source.HasProperty("_Smoothness")
+                    ? Mathf.Clamp01(source.GetFloat("_Smoothness")) :
+                    source.HasProperty("_Glossiness") ?
+                    Mathf.Clamp01(source.GetFloat("_Glossiness")) : .34f);
+                weaponFinishCache[source] = converted;
+                return converted;
+            }
             if (weaponFinishCache.TryGetValue(source, out Material cached) &&
                 cached != null) return cached;
 

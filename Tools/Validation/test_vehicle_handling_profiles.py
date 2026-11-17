@@ -9,7 +9,8 @@ C=json.loads((R/'Assets/Resources/AarisVehicles/vehicle_catalog.json').read_text
 class TestHandlingProfiles(unittest.TestCase):
  def test_catalog_and_drivetrain(self):
   expected={'Sedan':'FWD','SUV':'AWD','Sports':'RWD',
-            'Hatchback':'FWD','Van':'RWD','Utility':'AWD'}
+            'Hatchback':'FWD','Van':'RWD','Utility':'AWD',
+            'Buggy':'AWD'}
   self.assertEqual({v['id'] for v in C['vehicles']},set(expected))
   for v in C['vehicles']:
    self.assertEqual(v['drivetrain'],expected[v['id']])

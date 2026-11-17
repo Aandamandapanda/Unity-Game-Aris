@@ -111,6 +111,16 @@ namespace Aaris.MapReview.Editor
                     throw new InvalidOperationException("Bad model mesh triangle count: " + name + "=" + triangles);
                 Debug.Log("AARIS_VEHICLE_IMPORT " + name + " triangles=" + triangles);
             }
+            // Offline-authored buggy has a genuine independent chassis.
+            // Wheels remain sourced from the already verified truck FBX.
+            GameObject buggy = Resources.Load<GameObject>(
+                "AarisVehicles/Authored/AarisBuggy");
+            if (buggy == null ||
+                buggy.GetComponentInChildren<MeshFilter>(true) == null ||
+                buggy.GetComponentInChildren<Renderer>(true) == null)
+                throw new InvalidOperationException(
+                    "Original off-road buggy OBJ failed Unity import.");
+
             Texture2D palette = Resources.Load<Texture2D>("AarisVehicles/Models/colormap");
             if (palette == null || palette.width < 16 || palette.height < 16)
                 throw new InvalidOperationException("Shared CC0 car palette texture missing.");

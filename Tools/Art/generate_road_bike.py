@@ -21,7 +21,7 @@ def add(material, points, triangles):
  verts.extend(points)
  faces[material].extend(tuple(start+n for n in face) for face in triangles)
 
-def ring(material, cy, cz, major, minor, sides=36, profile=8, shift_x=0):
+def ring(material, cy, cz, major, minor, sides=32, profile=6, shift_x=0):
  points=[]
  for u in range(sides):
   angle=2*pi*u/sides
@@ -75,7 +75,7 @@ def box(material,center,size):
        (0,4,2),(2,4,6),(1,3,5),(3,7,5))
  add(material,pts,tris)
 
-def ellipsoid(material,center,radii,longitude=22,latitude=10):
+def ellipsoid(material,center,radii,longitude=20,latitude=8):
  cx,cy,cz=center;rx,ry,rz=radii
  points=[]
  for j in range(latitude+1):
@@ -136,6 +136,24 @@ ellipsoid('TailLamp',(0,1.105,-1.01),(.14,.052,.055),14,7)
 tube('Rim',(-.16,.49,-.21),(-.40,.07,-.30),.018,8)
 tube('Engine',(.24,.62,-.34),(.28,.46,-.81),.068,12)
 tube('Rim',(.28,.46,-.81),(.27,.51,-1.00),.046,12)
+
+# Close-range original detail using EXISTING surfaces/submeshes, not extra
+# material slots/draw calls. Less expensive curved segment defaults above
+# compensate for visual brake discs, mirrors and compact rear shocks.
+for z in (-.78,.78):
+ ring('Rim',.36,z,.146,.009,24,5,shift_x=-.082)
+ for sign in (-1,1):
+  tube('Rim',(sign*.081,.36,z),(sign*.082,.36,z+.086),.018,6)
+for sign in (-1,1):
+ # Each mirror has an alloy stalk, dark case and silver back face.
+ tube('Rim',(sign*.40,1.35,.56),(sign*.49,1.46,.49),.014,7)
+ ellipsoid('Engine',(sign*.48,1.465,.48),(.095,.067,.029),12,6)
+ ellipsoid('Rim',(sign*.48,1.465,.452),(.088,.049,.006),12,6)
+ # Raised spring collars at the rear shock are visual-only.
+ for n in range(4):
+  t=n/4.0
+  tube('Rim',(sign*(.24+.02*t),.57+.17*t,-.66+.07*t),
+             (sign*(.24+.02*t),.59+.17*t,-.66+.07*t),.036,6)
 
 OUT.mkdir(parents=True,exist_ok=True)
 obj=OUT/(NAME+'.obj')

@@ -23,3 +23,7 @@ suspension and rider animation system with device-level handling tests.
 Static tests check source/topology, not live graphics. Native Unity OBJ
 import, URP shading, placement, and Android-device FPS require separate
 validation before claiming visual or performance parity with any title.
+
+## 2026-11-17: closer motorcycle finish
+
+The regenerable local OBJ now includes disc brake rings, rear spring collars and compact mirror housings. Segmentation was reduced elsewhere to keep the revised mesh at 4,644 vertices / 8,496 triangles. Still eight shared instanced URP materials, three streamed bikes maximum and zero new light GameObjects. Parked lens emission is deliberately subdued. This is not rideable physics.

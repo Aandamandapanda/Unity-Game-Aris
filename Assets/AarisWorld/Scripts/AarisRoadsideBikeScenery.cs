@@ -93,13 +93,21 @@ namespace Aaris.MapReview
                     enableInstancing = true
                 };
                 surfaces[i].SetColor("_BaseColor", tones[i]);
+                // Separate rubber, satin bodywork, exposed alloy, leather
+                // and glass; eight shared URP Lit materials for all bikes.
                 surfaces[i].SetFloat("_Metallic",
-                    i == 2 ? .78f : i == 0 ? .44f : .03f);
+                    i == 0 ? .48f : i == 2 ? .82f :
+                    i == 3 ? .43f : .03f);
                 surfaces[i].SetFloat("_Smoothness",
-                    i == 1 ? .15f : i == 4 ? .25f : i == 2 ? .78f : .52f);
-                if (i >= 5)
+                    i == 0 ? .65f : i == 1 ? .14f :
+                    i == 2 ? .72f : i == 3 ? .37f :
+                    i == 4 ? .16f : .67f);
+                // Parked, switched-off motorcycles are NOT floodlights.
+                // Only the lens emits a faint authored colour without
+                // extra shadowing or per-frame light GameObjects.
+                if (i == 5 || i == 6)
                 {
-                    surfaces[i].SetColor("_EmissionColor", tones[i] * .65f);
+                    surfaces[i].SetColor("_EmissionColor", tones[i] * .085f);
                     surfaces[i].EnableKeyword("_EMISSION");
                 }
             }

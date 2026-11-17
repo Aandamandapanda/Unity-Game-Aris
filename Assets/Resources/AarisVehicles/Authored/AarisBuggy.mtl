@@ -1,0 +1,36 @@
+# Original authored paint, rubber and glass. URP material conversion happens once per type.
+newmtl AarisPaint
+Kd 0.230 0.340 0.300
+Ks .30 .30 .30
+Ns 180
+
+newmtl AarisDark
+Kd 0.045 0.052 0.058
+Ks .30 .30 .30
+Ns 180
+
+newmtl AarisMetal
+Kd 0.430 0.490 0.510
+Ks .30 .30 .30
+Ns 180
+
+newmtl AarisSeat
+Kd 0.100 0.105 0.100
+Ks .30 .30 .30
+Ns 180
+
+newmtl AarisGlass
+Kd 0.080 0.120 0.150
+Ks .30 .30 .30
+Ns 180
+d 0.32
+
+newmtl AarisHeadlight
+Kd 0.840 0.890 0.850
+Ks .30 .30 .30
+Ns 180
+
+newmtl AarisTaillight
+Kd 0.600 0.040 0.027
+Ks .30 .30 .30
+Ns 180

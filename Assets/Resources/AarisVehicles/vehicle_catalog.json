@@ -81,6 +81,19 @@
       "tyreGripScale": 0.94,
       "suspensionScale": 1.08,
       "steeringScale": 0.88
+    },
+    {
+      "id": "Buggy",
+      "modelResource": "AarisVehicles/Models/truck-flat",
+      "weight": 2,
+      "maxSpeedMetres": 25.0,
+      "massKg": 1130,
+      "wheelResource": "AarisVehicles/Models/wheel-truck",
+      "authoredModelResource": "AarisVehicles/Authored/AarisBuggy",
+      "drivetrain": "AWD",
+      "tyreGripScale": 1.1,
+      "suspensionScale": 0.94,
+      "steeringScale": 1.1
     }
   ]
 }

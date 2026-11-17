@@ -42,6 +42,27 @@ ASSET.parent.mkdir(parents=True,exist_ok=True)
 picture = Image.new("RGB", (SIZE,SIZE))
 picture.putdata(colors)
 picture.save(ASSET,optimize=True)
+
+# Tiny shared tileable tangent-space normal map: derived offline from
+# the same stone height variation. It is one 128px texture for every
+# architectural trim mesh, not a per-building material or runtime bake.
+normal_asset = ASSET.with_name("ArchitecturalLimestoneNormal.png")
+height = [sum(rgb)/3.0 for rgb in colors]
+normal_pixels=[]
+for py in range(SIZE):
+    for px in range(SIZE):
+        def h(x,y):
+            return height[(y%SIZE)*SIZE+(x%SIZE)]
+        dx=(h(px+1,py)-h(px-1,py))*0.027
+        dy=(h(px,py+1)-h(px,py-1))*0.027
+        nx,ny,nz=-dx,-dy,1.0
+        length=math.sqrt(nx*nx+ny*ny+nz*nz)
+        normal_pixels.append((round(127.5+127.5*nx/length),
+                              round(127.5+127.5*ny/length),
+                              round(127.5+127.5*nz/length)))
+normal_image=Image.new("RGB",(SIZE,SIZE))
+normal_image.putdata(normal_pixels)
+normal_image.save(normal_asset,optimize=True)
 # Retain the existing production project TextureImporter settings for
 # trilinear filtering, repeat wrapping, Android compression and mip streaming.
 meta = REFERENCE.read_text()
@@ -51,6 +72,14 @@ meta = re.sub(r"(?m)^guid: [0-9a-f]{32}$",
 meta = meta.replace("maxTextureSize: 2048", "maxTextureSize: 256")
 meta = meta.replace("maxTextureSize: 1024", "maxTextureSize: 256")
 META.write_text("\n".join(line.rstrip() for line in meta.splitlines())+"\n")
+normal_meta = re.sub(r"(?m)^guid: [0-9a-f]{32}$",
+    "guid: " + uuid.uuid5(uuid.NAMESPACE_URL,
+                          "aaris-limestone-normal-v1").hex,meta)
+normal_meta=normal_meta.replace("textureType: 0","textureType: 1")
+normal_meta=normal_meta.replace("sRGBTexture: 1","sRGBTexture: 0")
+normal_meta=normal_meta.replace("linearTexture: 0","linearTexture: 1")
+normal_asset.with_name(normal_asset.name+".meta").write_text(
+    "\n".join(line.rstrip() for line in normal_meta.splitlines())+"\n")
 print("LIMESTONE_ORIGINAL",ASSET.stat().st_size,"bytes",
       "PNG",SIZE,"x",SIZE,"palette_range",
       tuple(min(c[i] for c in colors) for i in range(3)),
