@@ -107,11 +107,6 @@ namespace Aaris.MapReview
                 enabled = false;
                 return;
             }
-            foreach (Terrain t in terrains)
-            {
-                if (t != null && t.terrainData != null)
-                    treeCache[t] = t.terrainData.treeInstances;
-            }
             // The streamer's Awake runs at order -250 before this Start.
             // Inspect its already cached bounds without re-enabling physics.
             nearbyColliderBounds = FindFirstObjectByType<AarisNearbyColliders>();
@@ -131,91 +126,119 @@ namespace Aaris.MapReview
         {
             var names = new HashSet<string>(StringComparer.Ordinal);
             int examinedThisFrame = 0;
-            foreach (var site in plan.sites)
+            // The mobile cold-start is already creating the player, URP state,
+            // terrain renderer and physics streamer. Avoid adding landmark
+            // prefab instantiation to the same opening frame. No houses are
+            // removed: Android places one attempted site per subsequent frame.
+            bool mobile = Application.platform == RuntimePlatform.Android;
+            int attemptsPerFrame = mobile ? 1 : 2;
+            try
             {
-                // Budget attempted sites, not just successful instantiations:
-                // unsuccessful tree/physics relocation probes also cost CPU.
-                // The first two sites execute immediately in the Start frame.
-                if (examinedThisFrame >= 2)
+                // Even if the match exits during the opening-frame delay, the
+                // iterator's finally releases its temporary tree cache.
+                if (mobile) yield return null;
+                // TerrainData.treeInstances creates native-to-managed arrays.
+                // Cache one tile per Android frame instead of all four during
+                // the player's very first Start frame. All four are ready
+                // before any landmark clearance or relocation check begins.
+                foreach (Terrain t in terrains)
                 {
-                    examinedThisFrame = 0;
-                    yield return null;
+                    if (t != null && t.terrainData != null)
+                        treeCache[t] = t.terrainData.treeInstances;
+                    if (mobile) yield return null;
                 }
-                examinedThisFrame++;
-                if (site == null || string.IsNullOrWhiteSpace(site.name) ||
-                    !names.Add(site.name) || !CoordinatesValid(site))
+                foreach (var site in plan.sites)
                 {
-                    skippedResources++;
-                    continue;
-                }
-                // Preserve the four proven interactive modular sites and the
-                // original watchtowers. Only the noninteractive house variants
-                // are replaced with prefabs baked into core project assets.
-                bool replaceClosedHouse = !site.interactive &&
-                    (site.prefabKey == "cottage" || site.prefabKey == "bungalow" ||
-                     site.prefabKey == "detached");
-                GameObject prefab = replaceClosedHouse
-                    ? catalog.ResolveOpen(site.prefabKey)
-                    : catalog.Resolve(site.prefabKey);
-                if (prefab == null)
-                {
-                    skippedResources++;
-                    continue;
-                }
-                if (!TryGround(site, terrains, out Terrain support, out float y))
-                {
-                    skippedTerrain++;
-                    continue;
-                }
-                // Vegetation can obstruct a planned interactive entrance just as
-                // a building can. Both cases must use the SAME bounded, fully
-                // revalidated relocation search before an interactive home is
-                // skipped. Closed houses remain pinned to their authored sites.
-                bool blockedByTrees = TreesBlock(site, terrains);
-                bool blockedByCollider = !blockedByTrees && CollidersBlock(site, y);
-                if (blockedByTrees || blockedByCollider)
-                {
-                    if (!site.interactive ||
-                        !TryRelocateInteractiveSite(site, terrains, out y))
+                    // Budget attempted sites, not just successful instantiations:
+                    // unsuccessful tree/physics relocation probes also cost CPU.
+                    // Android yields the opening frame; desktop keeps its two-site budget.
+                    if (examinedThisFrame >= attemptsPerFrame)
                     {
-                        if (blockedByTrees) skippedTrees++;
-                        else
-                        {
-                            skippedObstacle++;
-                            Debug.LogWarning("AARIS_EXPANSION_OBSTACLE_SITE " + site.name +
-                                " x=" + site.x.ToString("F1") + " z=" + site.z.ToString("F1"));
-                        }
+                        examinedThisFrame = 0;
+                        yield return null;
+                    }
+                    examinedThisFrame++;
+                    if (site == null || string.IsNullOrWhiteSpace(site.name) ||
+                        !names.Add(site.name) || !CoordinatesValid(site))
+                    {
+                        skippedResources++;
                         continue;
                     }
-                }
+                    // Preserve the four proven interactive modular sites and the
+                    // original watchtowers. Only the noninteractive house variants
+                    // are replaced with prefabs baked into core project assets.
+                    bool replaceClosedHouse = !site.interactive &&
+                        (site.prefabKey == "cottage" || site.prefabKey == "bungalow" ||
+                         site.prefabKey == "detached");
+                    GameObject prefab = replaceClosedHouse
+                        ? catalog.ResolveOpen(site.prefabKey)
+                        : catalog.Resolve(site.prefabKey);
+                    if (prefab == null)
+                    {
+                        skippedResources++;
+                        continue;
+                    }
+                    if (!TryGround(site, terrains, out Terrain support, out float y))
+                    {
+                        skippedTerrain++;
+                        continue;
+                    }
+                    // Vegetation can obstruct a planned interactive entrance just as
+                    // a building can. Both cases must use the SAME bounded, fully
+                    // revalidated relocation search before an interactive home is
+                    // skipped. Closed houses remain pinned to their authored sites.
+                    bool blockedByTrees = TreesBlock(site, terrains);
+                    bool blockedByCollider = !blockedByTrees && CollidersBlock(site, y);
+                    if (blockedByTrees || blockedByCollider)
+                    {
+                        if (!site.interactive ||
+                            !TryRelocateInteractiveSite(site, terrains, out y))
+                        {
+                            if (blockedByTrees) skippedTrees++;
+                            else
+                            {
+                                skippedObstacle++;
+                                Debug.LogWarning("AARIS_EXPANSION_OBSTACLE_SITE " + site.name +
+                                    " x=" + site.x.ToString("F1") + " z=" + site.z.ToString("F1"));
+                            }
+                            continue;
+                        }
+                    }
 
-                Vector3 position = new Vector3(site.x, y - 0.025f, site.z);
-                Quaternion rotation = Quaternion.Euler(0f, site.yaw, 0f);
-                // Original vendor houses have ONE fused mesh/collider; an
-                // animated door pasted on top would stay physically blocked.
-                // Only marked, tested new sites use true modular wall holes.
-                GameObject instance = site.interactive
-                    ? AarisModularHouse.Create(position, rotation, site.width,
-                        site.depth, site.height, transform, interactionTarget, prefab,
-                        includePanels: true)
-                    : Instantiate(prefab, position, rotation, transform);
-                if (instance == null)
-                {
-                    skippedResources++;
-                    continue;
+                    Vector3 position = new Vector3(site.x, y - 0.025f, site.z);
+                    Quaternion rotation = Quaternion.Euler(0f, site.yaw, 0f);
+                    // Original vendor houses have ONE fused mesh/collider; an
+                    // animated door pasted on top would stay physically blocked.
+                    // Only marked, tested new sites use true modular wall holes.
+                    GameObject instance = site.interactive
+                        ? AarisModularHouse.Create(position, rotation, site.width,
+                            site.depth, site.height, transform, interactionTarget, prefab,
+                            includePanels: true)
+                        : Instantiate(prefab, position, rotation, transform);
+                    if (instance == null)
+                    {
+                        skippedResources++;
+                        continue;
+                    }
+                    instance.name = site.name;
+                    // Reuse ONE shared URP Lit material and ONE combined mesh per
+                    // house for roof fascia, foundation plinth and corner trim.
+                    // No extra colliders, so door and window apertures stay open.
+                    if (site.prefabKey == "cottage" ||
+                        site.prefabKey == "bungalow" ||
+                        site.prefabKey == "detached")
+                        AarisHouseFacadeTrim.Install(instance,
+                            site.width, site.depth, site.height);
+                    placed.Add(instance);
                 }
-                instance.name = site.name;
-                // Reuse ONE shared URP Lit material and ONE combined mesh per
-                // house for roof fascia, foundation plinth and corner trim.
-                // No extra colliders, so door and window apertures stay open.
-                if (site.prefabKey == "cottage" ||
-                    site.prefabKey == "bungalow" ||
-                    site.prefabKey == "detached")
-                    AarisHouseFacadeTrim.Install(instance,
-                        site.width, site.depth, site.height);
-                placed.Add(instance);
             }
-            treeCache.Clear();
+            finally
+            {
+                // The four native tree-instance arrays can be large. Never
+                // retain them for the rest of the match if site creation fails
+                // or the coroutine is cancelled during a scene transition.
+                treeCache.Clear();
+            }
             Debug.Log("AARIS_EXPANSION_RESULT placed=" + placed.Count +
                 " planned=" + plan.siteCount + " terrain_skips=" + skippedTerrain +
                 " tree_skips=" + skippedTrees + " obstacle_skips=" + skippedObstacle +

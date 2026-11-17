@@ -81,7 +81,18 @@ class ExpansionIntegrity(unittest.TestCase):
         )
         routine = source.split("private IEnumerator PlaceSitesAcrossFrames(", 1)[1]
         routine = routine.split("private bool TryRelocateInteractiveSite", 1)[0]
-        self.assertIn("if (examinedThisFrame >= 2)", routine)
+        self.assertIn("int attemptsPerFrame = mobile ? 1 : 2;", routine)
+        self.assertIn("if (mobile) yield return null;", routine)
+        self.assertIn("if (examinedThisFrame >= attemptsPerFrame)", routine)
+        self.assertLess(routine.index("if (mobile) yield return null;"),
+                        routine.index("foreach (var site in plan.sites)"))
+        self.assertRegex(routine, r"finally\\s*\\{[\\s\\S]*?treeCache\\.Clear\\(\\);")
+        self.assertEqual(routine.count("if (mobile) yield return null;"), 2)
+        self.assertIn("foreach (Terrain t in terrains)", routine)
+        self.assertIn("treeCache[t] = t.terrainData.treeInstances;", routine)
+        start = source.split("private void Start()", 1)[1].split(
+            "private IEnumerator PlaceSitesAcrossFrames(", 1)[0]
+        self.assertNotIn("treeInstances", start)
         self.assertIn("examinedThisFrame++;", routine)
         self.assertIn("yield return null;", routine)
         self.assertIn("treeCache.Clear();", routine)
