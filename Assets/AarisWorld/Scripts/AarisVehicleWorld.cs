@@ -86,6 +86,10 @@ namespace Aaris.MapReview
         private AarisVehicleType[] vehicleTypes;
         private GameObject[] prefabs;
         private GameObject[] wheelPrefabs;
+        // Keep verified lightweight art available if an imported FBX later
+        // turns out to have broken/empty wheel or body geometry on device.
+        private GameObject[] safeBodyPrefabs;
+        private GameObject[] safeWheelPrefabs;
         // High-detail authored bodies are prewarmed asynchronously only when
         // the player approaches a planned car. This preserves the exact same
         // visuals while avoiding five multi-megabyte FBX loads during boot.
@@ -250,6 +254,8 @@ namespace Aaris.MapReview
             vehicleTypes = definitions.vehicles;
             prefabs = new GameObject[vehicleTypes.Length];
             wheelPrefabs = new GameObject[vehicleTypes.Length];
+            safeBodyPrefabs = new GameObject[vehicleTypes.Length];
+            safeWheelPrefabs = new GameObject[vehicleTypes.Length];
             authoredBodyRequests = new ResourceRequest[vehicleTypes.Length];
             authoredBodyLoadingFallback = new bool[vehicleTypes.Length];
             authoredBodyResolved = new bool[vehicleTypes.Length];
@@ -290,6 +296,8 @@ namespace Aaris.MapReview
                     wheelPrefabs[i] = null;
                     continue;
                 }
+                safeBodyPrefabs[i] = prefabs[i];
+                safeWheelPrefabs[i] = wheelPrefabs[i];
                 availableWeight += item.weight;
                 validModels++;
             }
@@ -859,6 +867,89 @@ namespace Aaris.MapReview
             return TryResolve(record, out spot, axis.x * offset, axis.z * offset);
         }
 
+        // Imported PBR textures also contain decals/glazing, so strong global
+        // recolouring would turn windows and lights into painted plastic. Give
+        // dedicated paint slots a full tint and body atlases only a subtle tint.
+        // Never recolour the Kenney UV palette or the shared material assets.
+        private static readonly Color[] BodyPaintColours =
+        {
+            Color.white,
+            new Color(.84f, .31f, .29f, 1f), // deep red
+            new Color(.32f, .54f, .82f, 1f), // steel blue
+            new Color(.30f, .60f, .48f, 1f), // forest green
+            new Color(.65f, .68f, .74f, 1f), // silver
+            new Color(.30f, .32f, .38f, 1f), // graphite
+            new Color(.84f, .71f, .46f, 1f)  // champagne
+        };
+
+        private static int StablePaintVariant(string pointId, string vehicleId)
+        {
+            // String.GetHashCode is not a persistence key. FNV-1a produces the
+            // same colour after streaming out/in and across game launches.
+            unchecked
+            {
+                uint hash = 2166136261u;
+                string key = (pointId ?? string.Empty) + "|" +
+                    (vehicleId ?? string.Empty);
+                for (int i = 0; i < key.Length; i++)
+                    hash = (hash ^ key[i]) * 16777619u;
+                return (int)(hash % (uint)BodyPaintColours.Length);
+            }
+        }
+
+        private static void PaintVerifiedBodySlots(GameObject model,
+            AarisVehicleRecord record)
+        {
+            Color paint = BodyPaintColours[StablePaintVariant(
+                record.point.id, record.type.id)];
+            // Only executed at spawn, never per frame. A per-renderer indexed
+            // property block keeps the original shared URP PBR material/normal
+            // maps intact and does not allocate unique material instances.
+            var block = new MaterialPropertyBlock();
+            foreach (var renderer in model.GetComponentsInChildren<Renderer>(true))
+            {
+                if (renderer == null) continue;
+                var materials = renderer.sharedMaterials;
+                for (int slot = 0; slot < materials.Length; slot++)
+                {
+                    Material material = materials[slot];
+                    if (material == null || !material.HasProperty("_BaseColor"))
+                        continue;
+                    string label = material.name;
+                    bool separatePaint = label.IndexOf("AarisPaint",
+                        StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool bodyAtlas = label.IndexOf("body_pbr",
+                        StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (!separatePaint && !bodyAtlas) continue;
+                    // Subtle for a multi-purpose body texture: paint variation
+                    // must not wash out the authored windows/decals/headlights.
+                    Color tint = bodyAtlas ? Color.Lerp(Color.white, paint, .30f)
+                        : paint;
+                    block.Clear();
+                    renderer.GetPropertyBlock(block, slot);
+                    block.SetColor("_BaseColor", tint);
+                    renderer.SetPropertyBlock(block, slot);
+                }
+            }
+        }
+
+        private void FallBackToVerifiedModel(int index, string reason)
+        {
+            if (index < 0 || safeBodyPrefabs == null ||
+                safeWheelPrefabs == null ||
+                safeBodyPrefabs[index] == null || safeWheelPrefabs[index] == null ||
+                ReferenceEquals(prefabs[index], safeBodyPrefabs[index]))
+                return;
+            prefabs[index] = safeBodyPrefabs[index];
+            wheelPrefabs[index] = safeWheelPrefabs[index];
+            vehicleTypes[index].useEmbeddedAuthoredWheels = false;
+            vehicleTypes[index].convertAuthoredBodyMaterials = false;
+            vehicleTypes[index].preserveAuthoredUrpMaterials = false;
+            Debug.LogWarning("Aaris vehicles: " + vehicleTypes[index].id +
+                " authored model failed " + reason +
+                "; using verified local car and wheels for future spawns.");
+        }
+
         private bool Build(AarisVehicleRecord record, Vector3 pos)
         {
             int typeIndex = TypeIndex(record.type);
@@ -877,7 +968,12 @@ namespace Aaris.MapReview
             foreach (var collider in mesh.GetComponentsInChildren<Collider>(true))
                 collider.enabled = false;
             var renderers = mesh.GetComponentsInChildren<Renderer>(true);
-            if (renderers.Length == 0) { Destroy(root); return false; }
+            if (renderers.Length == 0)
+            {
+                FallBackToVerifiedModel(typeIndex, "renderer check");
+                Destroy(root);
+                return false;
+            }
             // Kenney Car Kit uses one UV palette atlas. Share ONE URP Lit
             // material across streamed instances; never instantiate new
             // materials per car/per frame.
@@ -896,21 +992,34 @@ namespace Aaris.MapReview
                     renderer.sharedMaterials = materials;
                 }
             }
+            PaintVerifiedBodySlots(mesh, record);
             // Inspect the model in chassis space; world-space AABBs change
             // when the authored road marker is rotated 45/90/135 degrees.
             if (!TryGetVisualBoundsLocal(root.transform, out Bounds bounds))
-            { Destroy(root); return false; }
+            {
+                FallBackToVerifiedModel(typeIndex, "visual bounds");
+                Destroy(root);
+                return false;
+            }
             if (bounds.size.x > bounds.size.z * 1.1f)
                 mesh.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
             if (record.type.useEmbeddedAuthoredWheels)
                 FaceEmbeddedVehicleForward(root.transform, mesh.transform);
             if (!TryGetVisualBoundsLocal(root.transform, out bounds) ||
                 bounds.size.z < .1f || bounds.size.x < .1f)
-            { Destroy(root); return false; }
+            {
+                FallBackToVerifiedModel(typeIndex, "model orientation");
+                Destroy(root);
+                return false;
+            }
             float scale = Mathf.Min(1.88f / bounds.size.x, 4.28f / bounds.size.z);
             mesh.transform.localScale *= Mathf.Clamp(scale, .01f, 50f);
             if (!TryGetVisualBoundsLocal(root.transform, out bounds))
-            { Destroy(root); return false; }
+            {
+                FallBackToVerifiedModel(typeIndex, "model scale");
+                Destroy(root);
+                return false;
+            }
             // Both this offset and bounds are expressed in the root's LOCAL
             // frame: chassis collider, FBX art and WheelCollider heading agree.
             mesh.transform.localPosition += new Vector3(0f, .48f, 0f) - bounds.center;
@@ -927,6 +1036,7 @@ namespace Aaris.MapReview
                     record.type.preserveAuthoredUrpMaterials);
             if (!wheelsAttached)
             {
+                FallBackToVerifiedModel(typeIndex, "wheel attachment");
                 Destroy(root);
                 return false;
             }
