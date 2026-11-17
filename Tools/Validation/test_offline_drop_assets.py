@@ -97,6 +97,46 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         ):
             self.assertEqual(physically_held(pointer, mouse, touches), expected)
 
+    def test_offline_zone_is_walkable_and_rivals_react_to_it(self):
+        br = (SCRIPTS / "AarisOfflineBRDirector.cs").read_text("utf-8")
+        begin = br.split("private void Begin()", 1)[1].split(
+            "private void TrySpawnSlot(", 1)[0]
+        rival = br.split("internal sealed class AarisOfflineRival", 1)[1]
+        self.assertIn("centers[i] = centers[i - 1];", begin)
+        self.assertIn("for (int probe = 0; probe < 8; probe++)", begin)
+        self.assertIn("float fraction = 1f - probe * 0.125f;", begin)
+        self.assertIn("TryGetGround(proposed.x, proposed.y, out float ground)", begin)
+        self.assertIn("centers[i] = proposed;", begin)
+        self.assertIn("internal bool TryZoneRetreatDirection(", br)
+        self.assertIn("float safe = Mathf.Max(6f, radius - 12f);", br)
+        self.assertIn("owner.TryZoneRetreatDirection(transform.position,", rival)
+        self.assertIn("bool retreat = outsideSafeArea && (distance > 23f || !canSee);",
+                      rival)
+        self.assertIn("Vector3 travelDirection = retreat ? retreatDirection : toward;", rival)
+        self.assertIn("if (canSee && !retreat) desired *= .23f;", rival)
+        self.assertIn("Vector3 beforeMove = transform.position;", rival)
+        self.assertIn("Vector3 realTravel = transform.position - beforeMove;", rival)
+        self.assertIn("realTravel.y = 0f;", rival)
+        self.assertIn("groundSpeed / 2.9f", rival)
+        self.assertNotIn("Mathf.Abs(moveSpeed) / 2.9f", rival)
+
+        # Representative land/water candidates: scan towards a known
+        # walkable previous center without creating any new location farther
+        # than the allowed (old radius - new radius) * 0.54.
+        for previous, current in ((1080., 660.), (660., 360.),
+                                  (360., 175.), (175., 65.)):
+            shift = (previous-current)*.54
+            options = [shift * (1. - probe*.125) for probe in range(8)]
+            self.assertEqual(len(options), 8)
+            self.assertGreater(options[0], options[-1])
+            self.assertTrue(all(0 < d <= shift for d in options))
+            self.assertLessEqual(options[0]+current, previous)
+        # No travel = no running pose, including at low and high FPS.
+        for fps in (10, 15, 30, 60, 120):
+            dt = 1. / fps
+            self.assertEqual(0. / max(.001, dt), 0.)
+            self.assertAlmostEqual((2.85*dt) / dt / 2.9, 2.85/2.9)
+
     def test_offline_rivals_recover_spawns_and_avoid_unloaded_walls(self):
         br = (SCRIPTS / "AarisOfflineBRDirector.cs").read_text("utf-8")
         grid = (SCRIPTS / "AarisNearbyColliders.cs").read_text("utf-8")

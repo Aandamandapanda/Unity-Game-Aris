@@ -141,11 +141,24 @@ namespace Aaris.MapReview
             {
                 double angle = random.NextDouble() * Math.PI * 2.0;
                 float shift = (ZoneRadii[i - 1] - ZoneRadii[i]) * 0.54f;
-                Vector2 offset = new Vector2((float)Math.Cos(angle),
-                    (float)Math.Sin(angle)) * shift;
-                Vector2 proposed = centers[i - 1] + offset;
-                centers[i] = new Vector2(Mathf.Clamp(proposed.x, -930f, 930f),
-                    Mathf.Clamp(proposed.y, -930f, 930f));
+                Vector2 direction = new Vector2((float)Math.Cos(angle),
+                    (float)Math.Sin(angle));
+                // A final circle in the sea or on a steep hillside is
+                // unwinnable. Backtrack the proposed shift toward the known
+                // playable previous center, without ever breaking nested
+                // safe-zone geometry. At most eight terrain probes per phase.
+                centers[i] = centers[i - 1];
+                for (int probe = 0; probe < 8; probe++)
+                {
+                    float fraction = 1f - probe * 0.125f;
+                    Vector2 proposed = centers[i - 1] + direction * (shift * fraction);
+                    proposed.x = Mathf.Clamp(proposed.x, -930f, 930f);
+                    proposed.y = Mathf.Clamp(proposed.y, -930f, 930f);
+                    if (!TryGetGround(proposed.x, proposed.y, out float ground))
+                        continue;
+                    centers[i] = proposed;
+                    break;
+                }
             }
             center = centers[0];
             radius = ZoneRadii[0];
@@ -268,6 +281,23 @@ namespace Aaris.MapReview
                     return;
                 }
             }
+        }
+
+        // During the closing phases rivals should actually migrate into
+        // the play area instead of running after an already unsafe player
+        // indefinitely. This is a direction only: local collision avoidance
+        // and terrain-constrained movement still decide each step.
+        internal bool TryZoneRetreatDirection(Vector3 position, out Vector3 direction)
+        {
+            Vector2 inward = center - new Vector2(position.x, position.z);
+            float safe = Mathf.Max(6f, radius - 12f);
+            if (inward.sqrMagnitude <= safe * safe)
+            {
+                direction = Vector3.zero;
+                return false;
+            }
+            direction = new Vector3(inward.x, 0f, inward.y).normalized;
+            return true;
         }
 
         private bool Outside(Vector3 position)
@@ -515,9 +545,17 @@ namespace Aaris.MapReview
                 canSee = distance <= 42f && HasSight();
                 if (!canSee && distance < 9f) turnOffset = UnityEngine.Random.Range(-55f, 55f);
             }
-            float moveSpeed = distance > 12f ? 2.85f : distance < 7f ? -1.15f : 0f;
-            Vector3 desired = Quaternion.Euler(0f, turnOffset, 0f) * toward * moveSpeed;
-            if (canSee) desired *= .23f; // Hold position to keep firing readable.
+            bool outsideSafeArea = owner.TryZoneRetreatDirection(transform.position,
+                out Vector3 retreatDirection);
+            // Nearby player contact retains combat priority; distant bots
+            // should not ignore a closing circle just to chase the player.
+            bool retreat = outsideSafeArea && (distance > 23f || !canSee);
+            Vector3 travelDirection = retreat ? retreatDirection : toward;
+            float moveSpeed = retreat ? 3.2f :
+                distance > 12f ? 2.85f : distance < 7f ? -1.15f : 0f;
+            Vector3 desired = Quaternion.Euler(0f, turnOffset, 0f) *
+                travelDirection * moveSpeed;
+            if (canSee && !retreat) desired *= .23f; // Hold to fire without skating.
             Vector3 displacement = desired * dt;
             if (displacement.sqrMagnitude > 0.000001f &&
                 owner.WouldCrossInactiveCover(transform.position, displacement))
@@ -541,6 +579,7 @@ namespace Aaris.MapReview
                     Quaternion.LookRotation(facing), 1f - Mathf.Exp(-5f * dt));
             verticalSpeed = capsule.isGrounded ? -1.5f :
                 Mathf.Max(-24f, verticalSpeed - 19.6f * dt);
+            Vector3 beforeMove = transform.position;
             CollisionFlags hit = capsule.Move(displacement +
                 Vector3.up * (verticalSpeed * dt));
             if ((hit & CollisionFlags.Sides) != 0 && !canSee)
@@ -548,7 +587,12 @@ namespace Aaris.MapReview
 
             if (hasAnimations)
             {
-                float wanted = Mathf.Clamp01(Mathf.Abs(moveSpeed) / 2.9f);
+                // Animate based on *actual* capsule travel. Against a house
+                // or blocked corner the rival must not sprint in place.
+                Vector3 realTravel = transform.position - beforeMove;
+                realTravel.y = 0f;
+                float groundSpeed = realTravel.magnitude / Mathf.Max(0.001f, dt);
+                float wanted = Mathf.Clamp01(groundSpeed / 2.9f);
                 visualBlend = Mathf.MoveTowards(visualBlend, wanted, dt * 4f);
                 animations.SetInputWeight(0, 1f - visualBlend);
                 animations.SetInputWeight(1, visualBlend);
