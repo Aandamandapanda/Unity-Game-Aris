@@ -851,7 +851,15 @@ namespace Aaris.MapReview
             playerVisualsHiddenForCamera = false;
         }
 
-        private void OnDisable() { RestorePlayerCameraVisibility(); }
+        private void OnDisable()
+        {
+            // Flight, vehicles, scene transitions and unexpected component
+            // deactivation all relinquish the same movement/touch authority.
+            // Otherwise a held jump or old joystick finger can survive while
+            // Update is disabled and reactivate after control returns.
+            ClearInput();
+            RestorePlayerCameraVisibility();
+        }
 
         private void PlaceCamera(bool instant)
         {

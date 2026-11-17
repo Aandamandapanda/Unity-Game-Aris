@@ -24,6 +24,7 @@ namespace Aaris.MapReview
         private Vector3 lastPosition;
         private float nextCheck;
         private AarisOfflineDrop drop;
+        private float nextDropRefresh;
         // Keep an already-live collider for a few extra metres so tiny player
         // movements at the activation boundary do not churn physics broadphase.
         // Never use this margin to enable a previously unloaded collider early.
@@ -86,7 +87,23 @@ namespace Aaris.MapReview
 
         private void Update()
         {
-            if (target == null || (drop != null && drop.IsRidingAircraft)) return;
+            if (target == null)
+            {
+                // When the player disappears, stop streaming immediately.
+                // OnDisable restores only the originally active colliders,
+                // preventing distant structures from remaining non-solid.
+                enabled = false;
+                return;
+            }
+            // Scene-load bootstraps can attach the flight component AFTER
+            // this streamer's Start. Retry no more than once per unscaled
+            // second until present, then avoid repeated native lookups.
+            if (drop == null && Time.unscaledTime >= nextDropRefresh)
+            {
+                nextDropRefresh = Time.unscaledTime + 1f;
+                drop = target.GetComponent<AarisOfflineDrop>();
+            }
+            if (drop != null && drop.IsRidingAircraft) return;
             // Refresh after three metres of movement (and at least every second).
             // Geometry stays active 55m away; 3m travel cannot leave a
             // player without nearby solid walls. Teleports call RefreshNow().
@@ -95,7 +112,14 @@ namespace Aaris.MapReview
         }
         // Explicit teleport and startup calls still synchronize immediately.
         // Periodic polls avoid a global physics sync if no collider changed.
-        public void RefreshNow() => RefreshNow(true);
+        public void RefreshNow()
+        {
+            // Other systems may retain a reference after this streamer was
+            // disabled. OnDisable restored the original solid colliders;
+            // do not secretly gate them again while Update is inactive.
+            if (!isActiveAndEnabled) return;
+            RefreshNow(true);
+        }
 
         private void RefreshNow(bool forcePhysicsSync)
         {
