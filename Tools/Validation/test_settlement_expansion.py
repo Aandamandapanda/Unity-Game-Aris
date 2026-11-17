@@ -73,6 +73,20 @@ class ExpansionIntegrity(unittest.TestCase):
         self.assertGreaterEqual(len(set(s["district"] for s in p["sites"])), 10)
         self.assertEqual(len(set(s["name"] for s in p["sites"])), len(p["sites"]))
 
+    def test_expansion_does_not_create_all_houses_in_one_frame(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn(
+            "StartCoroutine(PlaceSitesAcrossFrames(plan, catalog, terrains, interactionTarget))",
+            source,
+        )
+        routine = source.split("private IEnumerator PlaceSitesAcrossFrames(", 1)[1]
+        routine = routine.split("private bool TryRelocateInteractiveSite", 1)[0]
+        self.assertIn("if (examinedThisFrame >= 2)", routine)
+        self.assertIn("examinedThisFrame++;", routine)
+        self.assertIn("yield return null;", routine)
+        self.assertIn("treeCache.Clear();", routine)
+        self.assertIn("foreach (var site in plan.sites)", routine)
+
     def test_modular_house_source_materials_are_isolated_per_house(self):
         # A source prefab's roof/wall material must not become the fallback
         # for a different house that lacks that material slot.

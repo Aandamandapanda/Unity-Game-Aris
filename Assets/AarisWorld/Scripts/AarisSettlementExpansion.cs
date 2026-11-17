@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -117,9 +118,30 @@ namespace Aaris.MapReview
 
             var player = FindFirstObjectByType<AarisThirdPersonPlayer>();
             Transform interactionTarget = player != null ? player.transform : null;
+            // Sites require multiple terrain/tree/physics probes and some expensive
+            // prefab imports. Doing all 21 in one Start() causes a startup spike
+            // on budget Android CPUs. Preserve placement/order, but spread the
+            // work over frames without touching authored terrain or scene assets.
+            StartCoroutine(PlaceSitesAcrossFrames(plan, catalog, terrains, interactionTarget));
+        }
+
+        private IEnumerator PlaceSitesAcrossFrames(
+            AarisExpansionPlan plan, AarisExpansionCatalog catalog,
+            Terrain[] terrains, Transform interactionTarget)
+        {
             var names = new HashSet<string>(StringComparer.Ordinal);
+            int examinedThisFrame = 0;
             foreach (var site in plan.sites)
             {
+                // Budget attempted sites, not just successful instantiations:
+                // unsuccessful tree/physics relocation probes also cost CPU.
+                // The first two sites execute immediately in the Start frame.
+                if (examinedThisFrame >= 2)
+                {
+                    examinedThisFrame = 0;
+                    yield return null;
+                }
+                examinedThisFrame++;
                 if (site == null || string.IsNullOrWhiteSpace(site.name) ||
                     !names.Add(site.name) || !CoordinatesValid(site))
                 {
