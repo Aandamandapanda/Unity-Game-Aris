@@ -22,6 +22,11 @@ namespace Aaris.MapReview
         private static readonly float[] CloseEnds = { 140f, 245f, 360f, 465f };
         private readonly Vector2[] centers = new Vector2[5];
         private readonly AarisOfflineRival[] rivals = new AarisOfflineRival[RivalCount];
+        // Successfully populated slots stay claimed even if their rival
+        // loses later: retry waves must never resurrect defeated opponents.
+        private readonly bool[] populatedSlots = new bool[RivalCount];
+        private const int MaximumSpawnPasses = 4;
+        private int spawnPasses = 1;
         private readonly Collider[] spawnHits = new Collider[24];
         private readonly System.Random random = new System.Random();
         private Transform player;
@@ -82,17 +87,20 @@ namespace Aaris.MapReview
             {
                 // Exactly one authored encounter attempt per half-second.
                 // Avoid a burst of costly Humanoid imports on 2GB phones.
-                TrySpawnSlot(attemptedSlots++);
+                int slot = attemptedSlots++;
+                if (!populatedSlots[slot]) TrySpawnSlot(slot);
                 nextSpawn = Time.time + 0.5f;
                 if (attemptedSlots >= RivalCount)
                 {
-                    if (spawnedRivals == 0)
+                    if (spawnedRivals == 0 || 
+                        (spawnedRivals < RivalCount && spawnPasses < MaximumSpawnPasses))
                     {
-                        // Never lock the player into a permanently empty match
-                        // when the first six sectors contain ocean, cliffs or
-                        // inactive house geometry. Retry a bounded single slot
-                        // after a cooldown, using the player's CURRENT position.
+                        // Retry each still-empty slot from the player's CURRENT
+                        // position, with a cooldown between waves. A dense
+                        // landing settlement must not produce a one-rival BR.
+                        // When every site fails, never declare fake victory.
                         attemptedSlots = 0;
+                        spawnPasses++;
                         nextSpawn = Time.time + 2.5f;
                     }
                     else
@@ -148,7 +156,7 @@ namespace Aaris.MapReview
 
         private void TrySpawnSlot(int index)
         {
-            if (index < 0 || index >= RivalCount) return;
+            if (index < 0 || index >= RivalCount || populatedSlots[index]) return;
             float sectorAngle = Mathf.PI * 2f * (index + 0.5f) / RivalCount;
             for (int attempt = 0; attempt < 9; attempt++)
             {
@@ -174,6 +182,7 @@ namespace Aaris.MapReview
                 var rival = actor.AddComponent<AarisOfflineRival>();
                 rival.Initialize(this, health, player, playerHealth);
                 rivals[index] = rival;
+                populatedSlots[index] = true;
                 activeRivals++;
                 spawnedRivals++;
                 return;

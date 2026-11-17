@@ -103,7 +103,13 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         # When every first-attempt site is a blocked house or steep cliff,
         # the match continues to search, rather than permanently claiming
         the_match_is_over = "spawnComplete = true;"
-        self.assertIn("if (spawnedRivals == 0)", br)
+        self.assertIn("if (spawnedRivals == 0 ||", br)
+        self.assertIn("spawnPasses < MaximumSpawnPasses", br)
+        self.assertIn("private const int MaximumSpawnPasses = 4;", br)
+        self.assertIn("private readonly bool[] populatedSlots = new bool[RivalCount];", br)
+        self.assertIn("if (!populatedSlots[slot]) TrySpawnSlot(slot);", br)
+        self.assertIn("populatedSlots[index] = true;", br)
+        self.assertIn("index >= RivalCount || populatedSlots[index]", br)
         self.assertIn("attemptedSlots = 0;", br)
         self.assertIn("nextSpawn = Time.time + 2.5f;", br)
         self.assertIn("TrySpawnSlot(attemptedSlots++);", br)
