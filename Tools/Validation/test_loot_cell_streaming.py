@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Deterministic proof that 64m cell lookup preserves bounded 50m loot queries."""
+import json
 import math
 import random
 import unittest
@@ -53,6 +54,38 @@ class LootGridRegression(unittest.TestCase):
         check = "(spot - playerPosition).sqrMagnitude > ReleaseMetres * ReleaseMetres"
         self.assertLess(authored.index("TryResolveNearCandidate("), authored.index(check))
         self.assertLess(authored.index(check), authored.index('new GameObject("Loot "'))
+
+    def test_each_authored_indoor_home_has_at_least_one_planned_slot(self):
+        # Static/source-level contract plus independent seeded simulation;
+        # final physical placement still needs native Unity validation.
+        indoor = [x for x in json.loads(
+            (ROOT / "Assets/Resources/AarisWeapons/loot_candidates.json")
+            .read_text(encoding="utf-8"))["candidates"]
+            if x["kind"] == "indoor"]
+        homes = {}
+        for index, point in enumerate(indoor):
+            homes.setdefault(point["origin"], []).append(index)
+        self.assertGreaterEqual(len(homes), 50)
+        self.assertTrue(all(len(slots) >= 1 for slots in homes.values()))
+        self.assertIn("var indoorHomesCovered = new HashSet<string>(StringComparer.Ordinal);", SOURCE)
+        self.assertIn("var fallbackSlotByHome = new Dictionary<string, int>(StringComparer.Ordinal);", SOURCE)
+        self.assertIn("fallbackSlotByHome.Add(c.origin, i);", SOURCE)
+        self.assertIn("if (indoorHomesCovered.Contains(home.Key)) continue;", SOURCE)
+        self.assertIn("choices[home.Value] = guaranteedSpec;", SOURCE)
+        self.assertIn("IndexPlannedCandidates();", SOURCE)
+        self.assertLess(SOURCE.index("choices[home.Value] = guaranteedSpec;"),
+                        SOURCE.index("IndexPlannedCandidates();"))
+        for seed in range(1000):
+            rng = random.Random(seed)
+            selected = {point["origin"] for point in indoor
+                        if rng.random() < .72}
+            missing = set(homes) - selected
+            selected.update(missing)
+            self.assertEqual(selected, set(homes))
+            self.assertLessEqual(len(missing), len(homes))
+        # No extra active models or per-frame physics work.
+        self.assertIn("MaximumActiveLoot = 40;", SOURCE)
+        self.assertIn("MaximumBuildAttemptsPerFrame = 2;", SOURCE)
 
     def test_tree_spacing_subsets_keep_the_same_acceptance_order(self):
         self.assertIn("foreach (var point in treePoints)", SOURCE)

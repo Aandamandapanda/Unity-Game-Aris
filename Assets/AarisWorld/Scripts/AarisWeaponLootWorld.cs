@@ -198,6 +198,11 @@ namespace Aaris.MapReview
             nextCandidateProbeAt = new float[candidates.Length];
             alternateProbeSweep = new byte[candidates.Length];
             choices = new AarisWeaponSpec[candidates.Length];
+            // The authored indoor points have a stable per-house origin key.
+            // Track which homes actually receive a planned gun, and retain one
+            // fallback slot for each home. This is match data, not extra meshes.
+            var indoorHomesCovered = new HashSet<string>(StringComparer.Ordinal);
+            var fallbackSlotByHome = new Dictionary<string, int>(StringComparer.Ordinal);
             int selected = 0;
             for (int i = 0; i < candidates.Length; i++)
             {
@@ -210,6 +215,9 @@ namespace Aaris.MapReview
                 // remain separately capped at MaximumActiveLoot.
                 if (!WithinMap(c)) continue;
                 bool indoor = c.kind == "indoor";
+                if (indoor && !string.IsNullOrEmpty(c.origin) &&
+                    !fallbackSlotByHome.ContainsKey(c.origin))
+                    fallbackSlotByHome.Add(c.origin, i);
                 // The old 32% open-ground chance made most outdoor landing
                 // spots look empty. Plan more existing candidates without
                 // increasing the active mesh or per-frame physics budgets.
@@ -225,10 +233,30 @@ namespace Aaris.MapReview
                 if (spec == null) continue;
                 choices[i] = spec;
                 selected++;
+                if (indoor && !string.IsNullOrEmpty(c.origin))
+                    indoorHomesCovered.Add(c.origin);
+            }
+            // Independent 72% rolls can leave all three slots of a home empty.
+            // Guarantee one logical slot in each authored indoor house, but do
+            // not create another GameObject, widen streaming, or bypass physical
+            // floor/reachability checks. Closed/blocked buildings still use
+            // TryResolveNearCandidate's existing safe exterior relocation.
+            int guaranteedHomes = 0;
+            foreach (var home in fallbackSlotByHome)
+            {
+                if (indoorHomesCovered.Contains(home.Key)) continue;
+                var guaranteedSpec = AarisWeaponCatalog.Select(ref rng, true);
+                if (guaranteedSpec == null) continue;
+                choices[home.Value] = guaranteedSpec;
+                indoorHomesCovered.Add(home.Key);
+                selected++;
+                guaranteedHomes++;
             }
             IndexPlannedCandidates();
             Debug.Log("Aaris: match seed " + matchSeed + ", planned " + selected +
-                " offline pickups (actual ground/collision validated near player).");
+                " offline pickups; covered indoor homes " + indoorHomesCovered.Count +
+                "/" + fallbackSlotByHome.Count + " (added " + guaranteedHomes +
+                " home fallback plans; actual ground/collision validated near player).");
         }
 
         private static int CandidateCell(float coordinate) =>
