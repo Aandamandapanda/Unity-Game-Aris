@@ -49,8 +49,21 @@ namespace Aaris.MapReview
         private void LateUpdate()
         {
             if (fingers.Count == 0) return;
-            if (EventSystem.current == null ||
-                !(EventSystem.current.currentInputModule is StandaloneInputModule)) return;
+            // If the EventSystem disappears mid-press, no PointerUp can arrive.
+            // Reset both the visible arrow and the authoritative held axis.
+            if (EventSystem.current == null)
+            {
+                Reset();
+                return;
+            }
+            // Non-standalone modules may use different pointer IDs. Never
+            // guess which finger owns this arrow; release only after all
+            // physical touch and primary mouse input has finished.
+            if (!(EventSystem.current.currentInputModule is StandaloneInputModule))
+            {
+                if (Input.touchCount == 0 && !Input.GetMouseButton(0)) Reset();
+                return;
+            }
 
             staleFingers.Clear();
             foreach (int pointerId in fingers)

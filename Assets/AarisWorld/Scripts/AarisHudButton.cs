@@ -122,10 +122,21 @@ namespace Aaris.MapReview
                 Release();
                 return;
             }
-            // This mapping is specific to the classic StandaloneInputModule.
-            // Other input modules may assign device-specific pointer IDs.
-            if (EventSystem.current == null ||
-                !(EventSystem.current.currentInputModule is StandaloneInputModule)) return;
+            // A replaced/destroyed EventSystem can never deliver the matching
+            // PointerUp. Release now instead of leaving a held action latched.
+            if (EventSystem.current == null)
+            {
+                Release();
+                return;
+            }
+            // Only StandaloneInputModule guarantees the legacy finger-ID map.
+            // For other modules, do not guess which remaining finger owns us;
+            // conservatively release once NO physical touch/mouse remains.
+            if (!(EventSystem.current.currentInputModule is StandaloneInputModule))
+            {
+                if (Input.touchCount == 0 && !Input.GetMouseButton(0)) Release();
+                return;
+            }
 
             stalePointers.Clear();
             foreach (int pointerId in heldPointers)
