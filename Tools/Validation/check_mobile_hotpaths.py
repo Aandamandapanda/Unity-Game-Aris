@@ -300,6 +300,40 @@ def audit():
     assert "memoryMB <= 2304 || IsBudgetAndroidGpu()" in quality_setup
     assert '"Mali-G52"' in quality_setup and '"Mali-G31"' in quality_setup
     assert "IsBudgetAndroidGpu()" in quality_setup
+
+    # Real-player edge case: a 4 GB entry-level Mali-G57 MC2/MP2 must
+    # receive the already-existing low-cost foliage/shadow path, even when
+    # RAM-only classification would skip it. A stronger G57 MC4 and unknown
+    # model stay on native visual settings. This is a static guard; target
+    # Android frame times still require on-device measurement.
+    gpu_detection = quality[quality.index("private static bool IsBudgetAndroidGpu()"):
+                            quality.index("// One-time, Android-only vegetation work")]
+    assert "string normalizedGpu = gpu.Replace('-', ' ').Replace('_', ' ');" in gpu_detection
+    assert "return smallG57 ||" in gpu_detection
+    for suffix in (" MC1", " MC2", " MP1", " MP2"):
+        assert 'normalizedGpu.IndexOf("' + suffix + '"' in gpu_detection
+
+    def small_g57(gpu_name):
+        name = gpu_name.replace("-", " ").replace("_", " ").lower()
+        return "mali g57" in name and any(
+            suffix in name for suffix in (" mc1", " mc2", " mp1", " mp2")
+        )
+
+    for gpu_name, expected in (
+        ("ARM Mali-G57 MC2", True),
+        ("Mali G57 MC2", True),
+        ("Mali-G57 MP2", True),
+        ("Mali-G57 MP1", True),
+        ("MALI_G57 MC1", True),
+        ("Mali-G57 MC3", False),
+        ("Mali-G57 MC4", False),
+        ("Mali-G57", False),
+        ("Mali-G76 MC4", False),
+        ("Adreno 740", False),
+        ("", False),
+    ):
+        assert small_g57(gpu_name) == expected, gpu_name
+    assert 4096 > 3072  # The RAM-only gate would otherwise skip this phone.
     for ram_mb in (0, -1, 4096, 8192):
         assert not (0 < ram_mb <= 3072)
     for ram_mb in (1536, 2048, 2304, 3072):

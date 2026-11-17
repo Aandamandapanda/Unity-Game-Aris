@@ -302,7 +302,20 @@ namespace Aaris.MapReview
             // A narrow, auditable list: many 4 GB budget gaming phones still
             // use these limited tile-based GPUs. Avoid RAM-only classification.
             string gpu = SystemInfo.graphicsDeviceName ?? "";
-            return gpu.IndexOf("Mali-G52", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            // On some Android drivers the same entry-level G57 is reported
+            // as "Mali-G57 MC2", "Mali G57 MC2" or "Mali-G57 MP2".
+            // Match only the small 1/2-core variants: broad "Mali-G57"
+            // would unnecessarily downgrade stronger MC3/MC4 phones.
+            // This runs only at quality setup, never on the render hotpath.
+            string normalizedGpu = gpu.Replace('-', ' ').Replace('_', ' ');
+            bool smallG57 = normalizedGpu.IndexOf("Mali G57",
+                StringComparison.OrdinalIgnoreCase) >= 0 &&
+                (normalizedGpu.IndexOf(" MC1", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 normalizedGpu.IndexOf(" MC2", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 normalizedGpu.IndexOf(" MP1", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 normalizedGpu.IndexOf(" MP2", StringComparison.OrdinalIgnoreCase) >= 0);
+            return smallG57 ||
+                   gpu.IndexOf("Mali-G52", StringComparison.OrdinalIgnoreCase) >= 0 ||
                    gpu.IndexOf("Mali-G51", StringComparison.OrdinalIgnoreCase) >= 0 ||
                    gpu.IndexOf("Mali-G31", StringComparison.OrdinalIgnoreCase) >= 0 ||
                    gpu.IndexOf("PowerVR GE8320", StringComparison.OrdinalIgnoreCase) >= 0 ||
