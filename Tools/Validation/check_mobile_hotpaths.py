@@ -431,6 +431,9 @@ def audit():
     assert "slowIntervals = steadyIntervals = 0;" in quality
     # A paused 2 GB phone may lose its GPU context or spend seconds resuming.
     # Never let pre-pause CPU/GPU classifications govern the next scene scale.
+    focus = quality[quality.index("private void OnApplicationFocus(bool focused)") :
+                    quality.index("private void OnApplicationPause(bool paused)")]
+    assert "if (focused) OnApplicationPause(false);" in focus
     resume = quality[quality.index("private void OnApplicationPause(bool paused)") :
                      quality.index("private void OnApplicationQuit()")]
     assert "timingFrameCounter = timingSamples = gpuLimitedSamples = cpuLimitedSamples = 0;" in resume

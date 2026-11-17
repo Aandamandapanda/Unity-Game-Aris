@@ -549,6 +549,12 @@ namespace Aaris.MapReview
         }
 
         private void OnLowMemory() { lowMemoryPending = true; }
+        private void OnApplicationFocus(bool focused)
+        {
+            // Android may regain focus after a system overlay without pause.
+            // Reset stale frame-time samples before the next quality decision.
+            if (focused) OnApplicationPause(false);
+        }
         private void OnApplicationPause(bool paused)
         {
             if (paused) Record("pause");
