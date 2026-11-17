@@ -61,6 +61,7 @@ namespace Aaris.MapReview
         private Terrain[] mobileFoliageTiles;
         private float[] originalDetailDistances, appliedDetailDistances;
         private float[] originalBillboardDistances, appliedBillboardDistances;
+        private float[] originalTreeDistances, appliedTreeDistances;
         private int[] originalFullLodTreeCounts;
         private const int LowMemoryFullLodTreeLimit = 50;
         private TerrainData[] mobileWindData;
@@ -335,6 +336,8 @@ namespace Aaris.MapReview
             appliedDetailDistances = new float[count];
             originalBillboardDistances = new float[count];
             appliedBillboardDistances = new float[count];
+            originalTreeDistances = new float[count];
+            appliedTreeDistances = new float[count];
             originalFullLodTreeCounts = new int[count];
             mobileWindData = new TerrainData[count];
             originalGrassWindStrength = new float[count];
@@ -344,15 +347,26 @@ namespace Aaris.MapReview
                 if (tile == null) continue;
                 originalDetailDistances[i] = tile.detailObjectDistance;
                 originalBillboardDistances[i] = tile.treeBillboardDistance;
+                originalTreeDistances[i] = tile.treeDistance;
                 originalFullLodTreeCounts[i] = tile.treeMaximumFullLODCount;
                 // Keep all grass within 80 m, but avoid processing small
                 // vegetation on the outer 80-100 m ring of each camera view.
                 appliedDetailDistances[i] = Mathf.Min(originalDetailDistances[i], 80f);
                 appliedBillboardDistances[i] = Mathf.Min(originalBillboardDistances[i], 85f);
+                // 850m draw reach means far tree billboards are still submitted
+                // across most of the 2km world. Bound only weak Android GPUs,
+                // keep the full authored forest close to the player and all
+                // existing terrain/tree collision data unchanged.
+                float treeDistanceLimit = SystemInfo.systemMemorySize <= 2304
+                    ? 450f : 600f;
+                appliedTreeDistances[i] = Mathf.Min(originalTreeDistances[i],
+                    treeDistanceLimit);
                 if (appliedDetailDistances[i] < originalDetailDistances[i])
                     tile.detailObjectDistance = appliedDetailDistances[i];
                 if (appliedBillboardDistances[i] < originalBillboardDistances[i])
                     tile.treeBillboardDistance = appliedBillboardDistances[i];
+                if (appliedTreeDistances[i] < originalTreeDistances[i])
+                    tile.treeDistance = appliedTreeDistances[i];
                 // Keep authored tree coverage and the near billboard transition,
                 // while capping full-detail meshes in dense groves on weak GPUs.
                 if (originalFullLodTreeCounts[i] > LowMemoryFullLodTreeLimit)
@@ -638,6 +652,9 @@ namespace Aaris.MapReview
                     if (appliedBillboardDistances[i] < originalBillboardDistances[i] &&
                         Mathf.Approximately(tile.treeBillboardDistance, appliedBillboardDistances[i]))
                         tile.treeBillboardDistance = originalBillboardDistances[i];
+                    if (appliedTreeDistances[i] < originalTreeDistances[i] &&
+                        Mathf.Approximately(tile.treeDistance, appliedTreeDistances[i]))
+                        tile.treeDistance = originalTreeDistances[i];
                     if (originalFullLodTreeCounts[i] > LowMemoryFullLodTreeLimit &&
                         tile.treeMaximumFullLODCount == LowMemoryFullLodTreeLimit)
                         tile.treeMaximumFullLODCount = originalFullLodTreeCounts[i];

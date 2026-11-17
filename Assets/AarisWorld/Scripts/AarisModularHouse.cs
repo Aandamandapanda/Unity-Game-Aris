@@ -223,20 +223,37 @@ namespace Aaris.MapReview
             float x = width * .5f + .32f, z = depth * .5f + .34f;
             float baseY = wallHeight + .11f;
             float peakY = baseY + Mathf.Clamp(width * .12f, .75f, 1.35f);
-            Vector3[] vertices = {
+            // Duplicate vertices at each distinct roof plane. The former
+            // six-vertex mesh averaged normals across the ridge/gables and
+            // made a sharp pitched roof shade like rounded plastic. Keep
+            // exactly the same triangles, silhouette, UV tiling and renderer.
+            Vector3[] corners = {
                 new Vector3(-x,baseY,-z), new Vector3(0f,peakY,-z),
                 new Vector3(x,baseY,-z), new Vector3(-x,baseY,z),
                 new Vector3(0f,peakY,z), new Vector3(x,baseY,z)
             };
+            int[] faceCorners = {
+                0,3,1,4, // left slope
+                1,4,2,5, // right slope
+                0,1,2,   // front gable
+                3,5,4    // back gable
+            };
+            Vector3[] vertices = new Vector3[faceCorners.Length];
+            for (int i = 0; i < faceCorners.Length; i++)
+                vertices[i] = corners[faceCorners[i]];
             Mesh mesh = new Mesh { name = "Aaris_PitchedRoof" };
             mesh.vertices = vertices;
             mesh.triangles = new[] {
-                0,3,1, 1,3,4, 1,4,2, 2,4,5, 0,1,2, 3,5,4
+                0,1,2, 2,1,3, 4,5,6, 6,5,7, 8,9,10, 11,12,13
             };
+            float lengthTiling = depth / 4f;
             mesh.uv = new[] {
-                new Vector2(0,0), new Vector2(.5f,1f),
-                new Vector2(1f,0), new Vector2(0,depth/4f),
-                new Vector2(.5f,1f+depth/4f), new Vector2(1f,depth/4f)
+                new Vector2(0,0), new Vector2(0,lengthTiling),
+                new Vector2(.5f,1f), new Vector2(.5f,1f+lengthTiling),
+                new Vector2(.5f,1f), new Vector2(.5f,1f+lengthTiling),
+                new Vector2(1f,0), new Vector2(1f,lengthTiling),
+                new Vector2(0,0), new Vector2(.5f,1f), new Vector2(1f,0),
+                new Vector2(0,0), new Vector2(1f,0), new Vector2(.5f,1f)
             };
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();
