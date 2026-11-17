@@ -12,13 +12,18 @@ command -v pkg >/dev/null || { echo "AARIS_GIT_BRIDGE_TERMUX_REQUIRED"; exit 2; 
 for tool in gh curl jq base64; do
   command -v "$tool" >/dev/null || { echo "AARIS_GIT_BRIDGE_TOOL_MISSING=$tool"; exit 3; }
 done
-GH_CONFIG_DIR="$MASTER" gh auth status -h github.com >/dev/null 2>&1 || {
+# Prove that both saved profiles actually authenticate to the GitHub
+# API. gh auth status can report a credential-helper warning even though
+# gh api user and Codespaces list succeeded in the account switch.
+OWNER="$(GH_CONFIG_DIR="$MASTER" gh api user --jq .login 2>/dev/null)" || {
   echo "AARIS_GIT_BRIDGE_MAIN_ACCOUNT_LOGIN_REQUIRED"; exit 4;
 }
-GH_CONFIG_DIR="$WORKER" gh auth status -h github.com >/dev/null 2>&1 || {
+CS_LOGIN="$(GH_CONFIG_DIR="$WORKER" gh api user --jq .login 2>/dev/null)" || {
   echo "AARIS_GIT_BRIDGE_CODESPACE_ACCOUNT_LOGIN_REQUIRED"; exit 5;
 }
-OWNER="$(GH_CONFIG_DIR="$MASTER" gh api user --jq .login)"
+[[ "$CS_LOGIN" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]] || {
+  echo "AARIS_GIT_BRIDGE_INVALID_CODESPACE_ACCOUNT"; exit 5;
+}
 [[ "$OWNER" == sundamunda289-art ]] || {
   echo "AARIS_GIT_BRIDGE_WRONG_MAIN_ACCOUNT"; exit 6;
 }
