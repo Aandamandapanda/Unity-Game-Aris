@@ -438,26 +438,27 @@ namespace Aaris.MapReview
                 baseColor = source.GetColor("_BaseColor");
             else if (source.HasProperty("_Color"))
                 baseColor = source.GetColor("_Color");
-            Texture baseMap = source.HasProperty("_BaseMap")
-                ? source.GetTexture("_BaseMap") :
-                source.HasProperty("_MainTex") ? source.GetTexture("_MainTex") : null;
             if (result.HasProperty("_BaseColor")) result.SetColor("_BaseColor", baseColor);
-            if (baseMap != null && result.HasProperty("_BaseMap"))
-                result.SetTexture("_BaseMap", baseMap);
+            string baseProperty = source.HasProperty("_BaseMap") &&
+                source.GetTexture("_BaseMap") != null ? "_BaseMap" : "_MainTex";
+            AarisVehicleSurfaceMaps.Transfer(source, result, baseProperty, "_BaseMap");
 
-            Texture normal = source.HasProperty("_BumpMap")
-                ? source.GetTexture("_BumpMap") : null;
-            if (normal != null && result.HasProperty("_BumpMap"))
+            if (AarisVehicleSurfaceMaps.Transfer(source, result, "_BumpMap",
+                "_BumpMap") != null)
             {
-                result.SetTexture("_BumpMap", normal);
                 result.EnableKeyword("_NORMALMAP");
+                AarisVehicleSurfaceMaps.TransferStrength(source, result,
+                    "_BumpScale", 1f, 2f);
             }
-            Texture metallicMap = source.HasProperty("_MetallicGlossMap")
-                ? source.GetTexture("_MetallicGlossMap") : null;
-            if (metallicMap != null && result.HasProperty("_MetallicGlossMap"))
-            {
-                result.SetTexture("_MetallicGlossMap", metallicMap);
+            if (AarisVehicleSurfaceMaps.Transfer(source, result, "_MetallicGlossMap",
+                "_MetallicGlossMap") != null)
                 result.EnableKeyword("_METALLICSPECGLOSSMAP");
+            if (AarisVehicleSurfaceMaps.Transfer(source, result, "_OcclusionMap",
+                "_OcclusionMap") != null)
+            {
+                result.EnableKeyword("_OCCLUSIONMAP");
+                AarisVehicleSurfaceMaps.TransferStrength(source, result,
+                    "_OcclusionStrength");
             }
             float metallic = source.HasProperty("_Metallic")
                 ? source.GetFloat("_Metallic") : .12f;
