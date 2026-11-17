@@ -118,6 +118,7 @@ namespace Aaris.MapReview
             // forcing a platform-specific renderer/material substitution.
             // Choose the saved device policy before submitting the first
             // world frame so startup does not build two different render states.
+            ConfigureOceanShadowBudget();
             ConfigureTerrainInstanceRenderer();
 #if UNITY_ANDROID && !UNITY_EDITOR
             ConfigureAndroidQuality();
@@ -130,6 +131,21 @@ namespace Aaris.MapReview
                 Debug.LogWarning("AARIS_TERRAIN_PAINT_RELEASE_DISABLED: preserve original alphamap GPU uploads.");
             AuditNativeTerrain();
             Record("terrain-render-audit");
+        }
+
+        // The 2 km visual-only ocean is a flat water surface, not a shadow caster.
+        // Disable both shadow passes once before the first camera frame; keep the
+        // authored mesh, shader, materials and terrain assets untouched.
+        private static void ConfigureOceanShadowBudget()
+        {
+            GameObject ocean = GameObject.Find("Ocean_VisualOnly");
+            if (ocean == null) return;
+            MeshRenderer oceanRenderer = ocean.GetComponent<MeshRenderer>();
+            if (oceanRenderer == null) return;
+            if (oceanRenderer.shadowCastingMode != UnityEngine.Rendering.ShadowCastingMode.Off)
+                oceanRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            if (oceanRenderer.receiveShadows)
+                oceanRenderer.receiveShadows = false;
         }
 
         private void ConfigureTerrainInstanceRenderer()
