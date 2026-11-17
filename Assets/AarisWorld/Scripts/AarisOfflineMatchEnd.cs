@@ -21,10 +21,20 @@ namespace Aaris.MapReview
             if (health.IsDead) EndMatch(health);
         }
 
-        private void EndMatch(AarisOfflineHealth defeated)
+        public bool IsFinished => pausedForDefeat;
+
+        private void EndMatch(AarisOfflineHealth defeated) => FinishMatch(false);
+
+        public void WinMatch()
+        {
+            if (health == null || health.IsDead) return;
+            FinishMatch(true);
+        }
+
+        private void FinishMatch(bool winner)
         {
             if (pausedForDefeat) return;
-            CreateDefeatScreen();
+            CreateResultScreen(winner);
             previousTimeScale = Time.timeScale;
             previousAudioPause = AudioListener.pause;
             Time.timeScale = 0f;
@@ -49,9 +59,9 @@ namespace Aaris.MapReview
             if (behaviour != null) behaviour.enabled = false;
         }
 
-        private void CreateDefeatScreen()
+        private void CreateResultScreen(bool winner)
         {
-            var overlay = new GameObject("Defeat Screen", typeof(RectTransform),
+            var overlay = new GameObject(winner ? "Victory Screen" : "Defeat Screen", typeof(RectTransform),
                 typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             overlay.transform.SetParent(transform, false);
             var canvas = overlay.GetComponent<Canvas>();
@@ -68,7 +78,7 @@ namespace Aaris.MapReview
             Fill(shade.GetComponent<RectTransform>());
             shade.GetComponent<Image>().color = new Color(.04f, .06f, .08f, .92f);
 
-            var title = MakeText(shade.transform, "Defeated", 42);
+            var title = MakeText(shade.transform, winner ? "VICTORY" : "DEFEATED", 42);
             title.rectTransform.sizeDelta = new Vector2(400f, 70f);
             title.rectTransform.anchoredPosition = new Vector2(0f, 36f);
 

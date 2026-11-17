@@ -97,6 +97,53 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         ):
             self.assertEqual(physically_held(pointer, mouse, touches), expected)
 
+    def test_offline_br_is_a_bounded_real_match_not_an_empty_map(self):
+        br = (SCRIPTS / "AarisOfflineBRDirector.cs").read_text("utf-8")
+        end = (SCRIPTS / "AarisOfflineMatchEnd.cs").read_text("utf-8")
+        health = (SCRIPTS / "AarisOfflineHealth.cs").read_text("utf-8")
+        self.assertIn("private const int RivalCount = 6;", br)
+        self.assertIn("if (drop != null && !drop.HasLanded) return;", br)
+        self.assertIn("nextSpawn = Time.time + 0.5f;", br)
+        self.assertIn("TryGetGround(x, z, out float ground)", br)
+        self.assertIn("origin.y + tile.SampleHeight(", br)
+        self.assertIn("HasPotentialInactiveObstacle(", br)
+        self.assertIn("Physics.OverlapCapsuleNonAlloc", br)
+        self.assertIn("Physics.OverlapCapsule(low, high, 0.34f,", br)
+        self.assertIn("Mathf.Clamp01((elapsed - CloseStarts[stage])", br)
+        self.assertIn("Mathf.Lerp(ZoneRadii[stage], ZoneRadii[stage + 1], blend)", br)
+        self.assertIn("Outside(player.position)", br)
+        self.assertIn("playerHealth.ApplyDamage(7f, null)", br)
+        self.assertIn("Physics.RaycastNonAlloc(ray, sightHits, distance,", br)
+        self.assertIn("hits = Physics.RaycastAll(ray, distance,", br)
+        self.assertIn("closest.transform.IsChildOf(target)", br)
+        self.assertIn("targetHealth.ApplyDamage(6f, gameObject);", br)
+        self.assertIn("private void OnDied(AarisOfflineHealth defeated)", br)
+        self.assertIn("spawnComplete && spawnedRivals > 0 && activeRivals == 0", br)
+        self.assertIn("matchEnd.WinMatch();", br)
+        self.assertIn("Resources.Load<GameObject>(", br)
+        self.assertIn("AarisCharacters/Kenney/characterMedium", br)
+        self.assertIn("AnimationMixerPlayable.Create(graph, 2)", br)
+        self.assertIn("public void WinMatch()", end)
+        self.assertIn('winner ? "VICTORY" : "DEFEATED"', end)
+        self.assertIn("public bool IsFinished => pausedForDefeat;", end)
+        self.assertIn("public sealed class AarisOfflineHealth", health)
+        # All intermediate shrink targets must remain nested; the final
+        # safe area may move but can never jump outside the previous one.
+        radii = (1080., 660., 360., 175., 65.)
+        begins = (45., 165., 285., 400.)
+        ends = (140., 245., 360., 465.)
+        for i in range(4):
+            self.assertGreater(radii[i], radii[i+1])
+            self.assertLess(begins[i], ends[i])
+            if i:
+                self.assertGreater(begins[i], ends[i-1])
+            shift = (radii[i]-radii[i+1])*.54
+            self.assertLessEqual(shift+radii[i+1], radii[i])
+            for f in (0., .05, .2, .5, .8, 1.):
+                mid = radii[i] + (radii[i+1]-radii[i])*f
+                self.assertLessEqual(mid, radii[i])
+                self.assertGreaterEqual(mid, radii[i+1])
+
     def test_ocean_glide_requires_solid_contact_or_safe_recovery(self):
         drop = (SCRIPTS / "AarisOfflineDrop.cs").read_text("utf-8")
         move = drop.split("private void MoveAirborne(float dt)", 1)[1].split(
