@@ -62,16 +62,18 @@ namespace Aaris.MapReview
                 const string primary = "AarisCharacters/Primary/RealisticSoldier/RealisticSoldier";
                 string path = primary;
                 rivalPrefab = Resources.Load<GameObject>(path);
-                if (rivalPrefab == null)
+                if (!HasRenderableRivalPrefab(rivalPrefab))
                 {
                     path = "AarisCharacters/Primary/Player";
                     rivalPrefab = Resources.Load<GameObject>(path);
                 }
-                if (rivalPrefab == null)
+                if (!HasRenderableRivalPrefab(rivalPrefab))
                 {
                     path = "AarisCharacters/Kenney/characterMedium";
                     rivalPrefab = Resources.Load<GameObject>(path);
                 }
+                if (!HasRenderableRivalPrefab(rivalPrefab))
+                    rivalPrefab = null;
                 if (rivalPrefab != null)
                 {
                     foreach (Avatar available in Resources.LoadAll<Avatar>(path))
@@ -89,6 +91,37 @@ namespace Aaris.MapReview
             avatar = rivalAvatar;
             idle = rivalIdle;
             run = rivalRun;
+        }
+
+        // Prefab assets are not necessarily activeInHierarchy before spawning.
+        // Check authored activeSelf ancestry and mesh content only on setup.
+        internal static bool HasRenderableRivalPrefab(GameObject source)
+        {
+            if (source == null || !source.activeSelf) return false;
+            foreach (Renderer renderer in source.GetComponentsInChildren<Renderer>(true))
+            {
+                if (renderer == null || !renderer.enabled ||
+                    renderer.forceRenderingOff) continue;
+                bool active = true;
+                Transform node = renderer.transform;
+                while (node != null)
+                {
+                    if (!node.gameObject.activeSelf) { active = false; break; }
+                    if (node == source.transform) break;
+                    node = node.parent;
+                }
+                if (!active) continue;
+                if (renderer is SkinnedMeshRenderer skinned &&
+                    skinned.sharedMesh != null &&
+                    skinned.sharedMesh.vertexCount > 0) return true;
+                if (renderer is MeshRenderer meshRenderer)
+                {
+                    MeshFilter filter = meshRenderer.GetComponent<MeshFilter>();
+                    if (filter != null && filter.sharedMesh != null &&
+                        filter.sharedMesh.vertexCount > 0) return true;
+                }
+            }
+            return false;
         }
 
         private static AnimationClip LoadRivalClip(string path)
@@ -572,16 +605,16 @@ namespace Aaris.MapReview
                 out AnimationClip idle, out AnimationClip run);
             if (prefab == null)
             {
-                var fallback = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-                fallback.name = "Rival fallback silhouette";
-                fallback.transform.SetParent(transform, false);
-                fallback.transform.localPosition = Vector3.up * .90f;
-                fallback.transform.localScale = new Vector3(.62f, .9f, .62f);
-                Collider c = fallback.GetComponent<Collider>();
-                if (c != null) { c.enabled = false; Destroy(c); }
+                BuildFallbackSilhouette();
                 return;
             }
             var visual = Instantiate(prefab, transform, false);
+            if (!AarisOfflineBRDirector.HasRenderableRivalPrefab(visual))
+            {
+                Destroy(visual);
+                BuildFallbackSilhouette();
+                return;
+            }
             visual.name = "Rival humanoid visual";
             foreach (var c in visual.GetComponentsInChildren<Collider>(true))
             { c.enabled = false; Destroy(c); }
@@ -646,6 +679,19 @@ namespace Aaris.MapReview
                 .SetSourcePlayable(animations);
             graph.Play();
             hasAnimations = true;
+        }
+
+        private void BuildFallbackSilhouette()
+        {
+            // This is a visible last resort, not a replacement for the
+            // bundled realistic models. It adds no secondary physics collider.
+            var fallback = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            fallback.name = "Rival fallback silhouette";
+            fallback.transform.SetParent(transform, false);
+            fallback.transform.localPosition = Vector3.up * .90f;
+            fallback.transform.localScale = new Vector3(.62f, .9f, .62f);
+            Collider collider = fallback.GetComponent<Collider>();
+            if (collider != null) { collider.enabled = false; Destroy(collider); }
         }
 
         // Rigs may contain enormous import/bind-pose renderer bounds.
