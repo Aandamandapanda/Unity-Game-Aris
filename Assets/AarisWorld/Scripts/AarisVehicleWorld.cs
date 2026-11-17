@@ -1396,11 +1396,39 @@ namespace Aaris.MapReview
                     record.nextProbe = now + 3.0f;
                     continue;
                 }
+                // A physics wake or another collision may make the selected
+                // victim non-parkable while we probe the replacement spot.
+                // Refuse to remove a rolling/occupied vehicle.
+                if (parkedVictim != null &&
+                    (parkedVictim.visible == null || !parkedVictim.visible.CanPark))
+                {
+                    record.nextProbe = now + .3f;
+                    continue;
+                }
+
+                // Build the replacement FIRST. A broken authored FBX,
+                // invisible renderer or missing wheel geometry can still
+                // fail here, even after five-ray placement succeeded.
+                // Evicting the old car first would leave the player with
+                // zero visible vehicles in a formerly full 10-car stream.
+                if (!Build(record, pos))
+                {
+                    record.nextProbe = now + 3.0f;
+                    continue;
+                }
+
                 if (parkedVictim != null)
                 {
                     AarisVehicleMotor retired = parkedVictim.visible;
                     if (retired == null || !retired.CanPark)
                     {
+                        // Defensive rollback if physics ownership changed
+                        // during Build. Do not destroy/replace an occupied or
+                        // moving car. Build assigned this candidate's visible
+                        // instance only after the wheel/model checks passed.
+                        if (record.visible != null)
+                            Destroy(record.visible.gameObject);
+                        record.visible = null;
                         record.nextProbe = now + .3f;
                         continue;
                     }
@@ -1413,17 +1441,10 @@ namespace Aaris.MapReview
                     unloaded++;
                     active--;
                 }
-                if (Build(record, pos))
-                {
-                    active++;
-                    built++;
-                    record.position = pos;
-                    record.previouslySpawned = true;
-                }
-                else
-                {
-                    record.nextProbe = now + 3.0f;
-                }
+                active++;
+                built++;
+                record.position = pos;
+                record.previouslySpawned = true;
             }
         }
 

@@ -49,6 +49,41 @@ class VehicleStreamingPriority(unittest.TestCase):
         self.assertIn("parkedVictim.rotation = retired.transform.rotation;", update)
         self.assertIn("parkedVictim.nextProbe = now + 3.0f;", update)
 
+    def test_failed_replacement_never_evicts_the_old_car(self):
+        # Reproduces a real-player case: placement passes, but FBX/wheel
+        # validation returns false after an authored model was imported.
+        update = WORLD.split("private void Update()", 1)[1].split(
+            "private AarisVehicleRecord FarthestReplaceableParkedCar(", 1)[0]
+        build = update.index("if (!Build(record, pos))")
+        destroy_old = update.index("Destroy(retired.gameObject);")
+        self.assertLess(build, destroy_old)
+        failure = update[build:destroy_old]
+        self.assertIn("record.nextProbe = now + 3.0f;", failure)
+        self.assertIn("continue;", failure)
+        self.assertNotIn("Destroy(retired.gameObject);", failure)
+        # Late physics ownership change must discard the *new* body only.
+        self.assertIn("if (retired == null || !retired.CanPark)", failure)
+        self.assertIn("Destroy(record.visible.gameObject);", failure)
+        self.assertIn("record.visible = null;", failure)
+        self.assertIn("record.nextProbe = now + .3f;", failure)
+        self.assertLess(destroy_old, update.index("active--;"))
+        self.assertLess(update.index("active--;", build),
+                        update.index("active++;", build))
+        self.assertLess(update.index("active++;"), update.index("record.previouslySpawned = true;"))
+
+    def test_parked_replacement_does_not_mutate_damage_on_failure(self):
+        update = WORLD.split("private void Update()", 1)[1].split(
+            "private AarisVehicleRecord FarthestReplaceableParkedCar(", 1)[0]
+        build = update.index("if (!Build(record, pos))")
+        saved_state = update.index("parkedVictim.position = retired.transform.position;")
+        self.assertLess(build, saved_state)
+        self.assertLess(saved_state, update.index("parkedVictim.damage01 = retired.Damage01;"))
+        self.assertLess(update.index("parkedVictim.damage01 = retired.Damage01;"),
+                        update.index("Destroy(retired.gameObject);"))
+        # No excess replacement after reaching the native per-poll limits.
+        self.assertIn("unloaded >= unloadBudgetPerPoll", update)
+        self.assertIn("built < spawnBudgetPerPoll", update)
+
     def test_authored_car_pbr_conversion_is_released_on_scene_teardown(self):
         # Runtime materials are shared for streamed cars and must not leak
         # when the level reloads. Imported shared source assets remain alive.
