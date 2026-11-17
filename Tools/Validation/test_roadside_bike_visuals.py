@@ -36,7 +36,14 @@ class BikeVisuals(unittest.TestCase):
 
     def test_body_paint_variants_preserve_wheel_and_light_materials(self):
         source = SCRIPT.read_text()
-        self.assertIn("int[] fallbackOrder = {0,1,2,3,4,5,6,7};", source)
+        self.assertIn("int[] fallbackOrder = {1,2,3,4,0,7,5,6};", source)
+        mesh = (ASSET / "AarisRoadBike.obj").read_text()
+        sections = [line.split()[1] for line in mesh.splitlines()
+                    if line.startswith("usemtl ")]
+        mapping = {"Paint": 0, "Tyre": 1, "Rim": 2, "Engine": 3,
+                   "Seat": 4, "Headlamp": 5, "TailLamp": 6, "Amber": 7}
+        expected = [mapping[label] for label in sections]
+        self.assertEqual(expected, [1,2,3,4,0,7,5,6])
         self.assertIn("private readonly Material[] paintVariants = new Material[4];", source)
         self.assertIn("paintVariants[0] = surfaces[0];", source)
         self.assertIn("paintVariants[i] = new Material(surfaces[0])", source)

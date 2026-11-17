@@ -256,7 +256,9 @@ namespace Aaris.MapReview
             }
             // One shared URP material per authored surface, reused across
             // all visible bikes. No per-bike Material instances or per-frame GC.
-            int[] fallbackOrder = {0,1,2,3,4,5,6,7};
+            // This matches OBJ usemtl section order, NOT palette declaration
+            // order: Tyre, Rim, Engine, Seat, Paint, Amber, Headlamp, TailLamp.
+            int[] fallbackOrder = {1,2,3,4,0,7,5,6};
             int paintIndex = StablePaintIndex(point.id);
             foreach (var renderer in renderers)
             {
