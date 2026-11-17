@@ -99,16 +99,25 @@ namespace Aaris.MapReview
 
         public void SetSteering(float move, float steer)
         {
+            // EventSystem/button callbacks can arrive after this component
+            // was disabled. Never hand fresh drive input to a suspended car.
+            if (!isActiveAndEnabled || car == null) return;
             // Public touch API may be called by UI or automation; never keep
             // non-finite values in a held virtual throttle/steering state.
             if (float.IsNaN(move) || float.IsInfinity(move)) move = 0f;
             if (float.IsNaN(steer) || float.IsInfinity(steer)) steer = 0f;
             touchMove = Mathf.Clamp(move, -1f, 1f);
             touchSteer = Mathf.Clamp(steer, -1f, 1f);
-            if (car != null) car.SetInput(touchMove, touchSteer);
+            car.SetInput(touchMove, touchSteer);
         }
 
-        public bool TryEnterOrExit() => IsDriving ? TryExit() : TryEnter();
+        public bool TryEnterOrExit()
+        {
+            // A lingering DRIVE/EXIT click must not mutate movement ownership
+            // while the authoritative session is disabled.
+            if (!isActiveAndEnabled) return false;
+            return IsDriving ? TryExit() : TryEnter();
+        }
 
         private bool TryEnter()
         {

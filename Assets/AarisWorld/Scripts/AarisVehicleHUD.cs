@@ -306,7 +306,21 @@ namespace Aaris.MapReview
         private void LateUpdate()
         {
             UpdateSafe(false);
-            if (session == null || arrowPanel == null || driveButton == null) return;
+            if (arrowPanel == null || driveButton == null) return;
+            // A disabled/destroyed session cannot own vehicle input. Hide
+            // both controls and release previously held arrow pointers.
+            // Keep the car occupancy state intact: only a validated exit may
+            // restore the walking CharacterController.
+            if (session == null || !session.isActiveAndEnabled)
+            {
+                if (arrowPanel.activeSelf)
+                {
+                    ClearArrows();
+                    arrowPanel.SetActive(false);
+                }
+                if (driveButton.activeSelf) driveButton.SetActive(false);
+                return;
+            }
             bool driving = session.IsDriving;
             if (arrowPanel.activeSelf != driving)
             {
