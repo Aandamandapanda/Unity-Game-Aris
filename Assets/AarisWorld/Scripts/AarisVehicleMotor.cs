@@ -75,6 +75,8 @@ namespace Aaris.MapReview
         private float steeringMassFactor = 1f;
         private float appliedDriveTorque = float.NaN, appliedBrakeTorque = float.NaN;
         private float appliedSteeringAngle = float.NaN;
+        // Cached front/rear brake distribution avoids redundant PhysX writes.
+        private bool appliedServiceBrakeBias;
         private const float ServiceBrakeTorque = 3200f;
         private const float ParkingBrakeTorque = 3600f;
         private const float AntiRollStrength = 4800f;
@@ -192,6 +194,7 @@ namespace Aaris.MapReview
             CreateWheel(2, -.84f, -1.38f);
             CreateWheel(3, .84f, -1.38f);
             appliedDriveTorque = appliedBrakeTorque = appliedSteeringAngle = float.NaN;
+            appliedServiceBrakeBias = false;
             // Two/three PhysX vehicle substeps stabilize tyre/suspension forces
             // without reducing the project's global fixed timestep. Sleeping
             // parked cars remain asleep, so the mobile cost stays bounded.
@@ -973,6 +976,7 @@ namespace Aaris.MapReview
         {
             sleepingWheelPoseCurrent = false;
             appliedDriveTorque = appliedBrakeTorque = appliedSteeringAngle = float.NaN;
+            appliedServiceBrakeBias = false;
             lastLampState = -1;
             StopRearTyreTraces(true);
             StopExhaust(true);
@@ -1038,7 +1042,13 @@ namespace Aaris.MapReview
         private void ApplyWheelForces(float drive, float brake)
         {
             bool driveChanged = drive != appliedDriveTorque;
-            bool brakeChanged = brake != appliedBrakeTorque;
+            // Moving service stops use a modest front bias; parked cars brake
+            // equally on all four wheels, including on pause and exit.
+            bool frontBiased = driver != null && body != null &&
+                brake >= 500f && brake < ParkingBrakeTorque &&
+                body.linearVelocity.sqrMagnitude > 4f;
+            bool brakeChanged = brake != appliedBrakeTorque ||
+                frontBiased != appliedServiceBrakeBias;
             if (!driveChanged && !brakeChanged) return;
             for (int i = 0; i < wheels.Length; i++)
             {
@@ -1049,10 +1059,13 @@ namespace Aaris.MapReview
                         1f - frontDriveFraction;
                     wheels[i].motorTorque = drive * .5f * axleFraction;
                 }
-                if (brakeChanged) wheels[i].brakeTorque = brake;
+                if (brakeChanged)
+                    wheels[i].brakeTorque = brake *
+                        (frontBiased ? (i < 2 ? 1.12f : .88f) : 1f);
             }
             appliedDriveTorque = drive;
             appliedBrakeTorque = brake;
+            appliedServiceBrakeBias = frontBiased;
         }
 
         // Smooth, monotone torque bands keep zero slope at every transition.

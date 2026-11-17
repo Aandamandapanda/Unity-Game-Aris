@@ -91,6 +91,42 @@ class AutomotiveRefinement(unittest.TestCase):
         self.assertIn("paletteMaterial.SetFloat(\"_Metallic\", .24f);", WORLD)
         self.assertIn("wheelPaletteMaterial.SetFloat(\"_Smoothness\", .18f);", WORLD)
 
+    def test_service_brakes_bias_front_only_while_rolling(self):
+        apply = MOTOR.split("private void ApplyWheelForces(", 1)[1].split(
+            "private static float ContinuousDriveTorque(", 1)[0]
+        self.assertIn("driver != null && body != null", apply)
+        self.assertIn("brake >= 500f", apply)
+        self.assertIn("brake < ParkingBrakeTorque", apply)
+        self.assertIn("body.linearVelocity.sqrMagnitude > 4f", apply)
+        self.assertIn("frontBiased != appliedServiceBrakeBias", apply)
+        self.assertIn("i < 2 ? 1.12f : .88f", apply)
+        self.assertIn("appliedServiceBrakeBias = frontBiased", apply)
+        self.assertIn("frontBiased ? (i < 2 ? 1.12f : .88f) : 1f", apply)
+        for brake in (500, 1200, 3200):
+            total = 2 * brake * 1.12 + 2 * brake * .88
+            self.assertAlmostEqual(total, 4 * brake)
+        self.assertIn("appliedServiceBrakeBias = false;", MOTOR)
+
+    def test_paint_keeps_imported_surface_tone_and_clearcoat_keyword(self):
+        method = WORLD.split("private Material AuthoredUrpMaterial(", 1)[1].split(
+            "private void ApplyAuthoredMaterials(", 1)[0]
+        body = WORLD.split("private static void PaintVerifiedBodySlots(", 1)[1].split(
+            "private void FallBackToVerifiedModel(", 1)[0]
+        build = WORLD.split("private bool Build(", 1)[1].split(
+            "private void Update()", 1)[0]
+        self.assertIn('sourceLabel.Contains("aarisciviliansurface")', method)
+        self.assertIn('polished.EnableKeyword("_CLEARCOAT")', method)
+        self.assertIn("record.type.preserveAuthoredUrpMaterials)", build)
+        self.assertIn("ApplyAuthoredMaterials(renderers);", build)
+        self.assertIn('material.GetColor("_BaseColor")', body)
+        for field in ("original.r * paintFactor.r",
+                      "original.g * paintFactor.g",
+                      "original.b * paintFactor.b",
+                      "original.a"):
+            self.assertIn(field, body)
+        self.assertNotIn("new Material(", body)
+        self.assertNotIn("renderer.material", body)
+
     def test_camera_uses_velocity_but_keeps_wall_sweep(self):
         camera = SESSION.split("private void FollowCarCamera()", 1)[1].split(
             "private void ClearHeldDrivingInput()", 1)[0]

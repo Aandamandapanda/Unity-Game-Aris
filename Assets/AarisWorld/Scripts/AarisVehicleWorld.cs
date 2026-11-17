@@ -655,7 +655,8 @@ namespace Aaris.MapReview
                 source.shader.name == "Universal Render Pipeline/Lit")
             {
                 string sourceLabel = source.name.ToLowerInvariant();
-                bool dedicatedPaint = sourceLabel.Contains("aarispaint");
+                bool dedicatedPaint = sourceLabel.Contains("aarispaint") ||
+                    sourceLabel.Contains("aarisciviliansurface");
                 bool mixedBodyAtlas = sourceLabel.Contains("body_pbr");
                 bool separateGlass = sourceLabel.Contains("aarisglass") ||
                     sourceLabel.Contains("window");
@@ -1261,9 +1262,16 @@ namespace Aaris.MapReview
                     if (!separatePaint && !bodyAtlas && !civilianPaint) continue;
                     // Subtle for a multi-purpose body texture: paint variation
                     // must not wash out the authored windows/decals/headlights.
-                    Color tint = bodyAtlas ? Color.Lerp(Color.white, paint, .30f)
+                    Color paintFactor = bodyAtlas ? Color.Lerp(Color.white, paint, .30f)
                         : civilianPaint ? Color.Lerp(Color.white, paint, .45f)
                         : paint;
+                    // MaterialPropertyBlock replaces _BaseColor: multiply the
+                    // authored PBR tone instead of bleaching dark body panels.
+                    Color original = material.GetColor("_BaseColor");
+                    Color tint = new Color(
+                        original.r * paintFactor.r,
+                        original.g * paintFactor.g,
+                        original.b * paintFactor.b, original.a);
                     block.Clear();
                     renderer.GetPropertyBlock(block, slot);
                     block.SetColor("_BaseColor", tint);
@@ -1332,7 +1340,8 @@ namespace Aaris.MapReview
             // material across streamed instances; never instantiate new
             // materials per car/per frame.
             if (record.type.useEmbeddedAuthoredWheels ||
-                record.type.convertAuthoredBodyMaterials)
+                record.type.convertAuthoredBodyMaterials ||
+                record.type.preserveAuthoredUrpMaterials)
             {
                 ApplyAuthoredMaterials(renderers);
             }
