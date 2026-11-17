@@ -31,6 +31,9 @@ namespace Aaris.MapReview
         // Declarative physics profiles; unconfigured values fall back safely.
         public string drivetrain;
         public float tyreGripScale, suspensionScale, steeringScale;
+        // Optional per-archetype suspension stroke. Zero in older catalogues
+        // means neutral 1.0 so older offline saves keep their ride height.
+        public float suspensionTravelScale;
         // Opt-in for imported car AND wheel prefabs with valid URP Lit PBR materials.
         // Legacy Kenney models still use the shared atlas and unchanged art budget.
         public bool preserveAuthoredUrpMaterials;
@@ -387,8 +390,11 @@ namespace Aaris.MapReview
             paletteMaterial = new Material(shader) { name = "Aaris CC0 Kenney Car Body" };
             paletteMaterial.SetTexture("_BaseMap", palette);
             paletteMaterial.SetColor("_BaseColor", Color.white);
-            paletteMaterial.SetFloat("_Metallic", .18f);
-            paletteMaterial.SetFloat("_Smoothness", .55f);
+            // Palette mixes body, windows and trim; do NOT clear-coat the
+            // atlas. Better polished response comes from restrained URP Lit
+            // metallic/smoothness, with zero extra texture reads or passes.
+            paletteMaterial.SetFloat("_Metallic", .24f);
+            paletteMaterial.SetFloat("_Smoothness", .60f);
             paletteMaterial.enableInstancing = true;
 
             wheelPaletteMaterial = new Material(shader) { name = "Aaris CC0 Kenney Wheel Rubber" };
@@ -639,11 +645,70 @@ namespace Aaris.MapReview
         private Material AuthoredUrpMaterial(Material source)
         {
             if (source == null) return paletteMaterial;
-            if (source.shader != null &&
-                source.shader.name == "Universal Render Pipeline/Lit")
-                return source;
             if (authoredMaterialCache.TryGetValue(source, out Material cached) &&
                 cached != null) return cached;
+            // Most vendor FBXs already import valid URP Lit PBR textures.
+            // Their separate paint/glazing material slots can be polished,
+            // but never change an asset or clear-coat a mixed tyre/paint
+            // atlas. One source material gets at most one scene-owned copy.
+            if (source.shader != null &&
+                source.shader.name == "Universal Render Pipeline/Lit")
+            {
+                string sourceLabel = source.name.ToLowerInvariant();
+                bool dedicatedPaint = sourceLabel.Contains("aarispaint");
+                bool mixedBodyAtlas = sourceLabel.Contains("body_pbr");
+                bool separateGlass = sourceLabel.Contains("aarisglass") ||
+                    sourceLabel.Contains("window");
+                if (!dedicatedPaint && !mixedBodyAtlas && !separateGlass)
+                    return source;
+                var polished = new Material(source)
+                {
+                    name = "Aaris Automotive " + source.name,
+                    enableInstancing = true
+                };
+                if (mixedBodyAtlas && polished.HasProperty("_Smoothness"))
+                {
+                    // An opaque baked body texture also contains lights and
+                    // windows. Capping its overly mirror-like smoothness
+                    // avoids a chrome/toy look without repainting those UVs.
+                    polished.SetFloat("_Smoothness", Mathf.Clamp(
+                        source.GetFloat("_Smoothness"), .50f, .71f));
+                }
+                else if (dedicatedPaint)
+                {
+                    if (polished.HasProperty("_Metallic"))
+                        polished.SetFloat("_Metallic", .36f);
+                    if (polished.HasProperty("_Smoothness"))
+                        polished.SetFloat("_Smoothness", .66f);
+                    if (polished.HasProperty("_ClearCoatMask"))
+                    {
+                        polished.SetFloat("_ClearCoatMask", .32f);
+                        if (polished.HasProperty("_ClearCoatSmoothness"))
+                            polished.SetFloat("_ClearCoatSmoothness", .76f);
+                        polished.EnableKeyword("_CLEARCOAT");
+                    }
+                }
+                else if (separateGlass)
+                {
+                    // Remain in the original opaque/transparent render mode.
+                    // Never switch to transparency: extra sorting/overdraw
+                    // hurts 2 GB Android phones, and some models lack an
+                    // interior that could be seen through the window.
+                    if (polished.HasProperty("_BaseColor"))
+                    {
+                        Color original = source.GetColor("_BaseColor");
+                        Color tint = new Color(.20f, .29f, .38f, original.a);
+                        polished.SetColor("_BaseColor",
+                            Color.Lerp(original, tint, .24f));
+                    }
+                    if (polished.HasProperty("_Metallic"))
+                        polished.SetFloat("_Metallic", .05f);
+                    if (polished.HasProperty("_Smoothness"))
+                        polished.SetFloat("_Smoothness", .83f);
+                }
+                authoredMaterialCache[source] = polished;
+                return polished;
+            }
             Shader shader = Shader.Find("Universal Render Pipeline/Lit");
             if (shader == null) return paletteMaterial;
             var result = new Material(shader)
@@ -1316,7 +1381,7 @@ namespace Aaris.MapReview
             motor.Configure(record.type.id, record.type.maxSpeedMetres, record.type.massKg);
             motor.ConfigureHandling(record.type.drivetrain,
                 record.type.tyreGripScale, record.type.suspensionScale,
-                record.type.steeringScale);
+                record.type.steeringScale, record.type.suspensionTravelScale);
             // After the mesh is recentered to local Y=.48, its size remains
             // valid in chassis space at every road yaw. Align physical shell
             // and wheels to the visible type instead of a generic sedan.

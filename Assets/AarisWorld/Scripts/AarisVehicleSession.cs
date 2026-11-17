@@ -429,6 +429,12 @@ namespace Aaris.MapReview
             float chaseHeight = Mathf.Lerp(2.95f, 3.25f, speed01);
             Vector3 aim = vehicle.position + Vector3.up *
                 Mathf.Lerp(1.58f, 1.74f, speed01);
+            // Small velocity-based horizon preview makes fast turns easier
+            // to read. The existing single collision sweep and smoothing
+            // still own the final camera position; never teleport the rig.
+            Vector3 planarTravel = Vector3.ProjectOnPlane(
+                car.DrivingVelocityWorld, Vector3.up);
+            aim += Vector3.ClampMagnitude(planarTravel * .035f, .75f);
             Vector3 start = aim + Vector3.up * .85f;
             Vector3 requested = vehicle.position - vehicle.forward * chaseDistance +
                 Vector3.up * chaseHeight;

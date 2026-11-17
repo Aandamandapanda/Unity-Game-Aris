@@ -90,6 +90,10 @@ namespace Aaris.MapReview
         private bool sleepingWheelPoseCurrent;
         public string VehicleId { get; private set; }
         public float TopSpeedMetresPerSecond => topSpeed;
+        // Camera look-ahead reads authoritative Rigidbody velocity without
+        // extra physics queries or per-frame allocations.
+        public Vector3 DrivingVelocityWorld =>
+            body != null ? body.linearVelocity : Vector3.zero;
         public float ThrottleInput => driver == null ? 0f : forward;
         // True only when the active driver is asking the wheels to slow down;
         // parking/coasting drag must not illuminate the brake indicator.
@@ -201,7 +205,8 @@ namespace Aaris.MapReview
         /// velocity or create new mesh/physics materials in FixedUpdate.
         /// </summary>
         public void ConfigureHandling(string drivetrain, float tyreGrip,
-            float suspension, float steeringResponse)
+            float suspension, float steeringResponse,
+            float suspensionTravelScale = 1f)
         {
             if (body == null || wheels[0] == null) return;
             frontDriveFraction = string.Equals(drivetrain, "FWD",
@@ -212,13 +217,22 @@ namespace Aaris.MapReview
             steeringResponseMultiplier = SafeHandlingScale(
                 steeringResponse, .78f, 1.16f);
             float springScale = SafeHandlingScale(suspension, .86f, 1.18f);
+            float travelScale = SafeHandlingScale(
+                suspensionTravelScale, .82f, 1.25f);
             for (int i = 0; i < wheels.Length; i++)
             {
                 WheelCollider wheel = wheels[i];
                 if (wheel == null) continue;
+                // Short-stroke sports cars have firmer control; off-road
+                // axles can articulate farther without a second physics rig.
+                // Keep the existing mass-aware baseline and damp in proportion
+                // to natural frequency rather than adding constant forces.
+                wheel.suspensionDistance = Mathf.Clamp(
+                    wheel.suspensionDistance * travelScale, .18f, .31f);
                 JointSpring spring = wheel.suspensionSpring;
-                spring.spring *= springScale;
+                spring.spring *= springScale / Mathf.Sqrt(travelScale);
                 spring.damper *= Mathf.Sqrt(springScale);
+                spring.damper /= Mathf.Sqrt(travelScale);
                 wheel.suspensionSpring = spring;
                 WheelFrictionCurve forwardGrip = wheel.forwardFriction;
                 forwardGrip.stiffness = BaseForwardGripStiffness *
@@ -1113,9 +1127,17 @@ namespace Aaris.MapReview
             float maxAngle = Mathf.Lerp(32f, 10f,
                 Mathf.InverseLerp(0f, 24f, planarSpeed)) * steeringMassFactor *
                 steeringResponseMultiplier;
-            float target = turn * maxAngle;
+            // High-speed tyre-slip feedback reduces counter-steer spikes
+            // when drifting; at parking speeds steering stays immediate.
+            // This reuses last step's contact sample: no extra wheel query.
+            float speedBlend = Mathf.InverseLerp(10f, 25f, planarSpeed);
+            float slipBlend = Mathf.InverseLerp(.42f, 1.40f,
+                previousTyreSlip) * speedBlend;
+            float target = turn * maxAngle * Mathf.Lerp(1f, .82f, slipBlend);
+            float steeringRateScale = Mathf.Lerp(1f, .63f, speedBlend);
             smoothSteer = Mathf.MoveTowards(smoothSteer, target,
-                125f * steeringResponseMultiplier * Time.fixedDeltaTime);
+                125f * steeringResponseMultiplier * Time.fixedDeltaTime *
+                steeringRateScale);
             ApplyAckermannSteering(smoothSteer);
 
             // Axle load transfer: counter excessive roll on fast bends and

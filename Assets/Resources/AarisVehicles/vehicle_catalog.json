@@ -12,7 +12,8 @@
       "drivetrain": "FWD",
       "tyreGripScale": 1,
       "suspensionScale": 1,
-      "steeringScale": 1
+      "steeringScale": 1,
+      "suspensionTravelScale": 0.96
     },
     {
       "id": "SUV",
@@ -26,7 +27,8 @@
       "drivetrain": "AWD",
       "tyreGripScale": 0.98,
       "suspensionScale": 1.08,
-      "steeringScale": 0.9
+      "steeringScale": 0.9,
+      "suspensionTravelScale": 1.1
     },
     {
       "id": "Sports",
@@ -40,7 +42,8 @@
       "drivetrain": "RWD",
       "tyreGripScale": 1.09,
       "suspensionScale": 1.16,
-      "steeringScale": 1.12
+      "steeringScale": 1.12,
+      "suspensionTravelScale": 0.84
     },
     {
       "id": "Hatchback",
@@ -54,7 +57,8 @@
       "drivetrain": "FWD",
       "tyreGripScale": 1.04,
       "suspensionScale": 0.97,
-      "steeringScale": 1.08
+      "steeringScale": 1.08,
+      "suspensionTravelScale": 0.94
     },
     {
       "id": "Van",
@@ -67,7 +71,8 @@
       "drivetrain": "RWD",
       "tyreGripScale": 0.91,
       "suspensionScale": 1.04,
-      "steeringScale": 0.82
+      "steeringScale": 0.82,
+      "suspensionTravelScale": 1.07
     },
     {
       "id": "Utility",
@@ -80,7 +85,8 @@
       "drivetrain": "AWD",
       "tyreGripScale": 0.94,
       "suspensionScale": 1.08,
-      "steeringScale": 0.88
+      "steeringScale": 0.88,
+      "suspensionTravelScale": 1.16
     },
     {
       "id": "Buggy",
@@ -93,7 +99,8 @@
       "drivetrain": "AWD",
       "tyreGripScale": 1.1,
       "suspensionScale": 0.94,
-      "steeringScale": 1.1
+      "steeringScale": 1.1,
+      "suspensionTravelScale": 1.24
     }
   ]
 }
