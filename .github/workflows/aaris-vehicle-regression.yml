@@ -14,6 +14,7 @@ on:
       - "Tools/Validation/test_vehicle_session_suspension.py"
       - "Tools/Validation/test_vehicle_motor_disable_authority.py"
       - "Tools/Validation/test_vehicle_camera_pacing.py"
+      - "Tools/Validation/test_vehicle_streaming_priority.py"
       - "Docs/MAP_LAYOUT.json"
 
 permissions:
@@ -46,3 +47,5 @@ jobs:
         run: python3 Tools/Validation/test_vehicle_motor_disable_authority.py
       - name: Verify vehicle camera pacing from 10 to 120 FPS
         run: python3 Tools/Validation/test_vehicle_camera_pacing.py
+      - name: Verify nearest parked cars keep visibility when stream slots are full
+        run: python3 Tools/Validation/test_vehicle_streaming_priority.py
