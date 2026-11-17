@@ -139,7 +139,19 @@ def test():
         "private void FixedUpdate()", 1)[0]
     assert wheel_forces.index("if (!driveChanged && !brakeChanged) return;") < (
         wheel_forces.index("wheels[i].motorTorque"))
-    assert "if (brakeChanged) wheels[i].brakeTorque = brake;" in wheel_forces
+    # Dynamic service braking now shifts a modest 56/44 load to the front.
+    # Parking/pause/exit must stay four-wheel balanced and the cached bias
+    # needs to invalidate wheel writes even with unchanged brake input.
+    assert "wheels[i].brakeTorque = brake *" in wheel_forces
+    assert "frontBiased ? (i < 2 ? 1.12f : .88f) : 1f" in wheel_forces
+    assert "brake < ParkingBrakeTorque" in wheel_forces
+    assert "body.linearVelocity.sqrMagnitude > 4f" in wheel_forces
+    assert "frontBiased != appliedServiceBrakeBias" in wheel_forces
+    for strength in (500.0, 1200.0, 3200.0):
+        front, rear = strength * 1.12, strength * .88
+        assert front > rear
+        assert abs((front + rear) - (2.0 * strength)) < 1e-6
+
 
     def wheel_properties(command):
         drive, brake = command
