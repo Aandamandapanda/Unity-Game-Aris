@@ -402,6 +402,25 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         self.assertIn("DropPhase.Gliding || drop.HasLanded", probe)
         self.assertIn("VerifyPlayerVisibility(drop, cam);", probe)
 
+    def test_delayed_humanoid_boot_hides_plane_rig_and_restores_after_snapshot(self):
+        visual = (SCRIPTS / "AarisCharacterVisual.cs").read_text("utf-8")
+        drop = (SCRIPTS / "AarisOfflineDrop.cs").read_text("utf-8")
+        start = visual.split("private void Start()", 1)[1].split(
+            "private static bool IsLegacyPlaceholderRenderer", 1)[0]
+        presentation = visual.split("internal void SetPresentationPaused(bool paused)", 1)[1].split(
+            "private void LateUpdate()", 1)[0]
+        show = drop.split("private void ShowPlayer()", 1)[1].split(
+            "private void GetPlaneCameraPose", 1)[0]
+        self.assertIn("if (aerialDrop != null && aerialDrop.IsRidingAircraft)", start)
+        self.assertIn("if (presentationPaused && graphReady) graph.Stop();", start)
+        self.assertIn("if (presentationPaused) visual.SetActive(false);", start)
+        self.assertIn("if (presentationPaused != paused)", presentation)
+        self.assertIn("visual.SetActive(!paused);", presentation)
+        self.assertIn("if (!paused) HideLegacyPlaceholders();", presentation)
+        self.assertLess(show.index("previousRendererStates[i]"),
+                        show.index("SetPresentationPaused(false)"))
+        self.assertIn("characterVisual = GetComponent<AarisCharacterVisual>();", show)
+
     def test_missing_android_touch_ended_event_does_not_lock_camera_or_joystick(self):
         # Unity may omit Ended after a system gesture while another finger
         # remains on screen. Prove both controllers reconcile ownership

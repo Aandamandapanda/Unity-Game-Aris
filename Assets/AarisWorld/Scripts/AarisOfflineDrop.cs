@@ -709,10 +709,15 @@ namespace Aaris.MapReview
 
         private void ShowPlayer()
         {
+            // Restore the flight snapshot first. An imported character may
+            // have hidden legacy placeholder pieces AFTER this was captured;
+            // releasing the rig last reasserts that exclusive visual owner.
+            if (initialPlayerRenderers != null)
+                for (int i = 0; i < initialPlayerRenderers.Length; i++)
+                    if (initialPlayerRenderers[i] != null)
+                        initialPlayerRenderers[i].enabled = previousRendererStates[i];
+            if (characterVisual == null) characterVisual = GetComponent<AarisCharacterVisual>();
             if (characterVisual != null) characterVisual.SetPresentationPaused(false);
-            if (initialPlayerRenderers == null) return;
-            for (int i = 0; i < initialPlayerRenderers.Length; i++)
-                if (initialPlayerRenderers[i] != null) initialPlayerRenderers[i].enabled = previousRendererStates[i];
         }
 
         private void GetPlaneCameraPose(out Vector3 position,

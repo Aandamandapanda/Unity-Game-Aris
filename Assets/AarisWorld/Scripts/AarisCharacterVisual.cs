@@ -184,6 +184,8 @@ namespace Aaris.MapReview
                 fullRunSpeed = playerMotor.UnarmedSprintSpeedMetresPerSecond;
             weaponInventory = GetComponent<AarisWeaponInventory>();
             aerialDrop = GetComponent<AarisOfflineDrop>();
+            if (aerialDrop != null && aerialDrop.IsRidingAircraft)
+                presentationPaused = true;
             restingLocalPosition = visual.transform.localPosition;
             restingLocalRotation = visual.transform.localRotation;
             punchArm = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
@@ -205,6 +207,10 @@ namespace Aaris.MapReview
                 if (IsLegacyPlaceholderRenderer(placeholderRenderers[i]) &&
                     !placeholderRenderers[i].transform.IsChildOf(visual.transform))
                     placeholderRenderers[i].enabled = false;
+            // A flight can hide the primitive avatar before this rig exists.
+            // Honor its pending hide before the first rendered game frame.
+            if (presentationPaused && graphReady) graph.Stop();
+            if (presentationPaused) visual.SetActive(false);
             Debug.Log("Aaris: locally rigged Humanoid locomotion ready.");
         }
 
@@ -1142,13 +1148,33 @@ namespace Aaris.MapReview
             playable.SetTime(seconds - Math.Floor(seconds / clip.length) * clip.length);
         }
 
+        private void HideLegacyPlaceholders()
+        {
+            if (visual == null || placeholderRenderers == null) return;
+            for (int i = 0; i < placeholderRenderers.Length; i++)
+                if (IsLegacyPlaceholderRenderer(placeholderRenderers[i]) &&
+                    !placeholderRenderers[i].transform.IsChildOf(visual.transform))
+                    placeholderRenderers[i].enabled = false;
+        }
+
         internal void SetPresentationPaused(bool paused)
         {
-            if (presentationPaused == paused || !graphReady) return;
-            presentationPaused = paused;
-            motionHistoryReady = false;
-            if (paused) graph.Stop();
-            else graph.Play();
+            // Preserve flight/vehicle state even before graph initialization.
+            if (presentationPaused != paused)
+            {
+                presentationPaused = paused;
+                motionHistoryReady = false;
+                if (graphReady)
+                {
+                    if (paused) graph.Stop();
+                    else graph.Play();
+                }
+            }
+            // Only the imported child model is toggled; never disable the
+            // walking motor or the saved player physics/camera hierarchy.
+            if (visual != null && visual.activeSelf == paused)
+                visual.SetActive(!paused);
+            if (!paused) HideLegacyPlaceholders();
         }
 
         private void LateUpdate()
