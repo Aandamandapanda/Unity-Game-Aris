@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Aaris.MapReview
@@ -17,6 +19,19 @@ namespace Aaris.MapReview
         private readonly WheelCollider[] wheels = new WheelCollider[4];
         private readonly float[] surfaceGripMultipliers = new float[4];
         private readonly Transform[] visualWheels = new Transform[4];
+        // Wear is only applied to verified body-paint submeshes, never to
+        // tyres, lights or transparent glass renderers.
+        private struct BodyPaintSlot
+        {
+            public Renderer renderer;
+            public int index;
+            public Color fresh;
+            public bool atlas;
+        }
+        private readonly List<BodyPaintSlot> bodyPaintSlots =
+            new List<BodyPaintSlot>(6);
+        private MaterialPropertyBlock bodyPaintBlock;
+        private float lastBodyWear = -1f;
         // Two bounded, world-space skid traces are created ONLY when a player
         // first drives this car. Parked streamed vehicles allocate zero trails.
         // All contact points reuse ApplyAntiRoll WheelHit (no extra raycasts).
@@ -123,6 +138,7 @@ namespace Aaris.MapReview
                     damage01 = Mathf.Clamp(damage01 +
                         Mathf.Max(0f, impactSpeed - 7f) * .011f, 0f, .85f);
                     nextDamageAt = Time.time + .75f;
+                    RefreshBodyWear();
                 }
                 RefreshExteriorLights();
             }
@@ -364,26 +380,21 @@ namespace Aaris.MapReview
             return true;
         }
 
-        // Thin, chassis-mounted lamp lenses work on both the verified Kenney
-        // fallback and the reoriented FBX body, without editing imported art.
-        // All six lenses are simple shared cube meshes with NO physics.
+        // Flush chamfered lamp polygons, not bright toy cubes that stick out
+        // from the carefully textured FBX bodies. The mesh is scene-shared
+        // and each lens has no Collider, shadows, or unique mesh/material.
         private static Renderer CreateLampLens(Transform chassis, string label,
-            Vector3 position, Vector3 dimensions, Material material)
+            Vector3 position, Vector3 dimensions, Material material,
+            Mesh sharedLensMesh, bool rearFacing)
         {
-            var obj = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            obj.name = label;
+            var obj = new GameObject(label, typeof(MeshFilter),
+                typeof(MeshRenderer));
             obj.transform.SetParent(chassis, false);
             obj.transform.localPosition = position;
+            obj.transform.localRotation = rearFacing
+                ? Quaternion.Euler(0f, 180f, 0f) : Quaternion.identity;
             obj.transform.localScale = dimensions;
-            var collider = obj.GetComponent<Collider>();
-            if (collider != null)
-            {
-                // Destroy is deferred until the end of the Unity frame.
-                // Disable immediately so fresh lenses cannot block bullets,
-                // parking collision probes or the player's exit capsule.
-                collider.enabled = false;
-                Destroy(collider);
-            }
+            obj.GetComponent<MeshFilter>().sharedMesh = sharedLensMesh;
             var renderer = obj.GetComponent<MeshRenderer>();
             renderer.sharedMaterial = material;
             renderer.shadowCastingMode =
@@ -394,10 +405,12 @@ namespace Aaris.MapReview
 
         public void ConfigureExteriorLights(Bounds fittedBounds,
             Material frontGlass, Material frontActive,
-            Material backGlass, Material backBrake, Material reverseWhite)
+            Material backGlass, Material backBrake, Material reverseWhite,
+            Mesh sharedLensMesh, Material darkBezel)
         {
             if (frontGlass == null || frontActive == null ||
                 backGlass == null || backBrake == null || reverseWhite == null ||
+                sharedLensMesh == null || darkBezel == null ||
                 fittedBounds.size.x < .5f || fittedBounds.size.z < 1f ||
                 frontLamps[0] != null) return;
             headlampGlass = frontGlass;
@@ -405,32 +418,56 @@ namespace Aaris.MapReview
             taillampGlass = backGlass;
             brakeLamp = backBrake;
 
-            float halfTrack = Mathf.Clamp(fittedBounds.size.x * .395f, .47f, .84f);
-            float z = fittedBounds.size.z * .5f + .025f;
-            float y = Mathf.Clamp(
-                fittedBounds.center.y + fittedBounds.size.y * .08f, .49f, .86f);
+            // Distinct nose and rear elevations; the prior identical Y value
+            // made van brake lamps sit at sedan-headlight height. Widths now
+            // follow the fitted car, rather than forcing 0.24m toy rectangles.
+            float width = fittedBounds.size.x;
+            float height = fittedBounds.size.y;
+            float halfTrack = Mathf.Clamp(width * .385f, .48f, .84f);
+            float frontY = Mathf.Clamp(
+                fittedBounds.center.y + height * .15f, .55f, 1.06f);
+            float backY = Mathf.Clamp(
+                fittedBounds.center.y + height * .22f, .62f, 1.24f);
+            float frontZ = fittedBounds.max.z + .017f;
+            float backZ = fittedBounds.min.z - .017f;
+            float lampWidth = Mathf.Clamp(width * .174f, .26f, .39f);
+            float lampHeight = Mathf.Clamp(height * .097f, .10f, .17f);
+            var lampSize = new Vector3(lampWidth, lampHeight, 1f);
+            var bezelSize = new Vector3(lampWidth * 1.20f,
+                lampHeight * 1.32f, 1f);
             for (int side = 0; side < 2; side++)
             {
                 float x = side == 0 ? -halfTrack : halfTrack;
+                // Dark narrow bezels give the front/back glass real visual
+                // contrast without covering the detailed body textures.
+                CreateLampLens(transform, "Headlight Bezel " + side,
+                    new Vector3(x, frontY, frontZ - .007f),
+                    bezelSize, darkBezel, sharedLensMesh, false);
+                CreateLampLens(transform, "Taillight Bezel " + side,
+                    new Vector3(x, backY, backZ + .007f),
+                    bezelSize, darkBezel, sharedLensMesh, true);
                 frontLamps[side] = CreateLampLens(transform,
-                    "Headlamp " + side, new Vector3(x, y, z),
-                    new Vector3(.24f, .11f, .048f), headlampGlass);
+                    "Beveled Headlamp " + side,
+                    new Vector3(x, frontY, frontZ), lampSize,
+                    headlampGlass, sharedLensMesh, false);
                 rearLamps[side] = CreateLampLens(transform,
-                    "Brake Lamp " + side, new Vector3(x, y, -z),
-                    new Vector3(.26f, .115f, .048f), taillampGlass);
+                    "Beveled Brake Lamp " + side,
+                    new Vector3(x, backY, backZ), lampSize,
+                    taillampGlass, sharedLensMesh, true);
                 reversingLamps[side] = CreateLampLens(transform,
-                    "Reverse Lamp " + side,
-                    new Vector3(x * .65f, y - .085f, -z),
-                    new Vector3(.115f, .063f, .048f), reverseWhite);
+                    "Recessed Reverse Lamp " + side,
+                    new Vector3(x * .68f, backY - lampHeight * .96f, backZ),
+                    new Vector3(lampWidth * .38f, lampHeight * .56f, 1f),
+                    reverseWhite, sharedLensMesh, true);
                 reversingLamps[side].enabled = false;
             }
 
-            // Only the PLAYER'S active vehicle emits a road-facing light.
-            // A dozen parked cars never introduce additional dynamic lights;
-            // no expensive realtime shadows or secondary headlight Light.
+            // Only the player's actively driven vehicle illuminates the road.
+            // Parked cars have visible dark glass, not costly spotlights.
             var beamObject = new GameObject("Player Car Headlight Beam");
             beamObject.transform.SetParent(transform, false);
-            beamObject.transform.localPosition = new Vector3(0f, y, z + .09f);
+            beamObject.transform.localPosition =
+                new Vector3(0f, frontY, frontZ + .10f);
             roadHeadlight = beamObject.AddComponent<Light>();
             roadHeadlight.type = LightType.Spot;
             roadHeadlight.color = new Color(1f, .94f, .80f);
@@ -468,6 +505,72 @@ namespace Aaris.MapReview
                 reversingLamps[side].enabled = reversing;
             }
             if (roadHeadlight != null) roadHeadlight.enabled = driving;
+        }
+
+        // The world has already tinted these precise PBR slots with a
+        // stable paint variant. Darken only those paint overrides when wear
+        // grows: no mesh cloning, texture loss, property-block allocations
+        // per crash or shared-material mutation across parked cars.
+        public void ConfigureBodyWear(Transform bodyModel, Color carPaint)
+        {
+            if (bodyModel == null) return;
+            bodyPaintSlots.Clear();
+            foreach (var renderer in
+                bodyModel.GetComponentsInChildren<Renderer>(true))
+            {
+                if (renderer == null) continue;
+                var materials = renderer.sharedMaterials;
+                for (int slot = 0; slot < materials.Length; slot++)
+                {
+                    Material material = materials[slot];
+                    if (material == null ||
+                        !material.HasProperty("_BaseColor")) continue;
+                    string label = material.name;
+                    bool separate = label.IndexOf("AarisPaint",
+                        StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool atlas = label.IndexOf("body_pbr",
+                        StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool sedan = label.IndexOf("AarisCivilianSurface",
+                        StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (!separate && !atlas && !sedan) continue;
+                    var tint = atlas ? Color.Lerp(Color.white, carPaint, .30f)
+                        : sedan ? Color.Lerp(Color.white, carPaint, .45f)
+                        : carPaint;
+                    bodyPaintSlots.Add(new BodyPaintSlot
+                    {
+                        renderer = renderer, index = slot,
+                        fresh = tint, atlas = atlas
+                    });
+                }
+            }
+            if (bodyPaintSlots.Count == 0) return;
+            if (bodyPaintBlock == null)
+                bodyPaintBlock = new MaterialPropertyBlock();
+            lastBodyWear = -1f;
+            RefreshBodyWear();
+        }
+
+        private void RefreshBodyWear()
+        {
+            if (bodyPaintSlots.Count == 0 ||
+                Mathf.Abs(lastBodyWear - damage01) < .015f) return;
+            lastBodyWear = damage01;
+            float fade = Mathf.Clamp01(damage01 / .85f);
+            foreach (var entry in bodyPaintSlots)
+            {
+                if (entry.renderer == null) continue;
+                // A textured body atlas also contains trim/decal pixels:
+                // reduce its tint more gently than a dedicated paint slot.
+                float darkness = Mathf.Lerp(1f,
+                    entry.atlas ? .73f : .52f, fade);
+                Color fresh = entry.fresh;
+                Color worn = new Color(fresh.r * darkness,
+                    fresh.g * darkness, fresh.b * darkness, fresh.a);
+                bodyPaintBlock.Clear();
+                entry.renderer.GetPropertyBlock(bodyPaintBlock, entry.index);
+                bodyPaintBlock.SetColor("_BaseColor", worn);
+                entry.renderer.SetPropertyBlock(bodyPaintBlock, entry.index);
+            }
         }
 
         public void ConfigureRearTyreTraces(Material material)

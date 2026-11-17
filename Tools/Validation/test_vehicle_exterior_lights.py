@@ -26,18 +26,27 @@ class VehicleExteriorLighting(unittest.TestCase):
         self.assertIn("new Bounds(new Vector3(0f, .48f, 0f), bounds.size)", builder)
         lights = MOTOR.split("public void ConfigureExteriorLights(", 1)[1].split(
             "private void RefreshExteriorLights()", 1)[0]
-        self.assertIn("fittedBounds.size.x * .395f", lights)
-        self.assertIn("fittedBounds.size.z * .5f + .025f", lights)
-        self.assertIn("new Vector3(x, y, z)", lights)
-        self.assertIn("new Vector3(x, y, -z)", lights)
+        self.assertIn("float width = fittedBounds.size.x;", lights)
+        self.assertIn("float height = fittedBounds.size.y;", lights)
+        self.assertIn("fittedBounds.max.z + .017f", lights)
+        self.assertIn("fittedBounds.min.z - .017f", lights)
+        self.assertIn("new Vector3(x, frontY, frontZ)", lights)
+        self.assertIn("new Vector3(x, backY, backZ)", lights)
+        self.assertIn("lampWidth * 1.20f", lights)
+        self.assertIn("sharedLampLensMesh, lampBezelMaterial", builder)
 
     def test_never_add_interactive_collision_to_lamp_visuals(self):
         lenses = MOTOR.split("private static Renderer CreateLampLens(", 1)[1].split(
             "public void ConfigureExteriorLights(", 1)[0]
-        self.assertIn("collider.enabled = false;", lenses)
-        self.assertIn("Destroy(collider);", lenses)
-        self.assertLess(lenses.index("collider.enabled = false;"),
-                        lenses.index("Destroy(collider);"))
+        # Now construct ONLY MeshFilter/MeshRenderer from the beginning.
+        # No collider is ever created, so delayed Destroy is unnecessary.
+        self.assertIn("new GameObject(label, typeof(MeshFilter),", lenses)
+        self.assertIn("typeof(MeshRenderer)", lenses)
+        self.assertIn("sharedMesh = sharedLensMesh;", lenses)
+        self.assertNotIn("CreatePrimitive", lenses)
+        self.assertNotIn("Collider", lenses)
+        self.assertNotIn("Destroy(", lenses)
+        self.assertIn("Quaternion.Euler(0f, 180f, 0f)", lenses)
         self.assertIn("renderer.shadowCastingMode =", lenses)
         self.assertIn("renderer.receiveShadows = false;", lenses)
 
@@ -51,6 +60,10 @@ class VehicleExteriorLighting(unittest.TestCase):
         self.assertIn("lamp.EnableKeyword(\"_EMISSION\");", WORLD)
         self.assertIn("lamp.SetColor(\"_EmissionColor\", emission);", WORLD)
         self.assertIn("enableInstancing = true", WORLD)
+        self.assertIn("sharedLampLensMesh = BuildLampLensMesh();", WORLD)
+        self.assertIn("if (sharedLampLensMesh != null) Destroy(sharedLampLensMesh);", WORLD)
+        self.assertIn("lampBezelMaterial = CreateLampMaterial(", WORLD)
+        self.assertIn("if (lampBezelMaterial != null) Destroy(lampBezelMaterial);", WORLD)
         lights = MOTOR.split("private void RefreshExteriorLights()", 1)[1].split(
             "private void SyncVisibleWheels()", 1)[0]
         self.assertNotIn("new Material(", lights)

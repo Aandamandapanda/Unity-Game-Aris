@@ -107,6 +107,11 @@ namespace Aaris.MapReview
         private Material headlampGlassMaterial, headlampOnMaterial;
         private Material taillampGlassMaterial, brakeLampMaterial;
         private Material reverseLampMaterial;
+        // One chamfered mesh + one dark bezel material for the entire match.
+        // Individual car lenses use MeshFilter.sharedMesh rather than toy
+        // cubes (with default Colliders) or per-instance mesh allocations.
+        private Mesh sharedLampLensMesh;
+        private Material lampBezelMaterial;
         // One scene-owned URP mark material shared by both rear trails on
         // every streamed car, instead of allocating one material per wheel.
         private Material skidMarkMaterial;
@@ -363,6 +368,9 @@ namespace Aaris.MapReview
                 new Color(1f, .065f, .045f), new Color(2.2f, .06f, .025f));
             reverseLampMaterial = CreateLampMaterial(shader, "Reverse Lamps",
                 new Color(.90f, .97f, 1f), new Color(1.7f, 1.85f, 2f));
+            sharedLampLensMesh = BuildLampLensMesh();
+            lampBezelMaterial = CreateLampMaterial(shader, "Lamp Dark Bezels",
+                new Color(.035f, .045f, .052f), Color.black);
             skidMarkMaterial = CreateSkidMarkMaterial(shader);
             // Optional visual feature: absent particle shader must NEVER
             // abort otherwise valid drivable cars or cause pink materials.
@@ -406,6 +414,33 @@ namespace Aaris.MapReview
                 " hubs=45 authoredCandidates=" + file.candidates.Length +
                 " sectorCoverage=" + sectors.Count + " (physics validated when nearby)");
             return plans.Count >= 18;
+        }
+
+        // Eight-sided flush lenses have chamfered corners rather than the
+        // original full-size collision-capable primitive cubes. Six triangles
+        // per lens, one shared native mesh for every streamed vehicle.
+        private static Mesh BuildLampLensMesh()
+        {
+            var lens = new Mesh { name = "Aaris Shared Chamfered Vehicle Lens" };
+            lens.vertices = new[]
+            {
+                new Vector3(-.46f, -.50f, 0f),
+                new Vector3( .40f, -.50f, 0f),
+                new Vector3( .50f, -.34f, 0f),
+                new Vector3( .50f,  .31f, 0f),
+                new Vector3( .40f,  .50f, 0f),
+                new Vector3(-.43f,  .50f, 0f),
+                new Vector3(-.50f,  .32f, 0f),
+                new Vector3(-.50f, -.35f, 0f)
+            };
+            lens.triangles = new[]
+            {
+                0, 1, 2, 0, 2, 3, 0, 3, 4,
+                0, 4, 5, 0, 5, 6, 0, 6, 7
+            };
+            lens.RecalculateNormals();
+            lens.RecalculateBounds();
+            return lens;
         }
 
         // URP Lit is already validated at scene startup. Keeping the emission
@@ -481,6 +516,35 @@ namespace Aaris.MapReview
             material.renderQueue =
                 (int)UnityEngine.Rendering.RenderQueue.Transparent;
             return material;
+        }
+
+        // The fifth tyre on some SUVs is a tailgate spare, not the bumper.
+        // Whole-model bounds can therefore place rear lamps in midair,
+        // behind that spare tyre. Use only the named authored body mesh when
+        // its bounds are credible; fall back to the fitted full-car shell.
+        // Measured once per spawn, never during driving/stream polling.
+        private static bool TryGetAuthoredLampBodyBounds(Transform chassis,
+            Transform visual, Bounds wholeCar, out Bounds bodyOnly)
+        {
+            bodyOnly = new Bounds();
+            if (chassis == null || visual == null) return false;
+            foreach (var child in visual.GetComponentsInChildren<Transform>(true))
+            {
+                if (child == null ||
+                    !child.name.EndsWith("_body",
+                        StringComparison.OrdinalIgnoreCase) ||
+                    child.GetComponent<MeshFilter>() == null) continue;
+                if (!TryGetVisualBoundsLocal(chassis, child, out Bounds candidate))
+                    continue;
+                if (candidate.size.x < wholeCar.size.x * .55f ||
+                    candidate.size.z < wholeCar.size.z * .68f ||
+                    candidate.size.z > wholeCar.size.z * 1.04f ||
+                    candidate.size.y < .25f)
+                    continue;
+                bodyOnly = candidate;
+                return true;
+            }
+            return false;
         }
 
         private static Transform FindNamedWheel(Transform root, string token)
@@ -1026,10 +1090,16 @@ namespace Aaris.MapReview
                         StringComparison.OrdinalIgnoreCase) >= 0;
                     bool bodyAtlas = label.IndexOf("body_pbr",
                         StringComparison.OrdinalIgnoreCase) >= 0;
-                    if (!separatePaint && !bodyAtlas) continue;
+                    // The sedan has a separate, verified URP painted body
+                    // rather than a body_pbr atlas. Keep its original PBR
+                    // maps and let it take part in stable car paint variants.
+                    bool civilianPaint = label.IndexOf("AarisCivilianSurface",
+                        StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (!separatePaint && !bodyAtlas && !civilianPaint) continue;
                     // Subtle for a multi-purpose body texture: paint variation
                     // must not wash out the authored windows/decals/headlights.
                     Color tint = bodyAtlas ? Color.Lerp(Color.white, paint, .30f)
+                        : civilianPaint ? Color.Lerp(Color.white, paint, .45f)
                         : paint;
                     block.Clear();
                     renderer.GetPropertyBlock(block, slot);
@@ -1149,15 +1219,22 @@ namespace Aaris.MapReview
             // Do this only after the body was reoriented, scaled, and the
             // authored wheel set passed inspection. Lamp placement is in the
             // same fitted local chassis space as the physical wheelbase.
-            motor.ConfigureExteriorLights(
-                new Bounds(new Vector3(0f, .48f, 0f), bounds.size),
+            Bounds lampBounds = new Bounds(
+                new Vector3(0f, .48f, 0f), bounds.size);
+            if (record.type.useEmbeddedAuthoredWheels &&
+                TryGetAuthoredLampBodyBounds(root.transform, mesh.transform,
+                    lampBounds, out Bounds bodyOnly))
+                lampBounds = bodyOnly;
+            motor.ConfigureExteriorLights(lampBounds,
                 headlampGlassMaterial, headlampOnMaterial,
                 taillampGlassMaterial, brakeLampMaterial,
-                reverseLampMaterial);
+                reverseLampMaterial, sharedLampLensMesh, lampBezelMaterial);
             motor.ConfigureRearTyreTraces(skidMarkMaterial);
             motor.ConfigureExhaust(exhaustMaterial,
                 new Bounds(new Vector3(0f, .48f, 0f), bounds.size));
             motor.RestoreStreamedDamage(record.damage01);
+            motor.ConfigureBodyWear(mesh.transform, BodyPaintColours[
+                StablePaintVariant(record.point.id, record.type.id)]);
             record.visible = motor;
             if (Debug.isDebugBuild)
                 Debug.Log("AARIS_CAR_PLACED " + record.point.id + " " +
@@ -1312,6 +1389,8 @@ namespace Aaris.MapReview
             if (taillampGlassMaterial != null) Destroy(taillampGlassMaterial);
             if (brakeLampMaterial != null) Destroy(brakeLampMaterial);
             if (reverseLampMaterial != null) Destroy(reverseLampMaterial);
+            if (lampBezelMaterial != null) Destroy(lampBezelMaterial);
+            if (sharedLampLensMesh != null) Destroy(sharedLampLensMesh);
             if (skidMarkMaterial != null) Destroy(skidMarkMaterial);
             if (exhaustMaterial != null) Destroy(exhaustMaterial);
             // These runtime URP conversions are shared among streamed car

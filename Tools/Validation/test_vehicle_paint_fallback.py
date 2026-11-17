@@ -17,9 +17,11 @@ class VehiclePaintAndFallback(unittest.TestCase):
         self.assertNotIn("GetHashCode()", WORLD.split("private static int StablePaintVariant(", 1)[1].split("private static void PaintVerifiedBodySlots", 1)[0].replace("String.GetHashCode is not a persistence key.", ""))
         paint = WORLD.split("private static void PaintVerifiedBodySlots(", 1)[1].split("private void FallBackToVerifiedModel(", 1)[0]
         for term in ('new MaterialPropertyBlock()', 'renderer.GetPropertyBlock(block, slot)', 'renderer.SetPropertyBlock(block, slot)',
-                     'label.IndexOf("AarisPaint"', 'label.IndexOf("body_pbr"', 'if (!separatePaint && !bodyAtlas) continue;'):
+                     'label.IndexOf("AarisPaint"', 'label.IndexOf("body_pbr"', 'if (!separatePaint && !bodyAtlas && !civilianPaint) continue;'):
             self.assertIn(term, paint)
         self.assertIn("Color.Lerp(Color.white, paint, .30f)", paint)
+        self.assertIn('label.IndexOf("AarisCivilianSurface"', paint)
+        self.assertIn("Color.Lerp(Color.white, paint, .45f)", paint)
         self.assertNotIn("renderer.material", paint)
         self.assertNotIn("new Material(", paint)
 
