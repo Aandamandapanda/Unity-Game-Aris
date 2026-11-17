@@ -37,6 +37,23 @@ WORK="$(mktemp -d "$HOME/.aaris-unity-allow.XXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 curl -fsSL --retry 2 "https://raw.githubusercontent.com/$REPO/main/Tools/Codespaces/mobile_license.py" -o "$WORK/remote.py"
 grep -q 'AARIS_AUTH_LINK=' "$WORK/remote.py" || { echo 'Remote helper not recognized'; exit 6; }
+# Explicit per-invocation opt-in only: Unity CLI 1.x may need a file-backed
+# credential store on headless Codespaces without a usable Secret Service.
+# Never enable for everyone and never print Unity tokens.
+if [[ "${AARIS_UNITY_INSECURE_STORAGE:-0}" == "1" ]]; then
+  python3 - "$WORK/remote.py" <<'PY'
+from pathlib import Path
+import sys
+helper = Path(sys.argv[1])
+src = helper.read_text()
+old = '[cli,"auth","login","--format","json"]'
+new = '[cli,"auth","login","--insecure-storage","--format","json"]'
+if src.count(old) != 1:
+    raise SystemExit("Unity CLI helper differs from reviewed source; refusing unsafe patch")
+helper.write_text(src.replace(old, new))
+PY
+  echo 'Unity login: using approved private file credential storage on this Codespace.'
+fi
 echo 'Starting official Unity sign-in on your Codespace...'
 # The URL travels only between your Codespace and your own phone.
 set +e
