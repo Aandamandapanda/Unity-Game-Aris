@@ -72,6 +72,45 @@ class BikeVisuals(unittest.TestCase):
         self.assertEqual(update.count("CreateBike("), 1)
         self.assertIn("if (visibleCount >= MaximumVisibleBikes) return;", update)
 
+    def test_automotive_coat_is_paint_only_and_variants_shared(self):
+        source = SCRIPT.read_text()
+        setup = source.split("private void SetupMaterials()", 1)[1].split(
+            "private void Update()", 1)[0]
+        self.assertIn('surfaces[0].SetFloat("_ClearCoatMask", .27f)', setup)
+        self.assertIn('surfaces[0].SetFloat("_ClearCoatSmoothness", .75f)', setup)
+        self.assertEqual(setup.count('EnableKeyword("_CLEARCOAT")'), 1)
+        self.assertIn("paintVariants[i] = new Material(surfaces[0])", setup)
+        self.assertNotIn("new Texture2D(", source)
+        self.assertNotIn("new Material(", source.split("private void Update()", 1)[1].split(
+            "private void OnDestroy()", 1)[0])
+
+    def test_parked_model_must_have_active_real_geometry(self):
+        source = SCRIPT.read_text()
+        gate = source.split("private static bool HasVisibleBikeMesh(", 1)[1].split(
+            "private GameObject CreateBike(", 1)[0]
+        for field in ("!renderer.enabled", "renderer.forceRenderingOff",
+                      "!renderer.gameObject.activeInHierarchy",
+                      "filter.sharedMesh.vertexCount > 0",
+                      "skinned.sharedMesh.vertexCount > 0"):
+            self.assertIn(field, gate)
+        self.assertIn("if (!HasVisibleBikeMesh(renderers))", source)
+        self.assertLess(source.index("if (!HasVisibleBikeMesh(renderers))"),
+                        source.index("root.AddComponent<BoxCollider>()"))
+
+    def test_static_kickstand_lean_and_mobile_lod_keep_physics_safe(self):
+        source = SCRIPT.read_text()
+        builder = source.split("private GameObject CreateBike(", 1)[1].split(
+            "private void OnDestroy()", 1)[0]
+        self.assertIn("imported.transform.localRotation *= Quaternion.Euler(0f, 0f, 3.5f)", builder)
+        self.assertIn("root.AddComponent<LODGroup>()", builder)
+        self.assertIn("lod.SetLODs(new[] { new LOD(.012f, renderers) });", builder)
+        self.assertIn("lod.RecalculateBounds();", builder)
+        self.assertIn("SystemInfo.systemMemorySize <= 3072", builder)
+        self.assertIn("renderer.shadowCastingMode = ShadowCastingMode.Off;", builder)
+        self.assertIn("root.AddComponent<BoxCollider>()", builder)
+        self.assertNotIn("AddComponent<Rigidbody>", builder)
+        self.assertNotIn("AddComponent<WheelCollider>", builder)
+
     def test_crowded_parking_queries_are_complete_and_keep_safety_checks(self):
         source = SCRIPT.read_text()
         parking = source.split("private bool TryParkingSpot(", 1)[1].split(

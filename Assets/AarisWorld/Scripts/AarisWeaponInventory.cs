@@ -254,7 +254,27 @@ namespace Aaris.MapReview
                     source.GetTexture("_BumpMap") != null)
                 {
                     converted.SetTexture("_BumpMap", source.GetTexture("_BumpMap"));
+                    if (source.HasProperty("_BumpScale") &&
+                        converted.HasProperty("_BumpScale"))
+                        converted.SetFloat("_BumpScale", Mathf.Clamp(
+                            source.GetFloat("_BumpScale"), .2f, 1.5f));
                     converted.EnableKeyword("_NORMALMAP");
+                }
+                // If legacy art has baked cavity shading, retain it instead
+                // of turning concave bodywork into shiny flat-looking metal.
+                // No new texture is created; this is a one-time shared
+                // conversion used by both held and floor loot visuals.
+                if (source.HasProperty("_OcclusionMap") &&
+                    source.GetTexture("_OcclusionMap") != null &&
+                    converted.HasProperty("_OcclusionMap"))
+                {
+                    converted.SetTexture("_OcclusionMap",
+                        source.GetTexture("_OcclusionMap"));
+                    converted.EnableKeyword("_OCCLUSIONMAP");
+                    if (source.HasProperty("_OcclusionStrength") &&
+                        converted.HasProperty("_OcclusionStrength"))
+                        converted.SetFloat("_OcclusionStrength", Mathf.Clamp01(
+                            source.GetFloat("_OcclusionStrength")));
                 }
                 if (source.HasProperty("_MetallicGlossMap") &&
                     source.GetTexture("_MetallicGlossMap") != null)

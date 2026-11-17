@@ -47,6 +47,21 @@ class FacadeTextureBudget(unittest.TestCase):
         self.assertIn("uv.Add(new Vector2(along, across));",SOURCE)
         self.assertNotIn("uv.Add(Vector2.one);",SOURCE)
 
+    def test_deterministic_house_stone_variation_has_zero_extra_draws(self):
+        self.assertIn("StableStoneVariant(house.name)", SOURCE)
+        self.assertIn("uint hash = 2166136261u;", SOURCE)
+        self.assertIn("hash = (hash ^ c) * 16777619u;", SOURCE)
+        self.assertIn("return (int)(hash & 15u);", SOURCE)
+        self.assertIn("(stoneVariant & 3) * .17f", SOURCE)
+        self.assertIn("((stoneVariant >> 2) & 3) * .17f", SOURCE)
+        self.assertIn("uvs[i] += tileOffset;", SOURCE)
+        self.assertLess(SOURCE.index("uvs[i] += tileOffset;"),
+                        SOURCE.index("mesh.UploadMeshData(true);"))
+        self.assertEqual(SOURCE.count("new Material(shader)"), 1)
+        self.assertEqual(SOURCE.count("AddComponent<MeshRenderer>()"), 1)
+        self.assertNotIn("new MaterialPropertyBlock(", SOURCE)
+        self.assertNotIn("private void Update()", SOURCE)
+
     def test_native_one_step_lod_culls_without_updates_or_colliders(self):
         self.assertIn("detail.AddComponent<LODGroup>()",SOURCE)
         self.assertIn("lod.fadeMode = LODFadeMode.None;",SOURCE)

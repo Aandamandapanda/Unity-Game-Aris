@@ -53,7 +53,11 @@ namespace Aaris.MapReview
                 }
             }
 
-            Mesh mesh = BuildFacade(width, depth, height);
+            // Each named home samples a different region of the SAME baked
+            // 128px stone tile. No per-house MaterialPropertyBlock or material
+            // clone, so URP batching and one shared GPU texture are preserved.
+            Mesh mesh = BuildFacade(width, depth, height,
+                StableStoneVariant(house.name));
             if (mesh == null) return;
             var detail = new GameObject("Aaris Architectural Roof and Corner Trim");
             detail.layer = house.layer;
@@ -90,7 +94,22 @@ namespace Aaris.MapReview
             }
         }
 
-        private static Mesh BuildFacade(float width, float depth, float height)
+        private static int StableStoneVariant(string houseName)
+        {
+            // String.GetHashCode changes between runtimes and devices.
+            // FNV-1a produces the same facade tiles after game reloads.
+            unchecked
+            {
+                uint hash = 2166136261u;
+                if (!string.IsNullOrEmpty(houseName))
+                    foreach (char c in houseName)
+                        hash = (hash ^ c) * 16777619u;
+                return (int)(hash & 15u);
+            }
+        }
+
+        private static Mesh BuildFacade(float width, float depth, float height,
+            int stoneVariant)
         {
             // Thirteen small solid details, combined into a SINGLE MeshRenderer:
             // 4 roof fascia, 5 low plinth, 4 slim corner pilasters.
@@ -131,6 +150,15 @@ namespace Aaris.MapReview
                         new Vector3(sideX*x, height*.50f,sideZ*z),
                         new Vector3(.19f,height-.60f,.19f));
 
+            // Reposition UVs before UploadMeshData(true), not at runtime.
+            // Shifting all fascia and plinth faces together avoids seams;
+            // changing source geometry, roofs and doorway clearance is not
+            // necessary to vary the appearance of sixteen houses.
+            Vector2 tileOffset = new Vector2(
+                (stoneVariant & 3) * .17f,
+                ((stoneVariant >> 2) & 3) * .17f);
+            for (int i = 0; i < uvs.Count; i++)
+                uvs[i] += tileOffset;
             var mesh = new Mesh { name = "Aaris House Architectural Trim LOD0" };
             mesh.SetVertices(vertices);
             mesh.SetNormals(normals);

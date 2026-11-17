@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Aaris.MapReview
 {
@@ -110,6 +111,16 @@ namespace Aaris.MapReview
                     surfaces[i].SetColor("_EmissionColor", tones[i] * .085f);
                     surfaces[i].EnableKeyword("_EMISSION");
                 }
+            }
+            // Paint-only clear coat gives fairing curvature a restrained
+            // automotive specular lobe. Do not coat tyres, alloy, seat or lamps;
+            // the four bike colours all reuse this one lit shader variant.
+            if (surfaces[0].HasProperty("_ClearCoatMask"))
+            {
+                surfaces[0].SetFloat("_ClearCoatMask", .27f);
+                if (surfaces[0].HasProperty("_ClearCoatSmoothness"))
+                    surfaces[0].SetFloat("_ClearCoatSmoothness", .75f);
+                surfaces[0].EnableKeyword("_CLEARCOAT");
             }
             // Three extra shared paint finishes; never create a material per bike.
             paintVariants[0] = surfaces[0];
@@ -282,6 +293,27 @@ namespace Aaris.MapReview
             return (int)(hash % 4u);
         }
 
+        private static bool HasVisibleBikeMesh(Renderer[] renderers)
+        {
+            if (renderers == null) return false;
+            foreach (var renderer in renderers)
+            {
+                if (renderer == null || !renderer.enabled ||
+                    renderer.forceRenderingOff ||
+                    !renderer.gameObject.activeInHierarchy) continue;
+                if (renderer is MeshRenderer)
+                {
+                    var filter = renderer.GetComponent<MeshFilter>();
+                    if (filter != null && filter.sharedMesh != null &&
+                        filter.sharedMesh.vertexCount > 0) return true;
+                }
+                else if (renderer is SkinnedMeshRenderer skinned &&
+                         skinned.sharedMesh != null &&
+                         skinned.sharedMesh.vertexCount > 0) return true;
+            }
+            return false;
+        }
+
         private GameObject CreateBike(AarisVehiclePoint point, Vector3 location)
         {
             var root = new GameObject("Aaris parked motorcycle " + point.id);
@@ -293,11 +325,17 @@ namespace Aaris.MapReview
             foreach (var sourceCollider in imported.GetComponentsInChildren<Collider>(true))
                 sourceCollider.enabled = false;
             Renderer[] renderers = imported.GetComponentsInChildren<Renderer>(true);
-            if (renderers.Length == 0)
+            // Renderer count is not proof of a visible motorcycle. Guard
+            // against disabled mesh renderers and zero-vertex imports before
+            // adding an invisible obstacle to the player's road.
+            if (!HasVisibleBikeMesh(renderers))
             {
                 Destroy(root);
                 return null;
             }
+            // Static left-side kickstand pose; do not rotate or tilt the
+            // physics root / parking test. Preserve importer axis correction.
+            imported.transform.localRotation *= Quaternion.Euler(0f, 0f, 3.5f);
             // One shared URP material per authored surface, reused across
             // all visible bikes. No per-bike Material instances or per-frame GC.
             // This matches OBJ usemtl section order, NOT palette declaration
@@ -316,7 +354,22 @@ namespace Aaris.MapReview
                     converted[i] = kind == 0 ? paintVariants[paintIndex] : surfaces[kind];
                 }
                 renderer.sharedMaterials = converted;
+#if UNITY_ANDROID && !UNITY_EDITOR
+                // On low-RAM phones, eight motorcycle material slots do not
+                // need eight additional realtime shadow-pass submissions.
+                if (SystemInfo.systemMemorySize > 0 &&
+                    SystemInfo.systemMemorySize <= 3072)
+                    renderer.shadowCastingMode = ShadowCastingMode.Off;
+#endif
             }
+            // Native renderer LOD is free of Update callbacks. Keep visible
+            // motorbikes until they are tiny on screen rather than unloading
+            // them abruptly at an arbitrary camera-relative distance.
+            var lod = root.AddComponent<LODGroup>();
+            lod.fadeMode = LODFadeMode.None;
+            lod.animateCrossFading = false;
+            lod.SetLODs(new[] { new LOD(.012f, renderers) });
+            lod.RecalculateBounds();
             var collider = root.AddComponent<BoxCollider>();
             collider.center = new Vector3(0f, .76f, 0f);
             collider.size = new Vector3(.96f, 1.47f, 2.27f);
