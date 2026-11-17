@@ -112,7 +112,7 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         self.assertIn("index >= RivalCount || populatedSlots[index]", br)
         self.assertIn("attemptedSlots = 0;", br)
         self.assertIn("nextSpawn = Time.time + 2.5f;", br)
-        self.assertIn("TrySpawnSlot(attemptedSlots++);", br)
+        self.assertIn("if (!populatedSlots[slot]) TrySpawnSlot(slot);", br)
         self.assertIn(the_match_is_over, br)
 
         # Remote obstacles are disabled by the original 55m collision
