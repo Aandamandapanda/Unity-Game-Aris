@@ -20,6 +20,7 @@ namespace Aaris.MapReview.Editor
         {
             internal Material material;
             internal bool drawInstanced;
+            internal Material preview;
         }
 
         private static readonly Dictionary<Terrain, TerrainSnapshot> Originals =
@@ -119,16 +120,25 @@ namespace Aaris.MapReview.Editor
                         nativeMaterial.shader.name != NativeShader)
                         continue;
 
+                    // Each tile needs its own secondary control textures.
+                    // Create one unsaved preview material per tile, never per frame.
+                    Material local = new Material(previewMaterial)
+                    {
+                        name = "Aaris GLCore tile " + terrain.name,
+                        hideFlags = HideFlags.HideAndDontSave
+                    };
+                    BindExtraLayers(local, terrain.terrainData);
                     Originals.Add(terrain, new TerrainSnapshot
                     {
                         material = nativeMaterial,
-                        drawInstanced = terrain.drawInstanced
+                        drawInstanced = terrain.drawInstanced,
+                        preview = local
                     });
                     // GLCore's native Terrain Lit is unavailable: retain the native
                     // geometry, paint-control textures and layer images in a plain
                     // non-instanced editor view, without touching mobile quality.
                     terrain.drawInstanced = false;
-                    terrain.materialTemplate = previewMaterial;
+                    terrain.materialTemplate = local;
                     count++;
                 }
                 if (count > 0)
@@ -136,6 +146,31 @@ namespace Aaris.MapReview.Editor
                         " (temporary, scene-save-safe, Android unchanged)");
             }
             finally { refreshing = false; }
+        }
+
+        // Terrain/Lit uses several splat passes. Bind them in one Linux
+        // preview; Android and the serialized TerrainData stay unchanged.
+        private static void BindExtraLayers(Material local, TerrainData data)
+        {
+            if (data == null) return;
+            Texture2D[] controls = data.alphamapTextures;
+            for (int i = 1; i < 3 && i < controls.Length; i++)
+                if (controls[i] != null)
+                    local.SetTexture("_Control" + i, controls[i]);
+            TerrainLayer[] layers = data.terrainLayers;
+            for (int i = 4; i < Mathf.Min(10, layers.Length); i++)
+            {
+                TerrainLayer layer = layers[i];
+                if (layer == null || layer.diffuseTexture == null) continue;
+                string property = "_Splat" + i;
+                local.SetTexture(property, layer.diffuseTexture);
+                float sx = Mathf.Max(0.01f, Mathf.Abs(layer.tileSize.x));
+                float sy = Mathf.Max(0.01f, Mathf.Abs(layer.tileSize.y));
+                local.SetTextureScale(property,
+                    new Vector2(data.size.x / sx, data.size.z / sy));
+                local.SetTextureOffset(property,
+                    new Vector2(layer.tileOffset.x / sx, layer.tileOffset.y / sy));
+            }
         }
 
         private static void RestoreScene(Scene scene)
@@ -160,6 +195,8 @@ namespace Aaris.MapReview.Editor
                     TerrainSnapshot snapshot = Originals[terrain];
                     terrain.materialTemplate = snapshot.material;
                     terrain.drawInstanced = snapshot.drawInstanced;
+                    if (snapshot.preview != null)
+                        UnityEngine.Object.DestroyImmediate(snapshot.preview);
                     Originals.Remove(terrain);
                 }
             }
@@ -182,6 +219,8 @@ namespace Aaris.MapReview.Editor
                         TerrainSnapshot snapshot = Originals[terrain];
                         terrain.materialTemplate = snapshot.material;
                         terrain.drawInstanced = snapshot.drawInstanced;
+                        if (snapshot.preview != null)
+                            UnityEngine.Object.DestroyImmediate(snapshot.preview);
                     }
                 }
                 Originals.Clear();
