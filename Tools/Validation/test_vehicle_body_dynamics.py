@@ -131,5 +131,18 @@ class VehicleBodyDynamics(unittest.TestCase):
         self.assertIn("visualBodyPivot.localPosition = Vector3.zero;", disable)
 
 
+    def test_parked_visual_settles_without_repeated_wheel_pose_queries(self):
+        late = MOTOR.split("private void LateUpdate()", 1)[1].split("private void OnEnable()", 1)[0]
+        for token in ("bool bodyNeedsToSettle = visualBodyPivot != null",
+                      "Quaternion.Angle(visualBodyPivot.localRotation,",
+                      "parkedSleeping && sleepingWheelPoseCurrent && !bodyNeedsToSettle",
+                      "if (!parkedSleeping || !sleepingWheelPoseCurrent)"):
+            self.assertIn(token, late)
+        self.assertLess(late.index("if (!parkedSleeping || !sleepingWheelPoseCurrent)"),
+                        late.index("SyncVisibleWheels();"))
+        self.assertLess(late.index("SyncVisibleWheels();"),
+                        late.index("UpdateVisualBodyDynamics();"))
+
+
 if __name__ == "__main__":
     unittest.main()

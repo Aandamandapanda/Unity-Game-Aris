@@ -869,8 +869,16 @@ namespace Aaris.MapReview
             // Continue every-frame synchronization whenever the car is driven,
             // moving or awakened by a collision; never reduce active wheel FPS.
             bool parkedSleeping = driver == null && body.IsSleeping();
-            if (parkedSleeping && sleepingWheelPoseCurrent) return;
-            SyncVisibleWheels();
+            // Parked cars can fall asleep before the visual-only cabin has
+            // eased out of its last turn. Settle without repeated wheel poses.
+            bool bodyNeedsToSettle = visualBodyPivot != null &&
+                (Quaternion.Angle(visualBodyPivot.localRotation,
+                    Quaternion.identity) > .10f ||
+                 Mathf.Abs(visualBodyPivot.localPosition.y) > .0015f);
+            if (parkedSleeping && sleepingWheelPoseCurrent && !bodyNeedsToSettle)
+                return;
+            if (!parkedSleeping || !sleepingWheelPoseCurrent)
+                SyncVisibleWheels();
             UpdateVisualBodyDynamics();
             UpdateRearTyreTraces();
             UpdateExhaust();

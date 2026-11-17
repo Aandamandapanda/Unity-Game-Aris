@@ -1049,7 +1049,13 @@ namespace Aaris.MapReview
             new Color(.30f, .60f, .48f, 1f), // forest green
             new Color(.65f, .68f, .74f, 1f), // silver
             new Color(.30f, .32f, .38f, 1f), // graphite
-            new Color(.84f, .71f, .46f, 1f)  // champagne
+            new Color(.84f, .71f, .46f, 1f), // champagne
+            new Color(.86f, .34f, .15f, 1f), // performance orange
+            new Color(.94f, .75f, .19f, 1f), // sunburst yellow
+            new Color(.17f, .53f, .60f, 1f), // ocean teal
+            new Color(.45f, .28f, .61f, 1f), // imperial plum
+            new Color(.61f, .20f, .29f, 1f), // burgundy
+            new Color(.64f, .42f, .31f, 1f)  // copper
         };
 
         private static int StablePaintVariant(string pointId, string vehicleId)
@@ -1104,6 +1110,17 @@ namespace Aaris.MapReview
                     block.Clear();
                     renderer.GetPropertyBlock(block, slot);
                     block.SetColor("_BaseColor", tint);
+                    // Only clearcoat separate body-paint panels: never tint
+                    // glazing, lamps, wheel rubber or PBR body atlases.
+                    if (separatePaint || civilianPaint)
+                    {
+                        if (material.HasProperty("_Smoothness"))
+                            block.SetFloat("_Smoothness", Mathf.Clamp(
+                                material.GetFloat("_Smoothness"), .56f, .72f));
+                        if (material.HasProperty("_Metallic"))
+                            block.SetFloat("_Metallic", Mathf.Clamp(
+                                material.GetFloat("_Metallic"), .20f, .42f));
+                    }
                     renderer.SetPropertyBlock(block, slot);
                 }
             }

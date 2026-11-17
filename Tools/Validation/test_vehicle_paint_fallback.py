@@ -45,5 +45,19 @@ class VehiclePaintAndFallback(unittest.TestCase):
             self.assertIn("m_EnableInstancingVariants: 1", a.read_text())
 
 
+    def test_premium_palette_and_panel_only_clearcoat(self):
+        palette = WORLD.split("private static readonly Color[] BodyPaintColours =", 1)[1].split("private static int StablePaintVariant(", 1)[0]
+        self.assertGreaterEqual(palette.count("new Color("), 12)
+        for shade in ("performance orange", "sunburst yellow", "ocean teal", "imperial plum", "burgundy", "copper"):
+            self.assertIn(shade, palette)
+        paint = WORLD.split("private static void PaintVerifiedBodySlots(", 1)[1].split("private void FallBackToVerifiedModel(", 1)[0]
+        self.assertIn("if (separatePaint || civilianPaint)", paint)
+        self.assertIn('block.SetFloat("_Smoothness"', paint)
+        self.assertIn('block.SetFloat("_Metallic"', paint)
+        self.assertLess(paint.index("if (!separatePaint && !bodyAtlas && !civilianPaint) continue;"), paint.index("if (separatePaint || civilianPaint)"))
+        self.assertNotIn("renderer.material", paint)
+        self.assertNotIn("new Material(", paint)
+
+
 if __name__ == "__main__":
     unittest.main()

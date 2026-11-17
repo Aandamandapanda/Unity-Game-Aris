@@ -179,7 +179,15 @@ def test():
     assert fixed_update.index("if (driver == null && body.IsSleeping()) return;") < (
         fixed_update.index("float speed = SpeedMetresPerSecond;"))
     assert "bool parkedSleeping = driver == null && body.IsSleeping();" in late_update
-    assert "if (parkedSleeping && sleepingWheelPoseCurrent) return;" in late_update
+    # Keep the sleeping wheel-pose cache, but finish easing a stopped cabin
+    # back to neutral without querying WheelCollider every parked frame.
+    assert "bool bodyNeedsToSettle = visualBodyPivot != null" in late_update
+    assert "if (parkedSleeping && sleepingWheelPoseCurrent && !bodyNeedsToSettle)" in late_update
+    assert "if (!parkedSleeping || !sleepingWheelPoseCurrent)" in late_update
+    assert late_update.index("if (!parkedSleeping || !sleepingWheelPoseCurrent)") < (
+        late_update.index("SyncVisibleWheels();"))
+    assert late_update.index("SyncVisibleWheels();") < (
+        late_update.index("UpdateVisualBodyDynamics();"))
     assert late_update.index("SyncVisibleWheels();") < (
         late_update.index("sleepingWheelPoseCurrent = parkedSleeping;"))
     assert "private void OnEnable()" in late_update
