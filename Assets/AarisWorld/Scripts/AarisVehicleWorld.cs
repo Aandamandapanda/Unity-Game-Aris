@@ -1017,7 +1017,11 @@ namespace Aaris.MapReview
             float best = maxDistance * maxDistance;
             foreach (var record in plans)
             {
-                if (record.visible == null || record.visible.IsOccupied) continue;
+                // A disabled Motor can retain a valid parked wheel pose but
+                // cannot accept a live driver. Skip it before distance/ground
+                // queries and continue seeking other usable cars.
+                if (record.visible == null || !record.visible.isActiveAndEnabled ||
+                    record.visible.IsOccupied) continue;
                 float d = (record.visible.transform.position - origin).sqrMagnitude;
                 // An unusable closer car must not hide a safe DRIVE target.
                 // Check distance first to avoid wheel-ground probes for far cars.

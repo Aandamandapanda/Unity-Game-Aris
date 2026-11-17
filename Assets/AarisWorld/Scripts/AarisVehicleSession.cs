@@ -45,7 +45,8 @@ namespace Aaris.MapReview
         public bool IsDriving => car != null;
         // Hide DRIVE for overturned, still-moving or unsupported vehicles.
         // The final authority remains AarisVehicleMotor.TryTakeDriver.
-        public bool CanEnter => nearbyCar != null && nearbyCar.IsSafeToExit &&
+        public bool CanEnter => nearbyCar != null &&
+            nearbyCar.isActiveAndEnabled && nearbyCar.IsSafeToExit &&
             !IsDriving && footMotor != null && footMotor.isActiveAndEnabled;
         public AarisVehicleMotor DrivenCar => car;
 

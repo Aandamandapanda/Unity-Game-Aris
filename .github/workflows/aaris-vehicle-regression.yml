@@ -12,6 +12,7 @@ on:
       - "Tools/Validation/test_hud_pointer_orphan_recovery.py"
       - "Tools/Validation/test_vehicle_hud_state_restoration.py"
       - "Tools/Validation/test_vehicle_session_suspension.py"
+      - "Tools/Validation/test_vehicle_motor_disable_authority.py"
       - "Tools/Validation/test_vehicle_camera_pacing.py"
       - "Docs/MAP_LAYOUT.json"
 
@@ -41,5 +42,7 @@ jobs:
         run: python3 Tools/Validation/test_vehicle_hud_state_restoration.py
       - name: Verify vehicle session disable and stale input recovery
         run: python3 Tools/Validation/test_vehicle_session_suspension.py
+      - name: Verify disabled cars reject driver and held input without blocking safe exit
+        run: python3 Tools/Validation/test_vehicle_motor_disable_authority.py
       - name: Verify vehicle camera pacing from 10 to 120 FPS
         run: python3 Tools/Validation/test_vehicle_camera_pacing.py

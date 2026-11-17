@@ -346,7 +346,11 @@ namespace Aaris.MapReview
             // Never board a car the player could not safely exit.
             // A slow overturned or airborne car could otherwise trap the
             // walking motor with no legal exit position.
-            if (session == null || IsOccupied || body == null ||
+            // A temporarily disabled vehicle cannot supply drive physics.
+            // Never accept a new driver while either movement authority
+            // is inactive, even when its old WheelCollider contacts remain.
+            if (session == null || !session.isActiveAndEnabled ||
+                !isActiveAndEnabled || IsOccupied || body == null ||
                 !IsSafeToExit) return false;
             driver = session;
             forward = steering = smoothSteer = 0f;
@@ -355,7 +359,10 @@ namespace Aaris.MapReview
 
         public void SetInput(float forwardAxis, float steerAxis)
         {
-            if (driver == null) return;
+            // The player may still be seated during a temporary disable.
+            // OnDisable brakes and zeros the motor. Reject subsequent UI
+            // callbacks until re-enabled to prevent stale throttle resuming.
+            if (driver == null || !isActiveAndEnabled) return;
             // Ignore corrupted/non-finite input rather than poisoning the
             // WheelCollider torque or steering angle with NaN.
             if (float.IsNaN(forwardAxis) || float.IsInfinity(forwardAxis)) forwardAxis = 0f;

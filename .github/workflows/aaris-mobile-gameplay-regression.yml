@@ -15,6 +15,7 @@ on:
       - 'Tools/Validation/test_hud_pointer_orphan_recovery.py'
       - 'Tools/Validation/test_vehicle_hud_state_restoration.py'
       - 'Tools/Validation/test_vehicle_session_suspension.py'
+      - 'Tools/Validation/test_vehicle_motor_disable_authority.py'
       - '.github/workflows/aaris-mobile-gameplay-regression.yml'
   push:
     branches: [main]
@@ -31,6 +32,7 @@ on:
       - 'Tools/Validation/test_hud_pointer_orphan_recovery.py'
       - 'Tools/Validation/test_vehicle_hud_state_restoration.py'
       - 'Tools/Validation/test_vehicle_session_suspension.py'
+      - 'Tools/Validation/test_vehicle_motor_disable_authority.py'
       - '.github/workflows/aaris-mobile-gameplay-regression.yml'
   workflow_dispatch:
 
@@ -68,6 +70,7 @@ jobs:
           python Tools/Validation/test_hud_pointer_orphan_recovery.py
           python Tools/Validation/test_vehicle_hud_state_restoration.py
           python Tools/Validation/test_vehicle_session_suspension.py
+          python Tools/Validation/test_vehicle_motor_disable_authority.py
       - name: Parse every saved AarisWorld C# gameplay script
         run: |
           python - <<'PY'
