@@ -491,6 +491,21 @@ New persistent backend: `Docs/CODESPACES_AI_CONTROL.md`, `.github/workflows/aari
 
 The owner's Termux can run Tools/Codespaces/termux_unity_allow.sh, which reuses the saved GitHub Codespace account and opens the genuine Unity-owned, Codespace-bound OAuth URL directly in the phone browser via termux-open-url. The remote reviewed mobile_license.py attempts official Unity Personal activation and checks status after Allow. Do not invent generic authorization URLs, share credentials through GitHub Issues/Actions, or clone Unity auth state across machines. Use this method in preference to the optional Cloudflare CS AUTH relay when that relay fails.
 
+## 2026-11-17: Verified headless Unity Personal license fix on an existing Codespace
+
+**Observed and independently verified:** On existing Ubuntu Codespace `bug-free-space-yodel-vgq97q46wg4cw65v` (Unity CLI 1.0.1, Editor 6000.3.26f1 already installed), the Android browser showed **"Login completed successfully"** after Unity Allow, but the remote CLI still reported `NOT_SIGNED_IN` and `LICENSE_NOT_ACTIVE`. The headless Codespace did not have a usable unlocked Secret Service/keyring session. Installing GNOME Keyring and starting D-Bus alone did not fix the login; headless `secret-tool store` still waited for a GUI prompt. Do not assume a successful Unity web page proves remote authentication or license activation.
+
+**Proven opt-in recovery:** The reviewed `Tools/Codespaces/termux_unity_allow.sh` now supports `AARIS_UNITY_INSECURE_STORAGE=1`. This *only for that invocation* adds Unity CLI's supported `--insecure-storage` flag to the remote `unity auth login` command in the fetched `Tools/Codespaces/mobile_license.py` helper; it does not change normal users' default. On the owner's Android Termux, with the saved GitHub Codespaces profile authenticated, use **the exact already-existing machine name** (never auto-create another Codespace):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sundamunda289-art/Unity-Game-Aris/main/Tools/Codespaces/termux_unity_allow.sh -o "$HOME/unity-allow.sh"
+AARIS_UNITY_INSECURE_STORAGE=1 AARIS_CODESPACE_NAME="<existing-codespace-name>" bash "$HOME/unity-allow.sh"
+```
+
+Open the fresh, official Unity sign-in URL on the phone, sign in and tap **Allow**, then return to Termux. Do not reuse a prior session's URL. The remote helper then verifies `unity auth status`, requests `unity license activate --personal --accept-eula --non-interactive` if needed, and verifies `unity license status`. Success requires **`Unity browser login verified on Codespace`** and **`SUCCESS: Unity license verified on the Codespace.`**, not just the browser page. On 2026-11-17 this flow succeeded, and a separate private Cloudflare Turbo terminal read-only verification on the same Codespace returned **`UNITY_AUTH_VERIFIED`** and **`UNITY_LICENSE_VERIFIED`**.
+
+**Security:** `--insecure-storage` can persist Unity session credentials unencrypted in that Codespace's own private home directory. Use only after the owner's explicit consent, on a private trusted Codespace; do not log, print, commit, upload or publish its authentication contents, OAuth URLs or tokens. This does not bypass Unity licensing; the owner's real Unity approval and entitlement are still required. Avoid copying credentials or license state to other machines. If the secure keyring is functional, prefer the normal helper without this flag. Preserve game files, Git LFS assets and the already-installed Editor; login remediation does **not** require reinstalling Unity or creating/rebuilding a Codespace.
+
 ## 2026-11-07: GitHub encrypted OAuth fallback
 - If `workers.dev/health` is blocked by provider access policy, `CS AUTH` publishes only RSA-OAEP-SHA256 encrypted Unity URL chunks in Issue #77 using the GitHub-provided token, never a plaintext Unity authorization link.
 - The private key is not on GitHub, in the repository, or in Codespaces. Only decrypt privately with the matching key and deliver the genuine URL in private ChatGPT. The current key may be ephemeral; regenerate public/private pair together if the private key is unavailable next time.
