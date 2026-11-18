@@ -669,6 +669,18 @@ namespace Aaris.MapReview
                 transform.rotation * Quaternion.Euler(12f, side * 12f, side * 63f));
         }
 
+        // Chest anchoring and two-hand IK must use the SAME rig contract.
+        // A partially imported Humanoid can expose a right hand/chest but
+        // miss left-arm bones. In that case follow the real right-hand
+        // transform instead of leaving a chest-anchored floating firearm.
+        // Only cached Transform checks: no new bone lookup per frame.
+        private bool HasCompleteHumanoidGripRig()
+        {
+            return chest != null && hand != null &&
+                rightUpperArm != null && rightForearm != null &&
+                leftUpperArm != null && leftForearm != null && leftHand != null;
+        }
+
         private void AttachModelsToSockets()
         {
             if (equipped == null || weaponRoot == null) return;
@@ -685,8 +697,7 @@ namespace Aaris.MapReview
             // Anchor the receiver just ahead of the chest, not to the
             // animated pistol wrist: the barrel must follow the camera
             // when firing/ADS/prone, regardless of the body animation.
-            if (chest != null && hand != null && rightUpperArm != null &&
-                rightForearm != null)
+            if (HasCompleteHumanoidGripRig())
             {
                 Vector3 forward = transform.forward;
                 Camera view = motor != null ? motor.AimCamera : null;
@@ -1027,10 +1038,8 @@ namespace Aaris.MapReview
 
         private void AlignSupportHand()
         {
-            if (!HasGun || IsSprintHolstered || hand == null ||
-                weaponRoot == null || leftUpperArm == null ||
-                leftForearm == null || leftHand == null ||
-                rightUpperArm == null || rightForearm == null) return;
+            if (!HasGun || IsSprintHolstered || weaponRoot == null ||
+                !HasCompleteHumanoidGripRig()) return;
             // Receiver at right trigger, front grip down barrel +Z.
             // First make the trigger physically reachable on this Humanoid;
             // then match the left support grip to the weapon's barrel length.
