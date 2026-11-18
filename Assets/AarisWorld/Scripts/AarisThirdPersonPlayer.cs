@@ -818,9 +818,12 @@ namespace Aaris.MapReview
             float length = delta.magnitude;
             if (length < 0.01f) return target;
             // Closest-hit query avoids a full, unordered hit buffer in dense forest.
+            // A 12-cm minimum can place the camera BEHIND a wall whose
+            // nearest contact is only a few centimetres from the pivot.
+            // Zero is safe: the near-clip player layer already hides itself.
             float allowed = Physics.SphereCast(pivot, 0.18f, delta / length, out RaycastHit hit,
                 length, WorldMask, QueryTriggerInteraction.Ignore)
-                ? Mathf.Min(length, Mathf.Max(0.12f, hit.distance - 0.08f)) : length;
+                ? Mathf.Clamp(hit.distance - 0.08f, 0f, length) : length;
             return pivot + delta / length * allowed;
         }
         // Prone/crouched cameras can be forced inside the player's own mesh by
@@ -926,7 +929,15 @@ namespace Aaris.MapReview
             // is redundant. Keep the second sweep during camera interpolation
             // so a smoothing frame never clips through a nearby obstruction.
             if ((next - wanted).sqrMagnitude > 0.00000001f)
+            {
+                Vector3 preCollision = next;
                 next = ObstructionSafe(pivot, next);
+                // A spring still carrying velocity through the wall causes
+                // repeated contact pops. Stop it only when a real sweep
+                // corrected the interpolated camera, without an extra cast.
+                if ((next - preCollision).sqrMagnitude > 0.00000001f)
+                    cameraVelocity = Vector3.zero;
+            }
             UpdatePlayerNearClipVisibility(pivot, next);
             followCamera.transform.SetPositionAndRotation(next, Quaternion.LookRotation(pivot + orbit * Vector3.forward * 0.5f - next));
         }
