@@ -127,7 +127,7 @@ assert 'turningFast || transitioningStance)' in visual
 assert 'bool transitioningLowStance =' in visual
 assert '(crouchRigWeight > 0.03f && crouchRigWeight < 0.96f)' in visual
 assert '(proneRigWeight > 0.03f && proneRigWeight < 0.96f)' in visual
-assert visual.count('kneeClearance);') == 2
+assert visual.count('kneeClearance, kneePoleStrength);') == 2
 assert visual.count('planar, yawRate, ankleRigWeight, transitioningLowStance,') == 2
 for yaw_rate, moving, weight, crouch_weight, prone_weight, should_release in (
     (0.0, 0.0, 1.0, 1.0, 0.0, False),
@@ -872,11 +872,12 @@ for fps in (10,20,30,60,120):
 print('PASS: stationary crouch world-contact anchors')
 
 # Grounded two-bone solver preserves physical floor contact without touching
-# the capsule, and crouch bend bias cannot leak into prone (zero hint).
+# the capsule; settled prone uses its own upward hint while transitions fade.
 for needle in (
     'float minimumKneeWorldY = -10000f',
     'float kneeFloor = ankleWorldY + kneeClearance;',
-    'Vector3.Lerp(bend, forwardBend.normalized, 0.90f).normalized',
+    'Vector3.Lerp(bend, forwardBend.normalized,',
+    'Mathf.Clamp01(kneePoleStrength)).normalized;',
     'Vector3.ProjectOnPlane(Vector3.up, axis)',
     'Mathf.Min(pelvisShortfall, helmetRoom), 0f, 0.21f',
     'visualRoot.localPosition += Vector3.up * pelvisLift;'
