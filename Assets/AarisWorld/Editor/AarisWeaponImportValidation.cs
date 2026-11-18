@@ -11,22 +11,34 @@ namespace Aaris.MapReview.Editor
     /// </summary>
     public static class AarisWeaponImportValidation
     {
+        [Serializable] private sealed class LiveCatalog { public AarisWeaponSpec[] weapons; }
         [MenuItem("Aaris/Validate Offline Weapons and Loot")]
         public static void Run()
         {
             AarisExplorerBuild.ValidateSavedScene();
-            string basePath = "Assets/Resources/AarisWeapons/Models/";
-            string[] names = { "SMG", "AssaultRifle", "BattleRifle", "Sniper", "Shotgun" };
+            var json = Resources.Load<TextAsset>("AarisWeapons/weapon_catalog");
+            if (json == null) throw new InvalidOperationException("Missing active catalog.");
+            var parsed = JsonUtility.FromJson<LiveCatalog>(json.text);
+            if (parsed == null || parsed.weapons == null || parsed.weapons.Length != 5)
+                throw new InvalidOperationException("Active catalog requires five models.");
+            var specs = parsed.weapons;
             int triangles = 0;
-            foreach (string name in names)
+            foreach (var spec in specs)
             {
-                string path = basePath + name + ".fbx";
-                var model = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (spec == null || !spec.Valid)
+                    throw new InvalidOperationException("Invalid live catalog entry.");
+                string name = spec.id;
+                string prefix = "Assets/Resources/" + spec.modelResource;
+                string path = AssetDatabase.LoadAssetAtPath<GameObject>(prefix + ".fbx") != null ? prefix + ".fbx" : prefix + ".obj";
+                var model = Resources.Load<GameObject>(spec.modelResource);
                 if (model == null)
                     throw new InvalidOperationException("Missing Unity imported model: " + path);
                 var importer = AssetImporter.GetAtPath(path) as ModelImporter;
                 if (importer == null)
                     throw new InvalidOperationException("Unity failed FBX ModelImporter: " + path);
+                var renderers = model.GetComponentsInChildren<Renderer>(true);
+                if (!Array.Exists(renderers, r => r != null && r.enabled && r.gameObject.activeSelf))
+                    throw new InvalidOperationException("No enabled floor mesh renderer: " + path);
                 var meshFilters = model.GetComponentsInChildren<MeshFilter>(true);
                 var skinRenderers = model.GetComponentsInChildren<SkinnedMeshRenderer>(true);
                 if (meshFilters.Length == 0 && skinRenderers.Length == 0)
@@ -48,10 +60,10 @@ namespace Aaris.MapReview.Editor
                     throw new InvalidOperationException("Invalid phone mesh triangle count " +
                         thisModel + ": " + path);
                 triangles += thisModel;
-                string resourcePath = "AarisWeapons/Models/" + name;
+                string resourcePath = spec.modelResource;
                 if (Resources.Load<GameObject>(resourcePath) == null)
                     throw new InvalidOperationException("Resources.Load failed: " + resourcePath);
-                Debug.Log("AARIS_WEAPON_IMPORT: " + name + ", " + thisModel + " triangles, Unity FBX GUID stable.");
+                Debug.Log("AARIS_WEAPON_IMPORT: " + name + ", " + thisModel + " triangles, Active gameplay model GUID stable.");
             }
             string[] scripts =
             {
@@ -71,7 +83,7 @@ namespace Aaris.MapReview.Editor
             var loot = Resources.Load<TextAsset>("AarisWeapons/loot_candidates");
             if (loot == null || !loot.text.Contains("\"schema\": 1"))
                 throw new InvalidOperationException("Missing baked 2km loot candidate data.");
-            Debug.Log("AARIS_WEAPON_IMPORT_PASS: 5 local CC0 FBX assets; " +
+            Debug.Log("AARIS_WEAPON_IMPORT_PASS: 5 active gameplay FBX/OBJ assets; " +
                 triangles + " total triangles; offline catalog + authored loot + player scripts.");
             Debug.Log("PLAYMODE_QA_REQUIRED: test hand rig, scope FOV, prone muzzle, ammo, " +
                 "indoor accessible floor, native tree cover, fire audio/materials and Android FPS.");
