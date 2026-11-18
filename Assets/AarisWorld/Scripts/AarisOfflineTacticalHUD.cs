@@ -67,6 +67,13 @@ namespace Aaris.MapReview
         private Vector2Int previousScreen;
         private bool initialized;
 
+        // Button callbacks and keyboard input share the same control authority.
+        // Update still runs while timeScale is zero, and disabled components
+        // can still receive a callback from an already-created UI Button.
+        private bool AcceptsTacticalInput => isActiveAndEnabled && Time.timeScale > 0f &&
+            motor != null && motor.isActiveAndEnabled &&
+            (medicalHealth == null || !medicalHealth.IsDead);
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Boot()
         {
@@ -126,7 +133,7 @@ namespace Aaris.MapReview
                 canvas.enabled = onFoot;
                 raycaster.enabled = onFoot;
             }
-            if (!onFoot)
+            if (!onFoot || !AcceptsTacticalInput)
             {
                 StopHealing();
                 // Canvas.enabled=false does not invoke the touch button's OnDisable.
@@ -189,7 +196,7 @@ namespace Aaris.MapReview
 
         public void ThrowFrag()
         {
-            if (!enabled || fragGrenades <= 0 || motor == null || motor.AimCamera == null ||
+            if (!AcceptsTacticalInput || fragGrenades <= 0 || motor.AimCamera == null ||
                 Time.time < nextThrow) return;
             // A throw is rare and irreversible: re-read late-added vehicle/drop
             // before consuming ammunition even inside the one-second poll window.
@@ -355,6 +362,7 @@ namespace Aaris.MapReview
 
         private void StartHealing()
         {
+            if (!AcceptsTacticalInput) return;
             RefreshOptionalComponents(true);
             if (healing || medkits <= 0 || medicalHealth == null ||
                 medicalHealth.IsDead || medicalHealth.CurrentHealth >=
@@ -377,6 +385,11 @@ namespace Aaris.MapReview
         private void UpdateHealing()
         {
             if (!healing) return;
+            if (!AcceptsTacticalInput)
+            {
+                StopHealing();
+                return;
+            }
             Vector3 velocity = medicalController != null
                 ? medicalController.velocity : Vector3.zero;
             if (medicalHealth == null || medicalHealth.IsDead ||
@@ -687,11 +700,16 @@ namespace Aaris.MapReview
 
         private void LateUpdate() => RefreshSafeArea();
 
-        private void OnDisable()
+        private void CancelTacticalInput()
         {
             StopHealing();
             if (wallTouch != null) wallTouch.CancelHold();
+            else if (gloo != null) gloo.CancelAim();
         }
+
+        private void OnDisable() => CancelTacticalInput();
+        private void OnApplicationPause(bool paused) { if (paused) CancelTacticalInput(); }
+        private void OnApplicationFocus(bool focused) { if (!focused) CancelTacticalInput(); }
 
         private void OnDestroy()
         {

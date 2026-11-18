@@ -46,7 +46,8 @@ namespace Aaris.MapReview
         {
             get
             {
-                if (!isActiveAndEnabled || carriedWalls <= 0) return false;
+                if (!isActiveAndEnabled || Time.timeScale <= 0f || carriedWalls <= 0 ||
+                    motor == null || !motor.isActiveAndEnabled) return false;
                 RefreshOptionalComponents();
                 return (drop == null || drop.HasLanded) &&
                     (vehicle == null || !vehicle.IsDriving);
