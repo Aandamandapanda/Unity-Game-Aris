@@ -71,9 +71,23 @@ assert 'UnityWebRequest' not in visual
 # TacticalSoldier's Avatar invalid and produced multi-metre mocap leg errors.
 tactical_humanoid_meta = (ROOT / 'Assets/Resources/AarisCharacters/Primary/TacticalSoldier/TacticalSoldier.fbx.meta').read_text()
 mocap_humanoid_meta = (ROOT / 'Assets/Resources/AarisMocap/mocap_locomotion.fbx.meta').read_text()
+# Unity may serialize the *valid* auto-generated Tactical Soldier bone map
+# during a real import. The animation-only mocap importer remains unmapped.
+# A populated Tactical mapping must be internally consistent and rig-specific.
+if '    human: []' in tactical_humanoid_meta:
+    assert '    skeleton: []' in tactical_humanoid_meta
+else:
+    for bone in ('Hips', 'LeftUpperLeg', 'RightUpperLeg',
+                 'LeftLowerLeg', 'RightLowerLeg', 'LeftFoot', 'RightFoot',
+                 'LeftUpperArm', 'RightUpperArm', 'LeftHand', 'RightHand'):
+        assert 'humanName: ' + bone in tactical_humanoid_meta, bone
+    assert 'boneName: mixamorig:Hips' in tactical_humanoid_meta
+    assert tactical_humanoid_meta.count('boneName: mixamorig:') >= 20
+    assert 'skeleton:\n    - name: TacticalSoldier(Clone)' in tactical_humanoid_meta
+    assert 'BamenMilitarySoldierRig' not in tactical_humanoid_meta
+assert '    human: []' in mocap_humanoid_meta
+assert '    skeleton: []' in mocap_humanoid_meta
 for humanoid_meta in (tactical_humanoid_meta, mocap_humanoid_meta):
-    assert '    human: []' in humanoid_meta
-    assert '    skeleton: []' in humanoid_meta
     assert '  autoGenerateAvatarMappingIfUnspecified: 1' in humanoid_meta
     assert '  animationType: 3' in humanoid_meta
     assert '  avatarSetup: 1' in humanoid_meta
