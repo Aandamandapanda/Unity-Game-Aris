@@ -16,17 +16,20 @@ class VehicleSessionSuspension(unittest.TestCase):
     def test_disabled_session_rejects_stale_throttle_and_steering(self):
         setter = SESSION[SESSION.index("public void SetSteering(float move, float steer)"):
                          SESSION.index("public bool TryEnterOrExit()")]
-        self.assertIn("if (!isActiveAndEnabled || car == null) return;", setter)
-        self.assertLess(setter.index("if (!isActiveAndEnabled || car == null) return;"),
+        self.assertIn("!isActiveAndEnabled || Time.timeScale <= 0f", setter)
+        self.assertIn("car == null || !car.isActiveAndEnabled", setter)
+        self.assertIn("ClearHeldDrivingInput();", setter)
+        self.assertLess(setter.index("!isActiveAndEnabled || Time.timeScale <= 0f"),
                         setter.index("touchMove = Mathf.Clamp("))
         self.assertIn("car.SetInput(touchMove, touchSteer);", setter)
 
     def test_disabled_session_rejects_stale_drive_exit_clicks(self):
         handler = SESSION[SESSION.index("public bool TryEnterOrExit()"):
                           SESSION.index("private bool TryEnter()")]
-        self.assertIn("if (!isActiveAndEnabled) return false;", handler)
+        self.assertIn("if (!isActiveAndEnabled || Time.timeScale <= 0f)", handler)
+        self.assertIn("CancelDrivingInput();", handler)
         self.assertIn("return IsDriving ? TryExit() : TryEnter();", handler)
-        self.assertLess(handler.index("if (!isActiveAndEnabled) return false;"),
+        self.assertLess(handler.index("if (!isActiveAndEnabled || Time.timeScale <= 0f)"),
                         handler.index("return IsDriving ? TryExit() : TryEnter();"))
         self.assertIn("if (Input.GetKeyDown(KeyCode.X) && IsDriving) TryEnterOrExit();",
                       SESSION)
@@ -36,17 +39,17 @@ class VehicleSessionSuspension(unittest.TestCase):
                              HUD.index("public sealed class AarisVehicleHUD")):
                    HUD.index("private void OnApplicationPause(",
                              HUD.index("public sealed class AarisVehicleHUD"))]
-        self.assertIn("if (session == null || !session.isActiveAndEnabled)", late)
+        self.assertIn("if (session == null || !session.isActiveAndEnabled || Time.timeScale <= 0f)", late)
         self.assertIn("ClearArrows();", late)
         self.assertIn("arrowPanel.SetActive(false);", late)
         self.assertIn("driveButton.SetActive(false);", late)
-        self.assertLess(late.index("if (session == null || !session.isActiveAndEnabled)"),
+        self.assertLess(late.index("if (session == null || !session.isActiveAndEnabled || Time.timeScale <= 0f)"),
                         late.index("bool driving = session.IsDriving;"))
         self.assertIn("bool show = driving || session.CanEnter;", late)
 
     def test_suspend_releases_held_input_without_unsafe_exit(self):
         end = SESSION[SESSION.index("private void ClearHeldDrivingInput()"):]
-        self.assertIn("private void OnDisable() => ClearHeldDrivingInput();", end)
+        self.assertIn("private void OnDisable() => CancelDrivingInput();", end)
         self.assertIn("if (car != null) car.SetInput(0f, 0f);", end)
         self.assertNotIn("ReleaseDriver(", end)
         self.assertNotIn("TryExit()", end)
@@ -81,6 +84,18 @@ class VehicleSessionSuspension(unittest.TestCase):
             self.assertIn(guard, disabled)
         self.assertEqual([disabled.index(v) for v in required],
                          sorted(disabled.index(v) for v in required))
+
+    def test_motor_suspension_flushes_the_bound_hud_immediately(self):
+        link = SESSION.split("internal void OnVehicleSuspended(", 1)[1].split(
+            "private void ClearHeldDrivingInput()", 1)[0]
+        self.assertIn("if (car == vehicle) CancelDrivingInput();", link)
+        self.assertIn("vehicleHud.CancelInput(this);", link)
+        self.assertIn("session.BindVehicleHud(this);", HUD)
+        self.assertIn("if (session == owner) ClearArrows();", HUD)
+        arrow = HUD.split("public void ArrowState(int dir, bool on)", 1)[1].split(
+            "private void ApplyInput()", 1)[0]
+        self.assertIn("if (on && !CanDrive)", arrow)
+        self.assertLess(arrow.index("if (on && !CanDrive)"), arrow.index("pressed[dir] = on;"))
 
 
 if __name__ == "__main__":

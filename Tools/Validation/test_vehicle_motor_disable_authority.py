@@ -25,12 +25,15 @@ class DisabledVehicleAuthority(unittest.TestCase):
     def test_disabled_motor_ignores_held_throttle_until_new_input(self):
         setter = MOTOR[MOTOR.index("public void SetInput("):
                        MOTOR.index("public void ReleaseDriver(")]
-        self.assertIn("if (driver == null || !isActiveAndEnabled) return;", setter)
-        self.assertLess(setter.index("if (driver == null || !isActiveAndEnabled) return;"),
+        self.assertIn("driver == null || !isActiveAndEnabled", setter)
+        self.assertIn("!driver.isActiveAndEnabled || Time.timeScale <= 0f", setter)
+        self.assertIn("forward = steering = 0f;", setter)
+        self.assertLess(setter.index("driver == null || !isActiveAndEnabled"),
                         setter.index("forward = Mathf.Clamp("))
         disable = MOTOR[MOTOR.index("private void OnDisable()"):]
         self.assertIn("forward = steering = 0f;", disable)
         self.assertIn("ApplyWheelForces(0f, ParkingBrakeTorque);", disable)
+        self.assertIn("driver.OnVehicleSuspended(this);", disable)
 
     def test_sleeping_parked_car_awakes_on_boarding_and_drive_intent(self):
         boarding = MOTOR[MOTOR.index("public bool TryTakeDriver("):
@@ -43,7 +46,7 @@ class DisabledVehicleAuthority(unittest.TestCase):
         self.assertIn("Mathf.Abs(forward) > .08f || Mathf.Abs(steering) > .08f", setter)
         self.assertIn("body.IsSleeping())", setter)
         self.assertIn("body.WakeUp();", setter)
-        self.assertLess(setter.index("if (driver == null || !isActiveAndEnabled) return;"),
+        self.assertLess(setter.index("driver == null || !isActiveAndEnabled"),
                         setter.index("body.WakeUp();"))
         self.assertLess(setter.index("if (float.IsNaN(forwardAxis)"),
                         setter.index("body.WakeUp();"))

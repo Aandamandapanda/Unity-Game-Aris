@@ -41,6 +41,7 @@ namespace Aaris.MapReview
         private float nextVehicleSearch;
         private float touchMove, touchSteer;
         private AarisVehicleMotor nearbyCar;
+        private AarisVehicleHUD vehicleHud;
         private Vector3 cameraVelocity;
         // Car-to-car camera framing is measured ONCE at successful entry.
         // The fitted BoxCollider already agrees with the visible authored
@@ -74,6 +75,11 @@ namespace Aaris.MapReview
 
         private void Update()
         {
+            if (Time.timeScale <= 0f)
+            {
+                CancelDrivingInput();
+                return;
+            }
             if (world == null || footMotor == null) return;
             if (!IsDriving && !footMotor.isActiveAndEnabled)
             {
@@ -89,6 +95,11 @@ namespace Aaris.MapReview
             if (Input.GetKeyDown(KeyCode.X) && IsDriving) TryEnterOrExit();
             if (car != null)
             {
+                if (!car.isActiveAndEnabled)
+                {
+                    CancelDrivingInput();
+                    return;
+                }
                 // Four arrow keys / WASD match the four touchscreen arrows.
                 // Touch state remains held until its own PointerUp/Cancel.
                 float keyboardMove = (Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.W) ? 1f : 0f)
@@ -111,7 +122,12 @@ namespace Aaris.MapReview
         {
             // EventSystem/button callbacks can arrive after this component
             // was disabled. Never hand fresh drive input to a suspended car.
-            if (!isActiveAndEnabled || car == null) return;
+            if (!isActiveAndEnabled || Time.timeScale <= 0f ||
+                car == null || !car.isActiveAndEnabled)
+            {
+                ClearHeldDrivingInput();
+                return;
+            }
             // Public touch API may be called by UI or automation; never keep
             // non-finite values in a held virtual throttle/steering state.
             if (float.IsNaN(move) || float.IsInfinity(move)) move = 0f;
@@ -125,7 +141,11 @@ namespace Aaris.MapReview
         {
             // A lingering DRIVE/EXIT click must not mutate movement ownership
             // while the authoritative session is disabled.
-            if (!isActiveAndEnabled) return false;
+            if (!isActiveAndEnabled || Time.timeScale <= 0f)
+            {
+                CancelDrivingInput();
+                return false;
+            }
             return IsDriving ? TryExit() : TryEnter();
         }
 
@@ -605,6 +625,21 @@ namespace Aaris.MapReview
         // disabled/rebuilt or before PointerUp reaches the button. Clear the
         // actual motor command here so focus regain can never resume stale
         // throttle/steering without a fresh player press.
+        internal void BindVehicleHud(AarisVehicleHUD hud) => vehicleHud = hud;
+
+        internal void OnVehicleSuspended(AarisVehicleMotor vehicle)
+        {
+            // A disable/enable can happen entirely between two Update calls.
+            // Flush the virtual arrows immediately, not just the motor axes.
+            if (car == vehicle) CancelDrivingInput();
+        }
+
+        private void CancelDrivingInput()
+        {
+            ClearHeldDrivingInput();
+            if (vehicleHud != null) vehicleHud.CancelInput(this);
+        }
+
         private void ClearHeldDrivingInput()
         {
             touchMove = touchSteer = 0f;
@@ -613,14 +648,14 @@ namespace Aaris.MapReview
 
         private void OnApplicationPause(bool paused)
         {
-            if (paused) ClearHeldDrivingInput();
+            if (paused) CancelDrivingInput();
         }
 
         private void OnApplicationFocus(bool focused)
         {
-            if (!focused) ClearHeldDrivingInput();
+            if (!focused) CancelDrivingInput();
         }
 
-        private void OnDisable() => ClearHeldDrivingInput();
+        private void OnDisable() => CancelDrivingInput();
     }
 }
