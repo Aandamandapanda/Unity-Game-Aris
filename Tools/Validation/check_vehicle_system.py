@@ -314,7 +314,9 @@ def test():
         "private void Update()", 1)[0]
     assert "TryGetVisualBoundsLocal(root.transform, out Bounds bounds)" in build
     # After real-wheel positioning, remeasure again in chassis coordinates.
-    assert build.count("TryGetVisualBoundsLocal(root.transform, out bounds)") == 3
+    # Extra source-axis correction must remeasure visible bounds before fit.
+    assert build.count("TryGetVisualBoundsLocal(root.transform, out bounds)") == 4
+    assert "Quaternion.Euler(-90f, 0f, 0f)" in build
     assert "renderer.bounds" not in build
     assert "mesh.transform.localPosition += new Vector3(0f, .48f, 0f) - bounds.center;" in build
     assert "localSpace.worldToLocalMatrix" in world
@@ -344,8 +346,9 @@ def test():
     assert build.index("AlignEmbeddedTyresToRoad(") < build.index("motor.FitShellAndWheelbase(bounds)")
     assert "public void FitShellAndWheelbase(Bounds visualBounds)" in motor
     assert "Mathf.Clamp(size.x * .94f, 1.35f, 2.25f)" in motor
-    assert "Mathf.Clamp(size.z * .94f, 2.35f, 4.30f)" in motor
-    assert "Mathf.Clamp(size.z * .322f, .92f, 1.43f)" in motor
+    assert "Mathf.Clamp(size.z * .94f, 2.35f, 5.20f)" in motor
+    assert "Mathf.Clamp(size.z * .322f, .92f, 1.72f)" in motor
+    assert "Mathf.Clamp(size.z * .322f, .92f, 1.72f)" in motor
     assert "wheels[i].transform.localPosition = new Vector3(" in motor
     assert "float.IsNaN(size.x)" in motor and "float.IsInfinity(size.z)" in motor
     # Lateral skid speed must attenuate steering and downforce too.
