@@ -8,6 +8,7 @@ on:
       - ".github/workflows/aaris-movement-regression.yml"
       - "Assets/AarisWorld/Scripts/AarisThirdPersonPlayer.cs"
       - "Assets/AarisWorld/Scripts/AarisCharacterVisual.cs"
+      - "Tools/Validation/test_foot_support_layer_guard.py"
       - "Assets/AarisWorld/Scripts/AarisBattleActions.cs"
       - "Tools/Validation/simulate_battle_feel.py"
       - "Tools/Validation/check_battle_hardening.py"
@@ -36,3 +37,5 @@ jobs:
         run: python3 Tools/Validation/simulate_battle_feel.py
       - name: Validate stance and movement hardening
         run: python3 Tools/Validation/check_battle_hardening.py
+      - name: Validate character terrain support and foot-lock resets
+        run: python3 Tools/Validation/test_foot_support_layer_guard.py
