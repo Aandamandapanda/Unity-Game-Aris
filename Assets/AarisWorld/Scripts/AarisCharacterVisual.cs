@@ -994,7 +994,10 @@ namespace Aaris.MapReview
             // inventing a support plane at the motor origin.
             if (foot == null) return float.NaN;
             Vector3 origin = foot.position + Vector3.up * 0.70f;
-            int worldMask = Physics.DefaultRaycastLayers & ~(1 << gameObject.layer);
+            // Do not exclude the whole player layer: terrain, bridges and the
+            // actor are often all Default (layer 0). The hit loop below
+            // filters only colliders belonging to this character.
+            int worldMask = Physics.DefaultRaycastLayers;
             Ray ray = new Ray(origin, Vector3.down);
             int count = Physics.RaycastNonAlloc(ray,
                 ankleSupportHits, 1.70f, worldMask, QueryTriggerInteraction.Ignore);
@@ -1164,6 +1167,9 @@ namespace Aaris.MapReview
             {
                 presentationPaused = paused;
                 motionHistoryReady = false;
+                // World-space shoe locks cannot survive a vehicle/flight hand-off.
+                leftUprightPlantLocked = false;
+                rightUprightPlantLocked = false;
                 if (graphReady)
                 {
                     if (paused) graph.Stop();
@@ -1267,6 +1273,8 @@ namespace Aaris.MapReview
             if (movementDiscontinuity)
             {
                 motionHistoryReady = false;
+                leftUprightPlantLocked = false;
+                rightUprightPlantLocked = false;
                 smoothedAccelerationPitch = 0f;
                 smoothedTurnBank = 0f;
                 smoothedOrientationWarpYaw = 0f;
