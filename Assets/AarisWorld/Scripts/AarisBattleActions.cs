@@ -34,6 +34,9 @@ namespace Aaris.MapReview
         // A second reusable buffer handles dense forests/settlements without
         // allocating a Collider[] on every prone movement frame.
         private readonly Collider[] crowdedHits = new Collider[128];
+        // Contact-time melee rays reuse one buffer, independently of the
+        // overlap candidates which remain live throughout target selection.
+        private readonly RaycastHit[] punchRayHits = new RaycastHit[32];
         // Reuse one component list for damage-receiver lookup on rare melee attacks.
         private readonly List<Component> punchComponents = new List<Component>(8);
         private PlayerStance stance;
@@ -419,7 +422,9 @@ namespace Aaris.MapReview
                 // Non-damageable vegetation or cover must not absorb a punch.
                 // The separate raycast still prevents hitting through cover.
                 float candidateDistance = candidateOffset.sqrMagnitude;
-                if (candidateDistance < distance && FindPunchReceiver(collider) != null)
+                if (candidateDistance >= distance) continue;
+                IAarisDamageable receiver = FindPunchReceiver(collider);
+                if (receiver != null && HasPunchLineOfSight(origin, nearest, receiver, mask))
                 {
                     distance = candidateDistance;
                     best = i;
@@ -428,21 +433,38 @@ namespace Aaris.MapReview
             if (best < 0) return;
             Collider victim = punchHits[best];
             Vector3 point = victim.ClosestPoint(origin);
-            Vector3 delta = point - origin;
-            // A fist cannot hit a player through a wall or a solid rock.
-            if (delta.sqrMagnitude > 0.0025f &&
-                Physics.Raycast(origin, delta.normalized, out RaycastHit obstruction,
-                    delta.magnitude, mask, QueryTriggerInteraction.Ignore) &&
-                obstruction.collider != victim &&
-                !obstruction.collider.transform.IsChildOf(victim.transform) &&
-                // A skinned enemy may have sibling limb colliders. A same-
-                // receiver collider is not a wall between fist and target.
-                FindPunchReceiver(obstruction.collider) != FindPunchReceiver(victim))
-                return;
             // An impact sound is not a swing sound: trigger it only if the
             // punch actually passed overlap, reach and wall-occlusion tests.
             AarisAudioDirector.Punch(point);
             AarisEquippedGun.ApplyDamage(victim, punchDamage, gameObject);
+        }
+
+        private bool HasPunchLineOfSight(Vector3 origin, Vector3 destination,
+            IAarisDamageable receiver, int mask)
+        {
+            Vector3 delta = destination - origin;
+            if (delta.sqrMagnitude <= 0.0025f) return true;
+            float length = delta.magnitude;
+            int count = Physics.RaycastNonAlloc(origin, delta / length,
+                punchRayHits, length, mask, QueryTriggerInteraction.Ignore);
+            RaycastHit[] hits = punchRayHits;
+            if (count >= punchRayHits.Length)
+            {
+                // A saturated unsorted buffer can omit real cover behind an
+                // ignored arm/limb. Only the rare overflow allocates a full set.
+                hits = Physics.RaycastAll(origin, delta / length, length,
+                    mask, QueryTriggerInteraction.Ignore);
+                count = hits.Length;
+            }
+            for (int i = 0; i < count; i++)
+            {
+                Collider obstacle = hits[i].collider;
+                if (obstacle == null || obstacle.transform.IsChildOf(transform) ||
+                    FindPunchReceiver(obstacle) == receiver) continue;
+                // Skipping an own/target limb must not skip the wall AFTER it.
+                return false;
+            }
+            return true;
         }
 
         private void CancelPendingCombatInput()
