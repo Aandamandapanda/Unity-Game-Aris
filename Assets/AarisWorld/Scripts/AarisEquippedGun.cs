@@ -505,8 +505,15 @@ namespace Aaris.MapReview
             }
             float muzzleHeight = cachedActions != null
                 ? Mathf.Max(0.28f, cachedActions.CameraEyeHeight - 0.15f) : 1.3f;
-            Vector3 muzzle = owner.transform.position + Vector3.up * muzzleHeight +
-                owner.transform.forward * 0.24f;
+            Vector3 muzzleAnchor = owner.transform.position + Vector3.up * muzzleHeight;
+            Vector3 muzzle = muzzleAnchor + owner.transform.forward * 0.24f;
+            // PhysX rays do not hit a collider containing their origin. Check
+            // the short receiver-to-muzzle segment first so a thin wall cannot
+            // be bypassed when the barrel starts inside or just beyond it.
+            // Shared by all shotgun pellets; no per-frame query or new buffer.
+            bool muzzleBlocked = FirstExternalHit(
+                new Ray(muzzleAnchor, owner.transform.forward), 0.24f,
+                owner.transform, out RaycastHit closeCover);
             AarisAudioDirector.GunShot(spec.category, spec.id, muzzle);
 
             bool impactSoundEmitted = false;
@@ -518,8 +525,9 @@ namespace Aaris.MapReview
                 Vector3 look = Quaternion.AngleAxis(spread.x, camera.transform.up) *
                     Quaternion.AngleAxis(-spread.y, camera.transform.right) * camera.transform.forward;
                 Ray aim = new Ray(camera.transform.position, look);
-                bool targetFound = FirstExternalHit(aim, spec.rangeMetres,
-                    owner.transform, out RaycastHit target);
+                RaycastHit target = closeCover;
+                bool targetFound = muzzleBlocked || FirstExternalHit(aim, spec.rangeMetres,
+                    owner.transform, out target);
                 Vector3 destination = targetFound ? target.point : aim.GetPoint(spec.rangeMetres);
                 // Damage selection may keep the camera reticle's hit when both
                 // rays resolve to the same damageable object, but the audiovisual
@@ -528,7 +536,7 @@ namespace Aaris.MapReview
                 Vector3 impactNormal = targetFound ? target.normal : -look;
                 Vector3 path = destination - muzzle;
                 float distance = path.magnitude;
-                if (distance > 0.025f)
+                if (!muzzleBlocked && distance > 0.025f)
                 {
                     bool muzzleHitFound = FirstExternalHit(
                         new Ray(muzzle, path / distance), distance,
