@@ -22,10 +22,17 @@ assert 'if(transitionFrames)LogTransitionContact(p,b,count);' in editor
 assert '"TRANSITION_CONTACT stance="' in editor
 assert '"TRANSITION_LEGS stance="' in editor
 assert '"TRANSITION_FOOT_ANCHOR_STALE"' in editor
+assert '"TRANSITION_TERRAIN_FEET stance="' in editor
+assert '"TRANSITION_FOOT_BURIED"' in editor
+assert 'tile.SampleHeight(pos)' in editor
+assert 'worstGroundGap< -0.15f' in editor
+assert 'float headroomDrop = Mathf.Min(excess, 1.00f) * lowPose;' in visual
+assert 'lowestShoeY - (capsuleFloor + 0.02f)' in visual
+assert 'headroomDrop = Mathf.Min(headroomDrop, safeDown);' in visual
 assert 'if(transitioning&&(left||right))' in editor
 assert 'bool transitioningLowStance =' in visual
 assert 'turningFast || transitioningStance)' in visual
-assert visual.count('kneeClearance, transitioningLowStance,') == 2
+assert visual.count('planar, yawRate, ankleRigWeight, transitioningLowStance,') == 2
 
 # Normal settled multi-angle mode must still capture standing/crouch/prone
 # from four angles, not be accidentally replaced by this transition mode.

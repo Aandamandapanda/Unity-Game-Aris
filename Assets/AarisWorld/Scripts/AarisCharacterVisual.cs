@@ -1007,34 +1007,19 @@ namespace Aaris.MapReview
                 PlantLegToTarget(thigh, shin, foot, foot.position, transform.forward, 1f);
         }
 
-        private static void PlantCrouchLeg(Transform thigh, Transform shin,
-            Transform foot, float ankleWorldY, Vector3 forward, float weight,
-            float planarSpeed, float turnDegreesPerSecond,
-            Vector3 desiredFootWorld, float kneeClearance,
+        // Calculate the eventual low-stance X/Z contact BEFORE sampling the
+        // floor. Previously the support ray hit the planned shoe location,
+        // then a world-locked shoe shifted up to 10 cm elsewhere; on stairs
+        // and ramps its Y belonged to the WRONG ground point.
+        // This value-type helper runs once per boot and adds zero raycasts.
+        private static Vector3 ResolveLowStanceFootContact(Vector3 goal,
+            float planarSpeed, float turnDegreesPerSecond, float weight,
             bool transitioningStance,
             ref bool contactLocked, ref Vector3 contactWorld)
         {
-            if (foot == null || float.IsNaN(ankleWorldY) || weight <= 0.005f)
-            {
-                contactLocked = false;
-                return;
-            }
-            Vector3 targetFoot = foot.position;
-            // The hip-relative stance planner gives each side a reachable,
-            // anatomically balanced horizontal target. Its support height was
-            // sampled at that SAME X/Z (not the old, splayed animation foot).
-            targetFoot.x = desiredFootWorld.x;
-            targetFoot.z = desiredFootWorld.z;
-            targetFoot.y = ankleWorldY;
-            // A stationary crouch pivot changes skeleton yaw even when capsule
-            // velocity is zero. Release the old world-space shoe anchors on a
-            // fast turn instead of twisting planted knees against the new pose.
-            // Reacquire contact once the turn slows, with no extra raycasts.
             bool turningFast = Mathf.Abs(turnDegreesPerSecond) > 110f;
-            // A crouch/prone/stand blend moves hip and knee targets even
-            // while the motor stays stationary. Release any old shoe lock
-            // until the new pose settles; otherwise the previous contact
-            // point drags an ankle across the ground during the transition.
+            // Changing hip positions must not inherit yesterday's world
+            // anchor: early crouch/prone/standing and quick turns unlock.
             if (planarSpeed >= 0.18f || weight < 0.30f ||
                 turningFast || transitioningStance)
             {
@@ -1042,18 +1027,31 @@ namespace Aaris.MapReview
             }
             else if (!contactLocked)
             {
-                contactWorld = targetFoot;
+                contactWorld = goal;
                 contactLocked = true;
             }
             else
             {
-                Vector3 drift = new Vector3(contactWorld.x - targetFoot.x,
-                    0f, contactWorld.z - targetFoot.z);
+                Vector3 drift = new Vector3(contactWorld.x - goal.x,
+                    0f, contactWorld.z - goal.z);
                 if (drift.sqrMagnitude > 0.20f * 0.20f)
                     contactLocked = false;
                 else
-                    targetFoot += Vector3.ClampMagnitude(drift, 0.10f);
+                    goal += Vector3.ClampMagnitude(drift, 0.10f);
             }
+            return goal;
+        }
+
+        private static void PlantCrouchLeg(Transform thigh, Transform shin,
+            Transform foot, float ankleWorldY, Vector3 forward, float weight,
+            Vector3 resolvedFootWorld, float kneeClearance)
+        {
+            if (foot == null || float.IsNaN(ankleWorldY) || weight <= 0.005f)
+                return;
+            // The planned X/Z already includes the bounded world-foot lock.
+            // Support was sampled at that EXACT resolved X/Z this frame.
+            Vector3 targetFoot = resolvedFootWorld;
+            targetFoot.y = ankleWorldY;
             float kneeFloor = ankleWorldY + kneeClearance;
             PlantLegToTarget(thigh, shin, foot, targetFoot, forward, weight,
                 kneeFloor);
@@ -1654,8 +1652,31 @@ namespace Aaris.MapReview
                 float excess = proneHeadBone.position.y -
                     (capsuleTop - headInset);
                 if (excess > 0.005f)
-                    visualRoot.localPosition += Vector3.down *
-                        Mathf.Min(excess, 1.00f) * lowPose;
+                {
+                    float headroomDrop = Mathf.Min(excess, 1.00f) * lowPose;
+                    // The physical capsule shrinks immediately but the
+                    // imported prone FBX blends over several real frames.
+                    // Forcing the partially-upright skeleton under its final
+                    // 0.62m ceiling previously buried both shoes by ~0.8m
+                    // during the first crouch-to-prone frame. During that
+                    // brief blend, ground clearance wins over forced visual
+                    // headroom: the final settled pose retains the existing
+                    // full headroom correction and collision authority.
+                    if (groundedNow && effectiveProneBlend > 0.03f &&
+                        effectiveProneBlend < 0.96f &&
+                        leftFootBone != null && rightFootBone != null)
+                    {
+                        float capsuleFloor = transform.TransformPoint(
+                            controller.center - Vector3.up *
+                            (controller.height * 0.5f)).y;
+                        float lowestShoeY = Mathf.Min(
+                            leftFootBone.position.y, rightFootBone.position.y);
+                        float safeDown = Mathf.Max(0f,
+                            lowestShoeY - (capsuleFloor + 0.02f));
+                        headroomDrop = Mathf.Min(headroomDrop, safeDown);
+                    }
+                    visualRoot.localPosition += Vector3.down * headroomDrop;
+                }
             }
             // Prone may satisfy headroom yet sink its pelvis below the floor.
             // Use the authoritative capsule bottom as a conservative visual
@@ -1719,21 +1740,28 @@ namespace Aaris.MapReview
                     out Vector3 crouchKneeForward);
                 Vector3 kneeForward = proneShare < 0.5f ?
                     crouchKneeForward : Vector3.zero;
+                // Resolve X/Z BEFORE sampling Y. This keeps the one existing
+                // Physics query per foot on the actual locked point, rather
+                // than on a different goal across a ramp or stair lip.
+                leftFootGoal = ResolveLowStanceFootContact(leftFootGoal,
+                    planar, yawRate, ankleRigWeight, transitioningLowStance,
+                    ref leftLowPlantLocked, ref leftLowPlantWorld);
+                rightFootGoal = ResolveLowStanceFootContact(rightFootGoal,
+                    planar, yawRate, ankleRigWeight, transitioningLowStance,
+                    ref rightLowPlantLocked, ref rightLowPlantWorld);
                 float leftAnkleY = SupportedAnkleY(leftFootBone,
                     ankleClearance, out Vector3 leftSupportNormal, leftFootGoal);
                 float rightAnkleY = SupportedAnkleY(rightFootBone,
                     ankleClearance, out Vector3 rightSupportNormal, rightFootGoal);
                 if (!float.IsNaN(leftAnkleY))
                     PlantCrouchLeg(leftThigh, leftShin, leftFootBone,
-                        leftAnkleY, kneeForward, ankleRigWeight, planar, yawRate,
-                        leftFootGoal, kneeClearance, transitioningLowStance,
-                        ref leftLowPlantLocked, ref leftLowPlantWorld);
+                        leftAnkleY, kneeForward, ankleRigWeight,
+                        leftFootGoal, kneeClearance);
                 else leftLowPlantLocked = false;
                 if (!float.IsNaN(rightAnkleY))
                     PlantCrouchLeg(rightThigh, rightShin, rightFootBone,
-                        rightAnkleY, kneeForward, ankleRigWeight, planar, yawRate,
-                        rightFootGoal, kneeClearance, transitioningLowStance,
-                        ref rightLowPlantLocked, ref rightLowPlantWorld);
+                        rightAnkleY, kneeForward, ankleRigWeight,
+                        rightFootGoal, kneeClearance);
                 else rightLowPlantLocked = false;
                 // Crouch/prone used to correct only ankle height, leaving the
                 // sole visually cutting through a sloped road or bridge deck.
