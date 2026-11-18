@@ -23,6 +23,7 @@ jobs:
     env:
       PIN: 21607e0274b126ac99577aaf6fb86ff114c288cd
       MACHINE: aaris-ai-ubuntu-minimal-7rpqpw7rrvv3p9g
+      MACHINE_REPO: cfjjaatis-bot/Unity-Game-Aris
 
     steps:
       - name: Checkout fixed workflow controller revision
@@ -40,12 +41,14 @@ jobs:
           test "$(git rev-parse FETCH_HEAD)" = "$PIN"
           test "$(git cat-file -t "$PIN")" = commit
           test -s Tools/Codespaces/pinned_apk_build_21607.sh
+          test -s Tools/Codespaces/pinned_apk_wait_21607.sh
           bash -n Tools/Codespaces/pinned_apk_build_21607.sh
+          bash -n Tools/Codespaces/pinned_apk_wait_21607.sh
           grep -q '^PIN=21607e0274b126ac99577aaf6fb86ff114c288cd$' Tools/Codespaces/pinned_apk_build_21607.sh
           echo "PINNED_GAME_COMMIT=$PIN"
           echo "LATER_MAIN_COMMITS_CANNOT_CHANGE_THIS_BUILD=TRUE"
 
-      - name: Run pinned Android build in EXACT existing Codespace
+      - name: Monitor already-running pinned Android build in EXACT Codespace
         shell: bash
         timeout-minutes: 320
         env:
@@ -53,11 +56,13 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$GH_TOKEN" || { echo "::error::CODESPACE_PAT missing — cannot connect to Codespace"; exit 41; }
-          gh codespace list --limit 100 --json name,state -R "$GITHUB_REPOSITORY" |
+          # This Codespace belongs to the connected bot fork, not the owner's main repo.
+          gh codespace list --limit 100 --json name,state -R "$MACHINE_REPO" |
             jq -e --arg machine "$MACHINE" '[.[] | select(.name == $machine and .state == "Available")] | length == 1' >/dev/null ||
             { echo "::error::Exact Codespace not available"; exit 42; }
           echo "EXACT_CODESPACE_CONFIRMED=$MACHINE"
-          timeout 19000 gh codespace ssh -c "$MACHINE" -- bash -s             < Tools/Codespaces/pinned_apk_build_21607.sh
+          # Read-only watcher: NEVER launch another build or use changing main.
+          timeout 19000 gh codespace ssh -c "$MACHINE" -- bash -s < Tools/Codespaces/pinned_apk_wait_21607.sh
           echo PINNED_CODESPACE_BUILD_VALIDATION_COMPLETE
 
       - name: Copy APK and SHA256 evidence from same Codespace
