@@ -386,27 +386,40 @@ assert 'APPROVALS' not in direct
 exact_line=next(line for line in direct.splitlines()
                 if 'jq -r --arg name "$AARIS_CODESPACE_NAME"' in line)
 exact_selector=exact_line.rsplit(chr(39),2)[1]
-old={"displayName":"aaris-ai-ubuntu-fallback-2","name":"old-fallback"}
-new={"displayName":"aaris-ai-ubuntu-minimal","name":"new-clean-ubuntu"}
+# A hosting account can contain unrelated forks and stopped machines.
+# Match the production jq selectors' repository and availability constraints.
+repo = "codespace-owner/Unity-Game-Aris"
+old={"displayName":"aaris-ai-ubuntu-fallback-2","name":"old-fallback",
+     "repository":repo,"state":"Available"}
+new={"displayName":"aaris-ai-ubuntu-minimal","name":"new-clean-ubuntu",
+     "repository":repo,"state":"Available"}
+stopped={**new,"state":"Shutdown"}
+foreign={**new,"repository":"unrelated/Unity-Game-Aris"}
 for candidates, requested, expected in (
     ([old,new],"new-clean-ubuntu","new-clean-ubuntu"),
     ([new,old],"new-clean-ubuntu","new-clean-ubuntu"),
     ([old,new],"old-fallback","old-fallback"),
     ([old],"new-clean-ubuntu",""),
     ([new,new],"new-clean-ubuntu",""),
+    ([new,foreign],"new-clean-ubuntu","new-clean-ubuntu"),
+    ([stopped],"new-clean-ubuntu",""),
+    ([foreign],"new-clean-ubuntu",""),
 ):
-    selected=subprocess.run(["jq","-r","--arg","name",requested,exact_selector],
+    selected=subprocess.run(["jq","-r","--arg","name",requested,
+                             "--arg","repo",repo,exact_selector],
                             input=json.dumps(candidates),
                             capture_output=True,text=True,check=True).stdout.strip()
     assert selected==expected, (selected,expected)
 # The convenience default is allowed only for exactly one eligible Ubuntu
 # instance; if both old and new exist the user must select by exact name.
 default_line=next(line for line in direct.splitlines()
-                  if 'jq -r ' in line and 'select(.displayName' in line)
+                  if 'jq -r ' in line and '.displayName == "aaris-ai-ubuntu-minimal"' in line)
 default_selector=default_line.rsplit(chr(39),2)[1]
 for candidates, expected in (([old],"old-fallback"),([new],"new-clean-ubuntu"),
-                             ([old,new],""),([], "")):
-    selected=subprocess.run(["jq","-r",default_selector],input=json.dumps(candidates),
+                             ([old,new],""),([], ""),([stopped],""),
+                             ([foreign],""),([new,foreign],"new-clean-ubuntu")):
+    selected=subprocess.run(["jq","-r","--arg","repo",repo,default_selector],
+                            input=json.dumps(candidates),
                             capture_output=True,text=True,check=True).stdout.strip()
     assert selected==expected, (selected,expected)
 print('CODESPACE_CONTROLLER_MOCK_PASS')
