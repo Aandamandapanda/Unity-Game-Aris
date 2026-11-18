@@ -529,9 +529,13 @@ def test():
     focus = session.split("private void OnApplicationFocus(bool focused)", 1)[1].split(
         "private void OnDisable", 1)[0]
     disabled = session.split("private void OnDisable()", 1)[1]
-    assert "if (paused) ClearHeldDrivingInput();" in pause
-    assert "if (!focused) ClearHeldDrivingInput();" in focus
-    assert "ClearHeldDrivingInput();" in disabled
+    cancel_input = session.split("private void CancelDrivingInput()", 1)[1].split(
+        "private void ClearHeldDrivingInput()", 1)[0]
+    assert "ClearHeldDrivingInput();" in cancel_input
+    assert "vehicleHud.CancelInput(this);" in cancel_input
+    assert "if (paused) CancelDrivingInput();" in pause
+    assert "if (!focused) CancelDrivingInput();" in focus
+    assert "CancelDrivingInput();" in disabled
 
     # Traction control must reuse prior WheelHit slip instead of adding
     # another contact query to the 2 GB-phone hotpath.

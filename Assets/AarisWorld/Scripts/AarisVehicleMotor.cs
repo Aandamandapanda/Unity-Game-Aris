@@ -1169,7 +1169,12 @@ namespace Aaris.MapReview
             // The player may still be seated during a temporary disable.
             // OnDisable brakes and zeros the motor. Reject subsequent UI
             // callbacks until re-enabled to prevent stale throttle resuming.
-            if (driver == null || !isActiveAndEnabled) return;
+            if (driver == null || !isActiveAndEnabled ||
+                !driver.isActiveAndEnabled || Time.timeScale <= 0f)
+            {
+                forward = steering = 0f;
+                return;
+            }
             // Ignore corrupted/non-finite input rather than poisoning the
             // WheelCollider torque or steering angle with NaN.
             if (float.IsNaN(forwardAxis) || float.IsInfinity(forwardAxis)) forwardAxis = 0f;
@@ -1500,6 +1505,7 @@ namespace Aaris.MapReview
         private void OnDisable()
         {
             forward = steering = 0f;
+            if (driver != null) driver.OnVehicleSuspended(this);
             ApplyWheelForces(0f, ParkingBrakeTorque);
             lastLampState = -1;
             StopRearTyreTraces(true);

@@ -180,9 +180,14 @@ namespace Aaris.MapReview
         private Vector2 lastScreen;
         private Rect lastSafe;
 
+        private bool CanDrive => isActiveAndEnabled && Time.timeScale > 0f &&
+            session != null && session.isActiveAndEnabled &&
+            session.DrivenCar != null && session.DrivenCar.isActiveAndEnabled;
+
         public void Configure(AarisVehicleSession player)
         {
             session = player;
+            if (session != null) session.BindVehicleHud(this);
             var obj = new GameObject("Vehicle Arrow Canvas", typeof(RectTransform),
                 typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             obj.transform.SetParent(transform, false);
@@ -325,6 +330,11 @@ namespace Aaris.MapReview
         {
             if (dir < 0 || dir >= pressed.Length ||
                 (on && !isActiveAndEnabled)) return;
+            if (on && !CanDrive)
+            {
+                ClearArrows();
+                return;
+            }
             pressed[dir] = on;
             ApplyInput();
         }
@@ -342,6 +352,12 @@ namespace Aaris.MapReview
             foreach (var a in arrows) if (a != null) a.Reset();
             for (int i = 0; i < pressed.Length; i++) pressed[i] = false;
             ApplyInput();
+        }
+
+        internal void CancelInput(AarisVehicleSession owner)
+        {
+            // A rebound HUD must never clear another session's controls.
+            if (session == owner) ClearArrows();
         }
 
         private void UpdateSafe(bool force)
@@ -419,7 +435,7 @@ namespace Aaris.MapReview
             // both controls and release previously held arrow pointers.
             // Keep the car occupancy state intact: only a validated exit may
             // restore the walking CharacterController.
-            if (session == null || !session.isActiveAndEnabled)
+            if (session == null || !session.isActiveAndEnabled || Time.timeScale <= 0f)
             {
                 if (arrowPanel.activeSelf)
                 {
@@ -432,10 +448,11 @@ namespace Aaris.MapReview
                 return;
             }
             bool driving = session.IsDriving;
-            if (arrowPanel.activeSelf != driving)
+            bool canDrive = CanDrive;
+            if (arrowPanel.activeSelf != canDrive)
             {
-                if (!driving) ClearArrows();
-                arrowPanel.SetActive(driving);
+                if (!canDrive) ClearArrows();
+                arrowPanel.SetActive(canDrive);
             }
             if (speedPanel != null && speedPanel.activeSelf != driving)
             {
