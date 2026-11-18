@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2] / "Assets/AarisWorld/Scripts"
 INVENTORY = (ROOT / "AarisWeaponInventory.cs").read_text("utf-8")
 LOOT = (ROOT / "AarisWeaponLootWorld.cs").read_text("utf-8")
+TACTICAL = (ROOT / "AarisOfflineTacticalHUD.cs").read_text("utf-8")
 
 
 def section(src, start, end):
@@ -16,6 +17,33 @@ def section(src, start, end):
 
 
 class OfflineWeaponPauseAndLandingAuthority(unittest.TestCase):
+    def test_tactical_callbacks_reject_paused_or_inactive_owners(self):
+        authority = section(TACTICAL, "private bool AcceptsTacticalInput =>",
+                            "[RuntimeInitializeOnLoadMethod(")
+        for token in ("isActiveAndEnabled", "Time.timeScale > 0f",
+                      "motor != null && motor.isActiveAndEnabled",
+                      "medicalHealth == null || !medicalHealth.IsDead"):
+            self.assertIn(token, authority)
+        for start, end in (("public void ThrowFrag()", "private bool TryGetGrenadeRelease("),
+                           ("private void StartHealing()", "private void StopHealing()"),
+                           ("private void UpdateHealing()", "private void StreamMedicalSites()")):
+            body = section(TACTICAL, start, end)
+            self.assertIn("!AcceptsTacticalInput", body)
+            for action in ("AarisOfflineFragGrenade.Throw(", "healing = true;", "medkits--;"):
+                if action in body:
+                    self.assertLess(body.index("!AcceptsTacticalInput"), body.index(action))
+
+    def test_tactical_update_and_lifecycle_cancel_pending_channels(self):
+        update = section(TACTICAL, "private void Update()", "public bool TryGiveGrenades(")
+        self.assertLess(update.index("if (!onFoot || !AcceptsTacticalInput)"),
+                        update.index("Input.GetKeyDown("))
+        self.assertLess(update.index("StopHealing();"), update.index("StreamMedicalSites();"))
+        cancel = section(TACTICAL, "private void CancelTacticalInput()", "private void OnDestroy()")
+        for token in ("StopHealing();", "wallTouch.CancelHold();", "gloo.CancelAim();",
+                      "OnDisable() => CancelTacticalInput();",
+                      "if (paused) CancelTacticalInput();", "if (!focused) CancelTacticalInput();"):
+            self.assertIn(token, cancel)
+
     def test_all_keyboard_and_hud_commands_share_on_foot_guard(self):
         authority = section(
             INVENTORY, "private bool AcceptsPlayerWeaponInput =>",

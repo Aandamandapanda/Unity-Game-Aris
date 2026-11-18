@@ -729,7 +729,8 @@ def audit():
                    gloo.index("private void UpdatePlacement()")]
     assert "GetComponent<" not in can_use
     assert "RefreshOptionalComponents();" in can_use
-    assert "if (!isActiveAndEnabled || carriedWalls <= 0) return false;" in can_use
+    assert "!isActiveAndEnabled || Time.timeScale <= 0f || carriedWalls <= 0" in can_use
+    assert "motor == null || !motor.isActiveAndEnabled" in can_use
     assert "if (!force && Time.unscaledTime < nextOptionalComponentRefresh) return;" in refresh
     assert "nextOptionalComponentRefresh = Time.unscaledTime + 1f;" in refresh
     assert refresh.count("GetComponent<AarisOfflineDrop>()") == 1
