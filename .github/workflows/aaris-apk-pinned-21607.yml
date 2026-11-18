@@ -1,0 +1,96 @@
+
+name: Aaris Android APK — LOCKED 21607e0 (Codespace)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aaris-apk-pinned-21607.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aaris-android-apk-locked-21607
+  cancel-in-progress: false
+
+jobs:
+  immutable-codespace-apk:
+    name: 'Locked 21607e0 — Unity Android APK and signature validation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      PIN: 21607e0274b126ac99577aaf6fb86ff114c288cd
+      MACHINE: aaris-ai-ubuntu-minimal-7rpqpw7rrvv3p9g
+
+    steps:
+      - name: Checkout fixed workflow controller revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          lfs: false
+          persist-credentials: false
+
+      - name: Verify immutable game commit and build script
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --quiet --no-tags --depth=1 origin "$PIN"
+          test "$(git rev-parse FETCH_HEAD)" = "$PIN"
+          test "$(git cat-file -t "$PIN")" = commit
+          test -s Tools/Codespaces/pinned_apk_build_21607.sh
+          bash -n Tools/Codespaces/pinned_apk_build_21607.sh
+          grep -q '^PIN=21607e0274b126ac99577aaf6fb86ff114c288cd$' Tools/Codespaces/pinned_apk_build_21607.sh
+          echo "PINNED_GAME_COMMIT=$PIN"
+          echo "LATER_MAIN_COMMITS_CANNOT_CHANGE_THIS_BUILD=TRUE"
+
+      - name: Run pinned Android build in EXACT existing Codespace
+        shell: bash
+        timeout-minutes: 320
+        env:
+          GH_TOKEN: ${{ secrets.CODESPACE_PAT }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo "::error::CODESPACE_PAT missing — cannot connect to Codespace"; exit 41; }
+          gh codespace list --limit 100 --json name,state -R "$GITHUB_REPOSITORY" |
+            jq -e --arg machine "$MACHINE" '[.[] | select(.name == $machine and .state == "Available")] | length == 1' >/dev/null ||
+            { echo "::error::Exact Codespace not available"; exit 42; }
+          echo "EXACT_CODESPACE_CONFIRMED=$MACHINE"
+          timeout 19000 gh codespace ssh -c "$MACHINE" -- bash -s             < Tools/Codespaces/pinned_apk_build_21607.sh
+          echo PINNED_CODESPACE_BUILD_VALIDATION_COMPLETE
+
+      - name: Copy APK and SHA256 evidence from same Codespace
+        shell: bash
+        timeout-minutes: 25
+        env:
+          GH_TOKEN: ${{ secrets.CODESPACE_PAT }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh codespace cp -c "$MACHINE"             "remote:/tmp/aaris-codespaces/android-apk/Build/AarisGame.apk"             dist/AarisGame.apk
+          gh codespace cp -c "$MACHINE"             "remote:/tmp/aaris-codespaces/android-apk/Build/AarisGame.apk.sha256"             dist/AarisGame.apk.sha256
+          gh codespace cp -c "$MACHINE"             "remote:/tmp/aaris-codespaces/android-apk/pinned-21607-apk-verified.json"             dist/verified.json
+          (cd dist && sha256sum -c AarisGame.apk.sha256)
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          j=json.loads(Path('dist/verified.json').read_text())
+          assert j['source_sha']=='21607e0274b126ac99577aaf6fb86ff114c288cd'
+          assert j['package']=='com.aaris.game'
+          assert j['version_code']==20261116
+          assert j['bytes']==Path('dist/AarisGame.apk').stat().st_size
+          print('PINNED_APK_UPLOAD_SHA256_AND_SOURCE_SHA_VERIFIED')
+          PY
+
+      - name: Upload verified standalone APK to GitHub Actions artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AarisGame-Android-21607e0-verified
+          path: |
+            dist/AarisGame.apk
+            dist/AarisGame.apk.sha256
+            dist/verified.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
