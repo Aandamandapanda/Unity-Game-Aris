@@ -2,6 +2,28 @@
 
 Repository: sundamunda289-art/Unity-Game-Aris; branch: main. Public repository: NEVER commit or release passwords, tokens, Unity license files, Hub state, private content or secrets.
 
+## 2026-11-19: HEADLESS UNITY PERSONAL LOGIN — FAST RECOVERY (READ FIRST)
+
+**Confirmed on the new hosting account:** On 2026-11-19, the owner switched to the *existing* `Aaridkhab/Unity-Game-Aris` Ubuntu 22.04 Codespace (Unity CLI 1.0.1, Editor 6000.3.26f1 installed, canonical `sundamunda289-art/Unity-Game-Aris` `main` synchronized, 822/822 LFS files hydrated). The normal Android Termux Unity login **twice** produced `Unity Allow/login not completed in time` and `Unity auth was not verified` despite the owner tapping Allow. The headless Codespace had no available Secret Service/keyring (`secret-tool`, D-Bus daemon and GNOME keyring absent). **Do not assume the user was too slow; do not keep retrying the default login, reinstall Unity/LFS, rebuild the Codespace, or create a new machine.** An existing 2026-11-17 verified solution is detailed further below.
+
+**Fast decision path for the next AI:**
+
+1. Identify the **currently selected** exact Codespace under the hosting GitHub account (`GH_CONFIG_DIR="$HOME/.config/aaris-ai/codespace-gh" gh codespace list --json name,state,repository` in Termux), and check the current Cloudflare heartbeat/real terminal command. The hosting repository may be `<other-account>/Unity-Game-Aris`; the **canonical source** always remains `sundamunda289-art/Unity-Game-Aris`. Never hardcode the 2026-11-19 machine as a future destination.
+2. If the Editor and Unity CLI are present but normal phone approval ends with `Unity auth was not verified`, inspect `unity auth status` and `unity license status` **without displaying JSON, emails, OAuth URLs, session data, or tokens**. On minimal/headless Linux, check whether a usable unlocked Secret Service/keyring exists. Unity CLI 1.0.1 supports `auth login --insecure-storage`; the repository's reviewed Termux helper supports the corresponding per-run opt-in.
+3. **Only with explicit owner consent** to the weaker *file-based credential storage* on that private Codespace, run from **Android Termux**, with the existing selected hosting-account GitHub profile already authorized:
+
+   ```bash
+   export AARIS_CODESPACE_NAME="<exact Available codespace name>"
+   curl -fsSL https://raw.githubusercontent.com/sundamunda289-art/Unity-Game-Aris/main/Tools/Codespaces/termux_unity_allow.sh -o "$HOME/aaris-unity-allow.sh"
+   AARIS_UNITY_INSECURE_STORAGE=1 bash "$HOME/aaris-unity-allow.sh"
+   ```
+
+   The helper fetches `Tools/Codespaces/mobile_license.py` from canonical main and adds the official `--insecure-storage` flag **for this one login invocation only**. Open the **fresh** Unity-owned sign-in URL on the phone, sign in, tap **Allow**, return to Termux, and confirm both `Unity browser login verified on Codespace` and `SUCCESS: Unity license verified on the Codespace.`. This is official owner authorization, not a license bypass.
+4. For independent proof, use the authenticated **private Cloudflare Turbo terminal queue**, on the selected machine, to run the Unity CLI's `auth status --format json --non-interactive` and `license status --format json --non-interactive`, discard raw output, and emit **only** success/failure markers. On **2026-11-19**, this exact recovery produced `UNITY_AUTH_VERIFIED` and `UNITY_LICENSE_VERIFIED` (both commands exited 0) on `aaris-ai-ubuntu-minimal-p764pwx4q79536p95`. These results prove **login and license**, **not Unity GUI, project scene, Android build or Play Mode**.
+5. If this opt-in attempt also fails, diagnose Unity OAuth callback completion, SSH command lifetime, CLI version/help and credential-store behavior **privately**. Do not loop login/rebootstrap, print private callback URLs to GitHub, copy other machines' Unity license or credentials, or alter Git-tracked files for authentication. Prefer the secure keyring approach if it works. A new Codespace still needs its own legitimate account authorization.
+
+**Security:** `--insecure-storage` may save credentials without encryption in the Codespace user's private home. It is not the default and must never be enabled without the owner's approval. Never publish any login session URL, Unity account token, password, ULF, Hub state or secret in `AGENTS.md`, GitHub Issues, Actions logs, commits or chat. Full original rationale and opt-in instructions: **"2026-11-17: Verified headless Unity Personal license fix on an existing Codespace"** below.
+
 ## 2026-11-14: IMPORTANT — reconcile old agent PRs before any merge
 
 Read [Docs/OPEN_AGENT_PR_RECONCILIATION_20261114.md](Docs/OPEN_AGENT_PR_RECONCILIATION_20261114.md). On this snapshot 41 old PRs were still open, many Draft or conflicting. Multiple old changes are already on main through newer commits; bulk merging old branches can DELETE later two-slot gun holster, door audio, physics and mobile improvements. PR #518 selectively merged the only three remaining 50m ground-loot planning gaps from old #454. Continue reviewing unmerged native scene/forest/ops work independently and preserve the live Codespace's 745 dirty files. The ledger is dated evidence, not a current mergeability claim.
