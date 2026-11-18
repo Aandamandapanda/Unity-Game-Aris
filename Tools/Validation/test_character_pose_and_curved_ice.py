@@ -635,8 +635,8 @@ assert 'float proneShare = proneRigWeight / Mathf.Max(totalRigWeight, 0.0001f);'
 assert 'Mathf.Lerp(PlantedAnkleMetres,' in visual
 assert 'float leftAnkleY = SupportedAnkleY(leftFootBone,' in visual
 assert 'float rightAnkleY = SupportedAnkleY(rightFootBone,' in visual
-assert 'ankleClearance, out Vector3 leftSupportNormal);' in visual
-assert 'ankleClearance, out Vector3 rightSupportNormal);' in visual
+assert 'ankleClearance, out Vector3 leftSupportNormal, leftFootGoal);' in visual
+assert 'ankleClearance, out Vector3 rightSupportNormal, rightFootGoal);' in visual
 for authored in (False, True):
     for i in range(11):
         for j in range(11):
@@ -861,8 +861,8 @@ print('PASS: stationary crouch world-contact anchors')
 # the capsule, and crouch bend bias cannot leak into prone (zero hint).
 for needle in (
     'float minimumKneeWorldY = -10000f',
-    'float kneeFloor = ankleWorldY + 0.02f;',
-    'Vector3.Lerp(bend, forwardBend.normalized, 0.72f).normalized',
+    'float kneeFloor = ankleWorldY + kneeClearance;',
+    'Vector3.Lerp(bend, forwardBend.normalized, 0.90f).normalized',
     'Vector3.ProjectOnPlane(Vector3.up, axis)',
     'Mathf.Min(pelvisShortfall, helmetRoom), 0f, 0.21f',
     'visualRoot.localPosition += Vector3.up * pelvisLift;'
