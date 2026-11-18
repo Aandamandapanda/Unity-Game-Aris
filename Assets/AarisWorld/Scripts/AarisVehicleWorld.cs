@@ -1666,6 +1666,13 @@ namespace Aaris.MapReview
             Vector3 playerPosition = player.position;
             int active = 0, built = 0, unloaded = 0;
             int spawnProbes = 0;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // Spread vehicle creation when recent mobile frames are slow.
+            // No render-resolution change, GC allocation or camera work.
+            bool constrainedFrame = Time.smoothDeltaTime > (1f / 45f);
+#else
+            const bool constrainedFrame = false;
+#endif
             foreach (var record in plans)
             {
                 if (record.visible == null) continue;
@@ -1706,7 +1713,8 @@ namespace Aaris.MapReview
             // closest ready car the first slot, even in a crowded sector.
             // Scan at most 44 immutable plans per attempt; no sorting or GC.
             while (built < spawnBudgetPerPoll &&
-                   spawnProbes < spawnProbeBudgetPerPoll)
+                   spawnProbes < spawnProbeBudgetPerPoll &&
+                   (!constrainedFrame || (built == 0 && spawnProbes < 3)))
             {
                 AarisVehicleRecord record = null;
                 float nearestDistanceSq = LoadRadius * LoadRadius;
