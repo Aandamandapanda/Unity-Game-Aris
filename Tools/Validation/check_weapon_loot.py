@@ -651,9 +651,12 @@ def run():
     assert "bool sprinting = !fistMode && !aiming" in late
     assert "IsSprintLowReady = sprinting && HasCompleteHumanoidGripRig();" in late
     assert "IsSprintHolstered = sprinting && !IsSprintLowReady;" in late
-    assert "if (IsSprintLowReady)" in attach
-    assert "aimRotation *= Quaternion.Euler(11f, 0f, 0f);" in attach
-    assert "receiver -= shoulderForward * 0.035f + Vector3.up * 0.08f;" in attach
+    assert "if (sprintReadyBlend > 0.001f)" in attach
+    assert "aimRotation *= Quaternion.Euler(11f * sprintReadyBlend, 0f, 0f);" in attach
+    assert "receiver -= sprintReadyBlend *" in attach
+    assert "(shoulderForward * 0.035f + Vector3.up * 0.08f);" in attach
+    assert "sprintReadyBlend = Mathf.Lerp(sprintReadyBlend," in late
+    assert "if (aiming || (combat != null && combat.FireHeld))" in late
     assert "Quaternion torso = chest != null ? chest.rotation : transform.rotation;" in attach
     assert "longGunClearance" in attach
     assert "stowedRoot != null ? 0.065f : 0f" in attach
