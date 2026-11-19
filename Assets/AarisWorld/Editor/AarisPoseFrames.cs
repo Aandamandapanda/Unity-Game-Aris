@@ -427,12 +427,17 @@ static void LogMotionRigQuality(AarisThirdPersonPlayer p,
   rh.position-lh.position,Vector3.up);
  if(hipSide.sqrMagnitude<0.01f)return;
  hipSide.Normalize();
+ // Measure real lateral separation separately from fore/aft stride.
+ // Foot-to-foot distance alone is not proof of sideways skating.
+ Vector3 feetXZ=Vector3.ProjectOnPlane(rf.position-lf.position,Vector3.up);
+ float footLateralSpan=Mathf.Abs(Vector3.Dot(feetXZ,hipSide));
+ float footForwardStagger=Vector3.Dot(feetXZ,
+  Vector3.Cross(hipSide,Vector3.up));
  float leftKneeSide=Vector3.Dot(Vector3.ProjectOnPlane(
   lk.position-lh.position,Vector3.up),hipSide);
  float rightKneeSide=Vector3.Dot(Vector3.ProjectOnPlane(
   rk.position-rh.position,Vector3.up),hipSide);
- float footSpread=Vector3.ProjectOnPlane(
-  lf.position-rf.position,Vector3.up).magnitude;
+ float footSpread=feetXZ.magnitude;
  Vector3 spineForward=Vector3.ProjectOnPlane(
   head.position-hips.position,Vector3.up);
  float spineFacing=spineForward.sqrMagnitude>0.01f
@@ -476,6 +481,8 @@ static void LogMotionRigQuality(AarisThirdPersonPlayer p,
   " leftGap="+leftGap.ToString("F3")+
   " rightGap="+rightGap.ToString("F3")+
   " spread="+footSpread.ToString("F3")+
+  " lateralFootSpan="+footLateralSpan.ToString("F3")+
+  " foreAftFootStagger="+footForwardStagger.ToString("F3")+
   " leftKneeSide="+leftKneeSide.ToString("F3")+
   " rightKneeSide="+rightKneeSide.ToString("F3")+
   " torsoFacingDot="+spineFacing.ToString("F3")+
@@ -549,13 +556,19 @@ if(b.Stance==AarisBattleActions.PlayerStance.Standing&&
 Vector3 hipRight=Vector3.ProjectOnPlane(rh.position-lh.position,Vector3.up);
 if(hipRight.sqrMagnitude<0.02f)return;
 hipRight.Normalize();
+Vector3 feetXZ=Vector3.ProjectOnPlane(rf.position-lf.position,Vector3.up);
+float footLateralSpan=Mathf.Abs(Vector3.Dot(feetXZ,hipRight));
+float footForwardStagger=Vector3.Dot(feetXZ,
+ Vector3.Cross(hipRight,Vector3.up));
 float lSide=Vector3.Dot(Vector3.ProjectOnPlane(
  lk.position-lh.position,Vector3.up),hipRight);
 float rSide=Vector3.Dot(Vector3.ProjectOnPlane(
  rk.position-rh.position,Vector3.up),hipRight);
-float spread=Vector3.ProjectOnPlane(lf.position-rf.position,Vector3.up).magnitude;
+float spread=feetXZ.magnitude;
 Log("TRANSITION_LEGS stance="+b.Stance+" frame="+sampleIndex+
 " spread="+spread.ToString("F3")+
+" lateralFootSpan="+footLateralSpan.ToString("F3")+
+" foreAftFootStagger="+footForwardStagger.ToString("F3")+
 " leftKneeSide="+lSide.ToString("F3")+
 " rightKneeSide="+rSide.ToString("F3"));
 }
