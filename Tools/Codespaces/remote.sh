@@ -236,6 +236,52 @@ PYINPLACE
     }
     echo 'AARIS_GAMEPLAY_INPLACE_STATIC_TESTS_PASSED'
     ;;
+  sync_delta)
+    # Owner-only weapon upgrade reconciliation. Never reset/clean/stash the
+    # live Unity worktree and never download LFS blobs in this operation.
+    # If another agent has tracked edits, stop without changing any files.
+    test "$(git branch --show-current)" = main || {
+      echo 'WEAPON_DELTA_SYNC_BLOCKED_NOT_MAIN'; exit 81;
+    }
+    if test -n "$(git status --porcelain=v1 --untracked-files=no)"; then
+      echo 'WEAPON_DELTA_SYNC_BLOCKED_TRACKED_CHANGES'
+      printf 'codespace_head=%s\n' "$(git rev-parse HEAD)"
+      exit 82
+    fi
+    if ! git fetch --quiet --no-tags origin main; then
+      echo 'WEAPON_DELTA_SYNC_FETCH_FAILED'; exit 83
+    fi
+    if ! git merge-base --is-ancestor HEAD origin/main; then
+      echo 'WEAPON_DELTA_SYNC_DIVERGED'; exit 84
+    fi
+    # A pre-existing untracked local file may collide with a newly added
+    # file in main. Reject before invoking Git rather than overwriting it.
+    python3 - <<'PY'
+import os, pathlib, subprocess, sys
+paths=subprocess.check_output(
+    ['git','diff','--name-only','--diff-filter=A','-z','HEAD','origin/main']
+).split(b'\0')
+for raw in paths:
+    if not raw: continue
+    path=os.fsdecode(raw)
+    candidate=pathlib.Path(path)
+    if candidate.exists() or candidate.is_symlink():
+        print('WEAPON_DELTA_SYNC_BLOCKED_UNTRACKED_COLLISION')
+        sys.exit(85)
+PY
+    # Disable LFS smudge during this delta-only Git sync: original weapon,
+    # map and model LFS objects remain undisturbed in the Codespace cache.
+    if ! git -c filter.lfs.process= -c filter.lfs.clean=cat \
+        -c filter.lfs.smudge=cat -c filter.lfs.required=false \
+        merge --ff-only --quiet origin/main; then
+      echo 'WEAPON_DELTA_SYNC_FAST_FORWARD_FAILED'; exit 86
+    fi
+    test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || {
+      echo 'WEAPON_DELTA_SYNC_HASH_MISMATCH'; exit 87;
+    }
+    printf 'WEAPON_DELTA_SYNC_CONFIRMED_SHA=%s\n' "$(git rev-parse HEAD)"
+    echo 'WEAPON_DELTA_SYNC_NO_LFS_DOWNLOAD_NO_RESET_NO_STASH'
+    ;;
   sync)
     # Never discard unsaved work. The legacy repo contains exactly 11 checked-in
     # full blobs mistakenly matched by a later git-lfs clean filter. Allow these

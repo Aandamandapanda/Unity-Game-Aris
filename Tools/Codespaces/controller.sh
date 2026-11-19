@@ -78,6 +78,10 @@ if test -n "$ISSUE"; then
     'CS LFS') OP=lfs ;;
     'CS LFS REPORT') OP=lfs_report ;;
     'CS CHANGES') OP=changes ;;
+    # Owner-only, exact known gameplay Codespace; no arbitrary host input.
+    'CS WEAPON STATUS') OP=status; MACHINE='aaris-ai-ubuntu-minimal-p764pwx4q79536p95' ;;
+    'CS WEAPON CHANGES') OP=changes; MACHINE='aaris-ai-ubuntu-minimal-p764pwx4q79536p95' ;;
+    'CS WEAPON DELTA SYNC') OP=sync_delta; MACHINE='aaris-ai-ubuntu-minimal-p764pwx4q79536p95' ;;
     'CS PERF AUDIT') OP=perf_audit ;;
     'CS PERF TUNE') OP=perf_tune ;;
     'CS OPEN NATIVE') OP=open_native_probe ;;
@@ -122,7 +126,7 @@ if test -n "$ISSUE"; then
   esac
 fi
 case "$OP" in
-  machines|info|quota|start|wait_start|fresh|fresh_ssh|fresh_minimal|rebuild|full_rebuild|status|logs|sync|recovery_sync|lfs|lfs_report|changes|perf_audit|perf_tune|open_native_probe|open_native_select|apply_gameplay|preserve_assets|retry_assets|install|bootstrap|deps|cli_diag|editor|editor_diag|editor_isolate|tmp_audit|tmp_reclaim|fresh_tmp|hydrate_tmp|license|auth|probe|shot|accept_terms|safe_mode|compile_report|refresh|close_editor|editor_process|editor_recover|scene_render|scene_play|hud_review|drop_video|drop_frames|map_verify|photo|survey|play_diag|foliage_diag|tree_audit|tree_preview|tree_publish|tree_report|test|stop) ;;
+  machines|info|quota|start|wait_start|fresh|fresh_ssh|fresh_minimal|rebuild|full_rebuild|status|logs|sync|sync_delta|recovery_sync|lfs|lfs_report|changes|perf_audit|perf_tune|open_native_probe|open_native_select|apply_gameplay|preserve_assets|retry_assets|install|bootstrap|deps|cli_diag|editor|editor_diag|editor_isolate|tmp_audit|tmp_reclaim|fresh_tmp|hydrate_tmp|license|auth|probe|shot|accept_terms|safe_mode|compile_report|refresh|close_editor|editor_process|editor_recover|scene_render|scene_play|hud_review|drop_video|drop_frames|map_verify|photo|survey|play_diag|foliage_diag|tree_audit|tree_preview|tree_publish|tree_report|test|stop) ;;
   *) DETAIL="unsupported_operation"; exit 2 ;;
 esac
 if test "$OP" = photo; then
@@ -422,6 +426,7 @@ case "$OP" in
   bootstrap) REMOTE_TIMEOUT=1500 ;;
   deps) REMOTE_TIMEOUT=900 ;;
   sync|lfs) REMOTE_TIMEOUT=1200 ;;
+  sync_delta) REMOTE_TIMEOUT=240 ;;
   apply_gameplay) REMOTE_TIMEOUT=480 ;;
   perf_audit|perf_tune) REMOTE_TIMEOUT=180 ;;
   open_native_probe|open_native_select) REMOTE_TIMEOUT=180 ;;
