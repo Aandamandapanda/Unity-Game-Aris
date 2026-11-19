@@ -16,12 +16,13 @@ assert 'SessionState.SetBool("pose.multiangle",true);' in source
 assert "CapturePortrait();" in source
 assert 'SessionState.EraseBool("pose.multiangle");' in source
 assert 'bool multiangle=portrait&&SessionState.GetBool("pose.multiangle",false);' in source
-assert 'bool orbitStance=multiangle&&n<=2;' in source
-assert 'int needed=portrait?(n==5?2:transitionFrames?4:orbitStance?4:1)' in source
+assert 'bool orbitStance=motionMatrix||(multiangle&&n<=2);' in source
+assert 'int needed=portrait?(motionMatrix?3:n==5?2:transitionFrames?4:orbitStance?4:1)' in source
 assert 'orbitStance?.52+count*.22:.52' in source
 assert 'orbitStance?1.40:.70' in source
 assert 'Quaternion.AngleAxis(90f*count,Vector3.up)*p.transform.forward' in source
-assert 'viewDegrees="+(orbitStance?90*count:transitionFrames?90:0)' in source
+assert 'viewDegrees="+(orbitStance?90*count:transitionFrames?' in source
+assert 'SessionState.GetFloat("pose.transitionYawDegrees",90f)' in source
 assert "SUCCESS_16_ACTOR_MULTIANGLE_PORTRAITS" in source
 
 # Stages 0, 1, 2: standing/crouch/prone. Non-stance stages keep the
