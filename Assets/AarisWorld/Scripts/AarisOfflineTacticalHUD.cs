@@ -48,6 +48,11 @@ namespace Aaris.MapReview
         private bool lowMemoryPending;
         private float medicalPoolAllowedAt;
         private readonly Collider[] medicalHits = new Collider[20];
+        // A grenade release checks two endpoints and the swept path. Reuse
+        // scratch per player; ordinary throws do not allocate three hit arrays.
+        // Saturated native results still fall back to exhaustive All queries.
+        private Collider[] grenadeOverlapHits = new Collider[16];
+        private RaycastHit[] grenadeSweepHits = new RaycastHit[16];
         private readonly RaycastHit[] medicalSightHits = new RaycastHit[24];
         private Terrain[] medicalTerrains;
         private AarisNearbyColliders medicalNearbyColliders;
@@ -289,15 +294,25 @@ namespace Aaris.MapReview
                 bounds.min.y + bounds.size.y * 0.70f, bounds.center.z);
             origin = hand + flat * 0.85f;
 
-            // Throwing is rate-limited, so complete queries here avoid unordered
-            // saturated buffers without adding a cost to the render hot path.
-            foreach (Collider hit in Physics.OverlapSphere(hand, radius, ~0, QueryTriggerInteraction.Ignore))
-                if (hit != null && !hit.transform.IsChildOf(transform)) return false;
-            foreach (RaycastHit hit in Physics.SphereCastAll(hand, radius, flat, 0.85f,
-                ~0, QueryTriggerInteraction.Ignore))
-                if (hit.collider != null && !hit.collider.transform.IsChildOf(transform)) return false;
-            foreach (Collider hit in Physics.OverlapSphere(origin, radius, ~0, QueryTriggerInteraction.Ignore))
-                if (hit != null && !hit.transform.IsChildOf(transform)) return false;
+            // Keep all three exact clearance checks. A full NonAlloc buffer is
+            // unordered/incomplete, so the shared helper promotes or falls back
+            // to exhaustive queries before deciding whether a throw is safe.
+            int count = AarisPhysicsHitBuffer.OverlapSphere(hand, radius, ~0,
+                ref grenadeOverlapHits, 128, out Collider[] overlaps);
+            for (int i = 0; i < count; i++)
+                if (overlaps[i] != null && !overlaps[i].transform.IsChildOf(transform))
+                    return false;
+            count = AarisPhysicsHitBuffer.SphereCast(new Ray(hand, flat), radius,
+                0.85f, ~0, ref grenadeSweepHits, 128, out RaycastHit[] sweep);
+            for (int i = 0; i < count; i++)
+                if (sweep[i].collider != null &&
+                    !sweep[i].collider.transform.IsChildOf(transform))
+                    return false;
+            count = AarisPhysicsHitBuffer.OverlapSphere(origin, radius, ~0,
+                ref grenadeOverlapHits, 128, out overlaps);
+            for (int i = 0; i < count; i++)
+                if (overlaps[i] != null && !overlaps[i].transform.IsChildOf(transform))
+                    return false;
             return true;
         }
 
