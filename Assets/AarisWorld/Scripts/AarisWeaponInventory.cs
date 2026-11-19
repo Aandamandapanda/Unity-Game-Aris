@@ -49,6 +49,9 @@ namespace Aaris.MapReview
         // does not become per-gun memory churn.
         private static readonly Dictionary<Material, Material> weaponFinishCache =
             new Dictionary<Material, Material>();
+        // A complete humanoid carries the equipped gun at low-ready while sprinting;
+        // incomplete rigs keep the established safe back-holster fallback.
+        public bool IsSprintLowReady { get; private set; }
         public bool IsSprintHolstered { get; private set; }
 
         public AarisEquippedGun Current => equipped;
@@ -663,10 +666,24 @@ namespace Aaris.MapReview
             // rig transforms. Two guns cross on the back in Fist mode.
             Vector3 origin = chest != null ? chest.position :
                 transform.TransformPoint(new Vector3(0f, 1.35f, 0f));
+            // Follow the ANIMATED upper torso, not only the motor yaw: a
+            // crouching/turning spine must not leave either gun in mid-air.
+            // Apply offsets in world metres, never as a child of FBX bones.
+            Quaternion torso = chest != null ? chest.rotation : transform.rotation;
+            AarisEquippedGun gun = item == stowedRoot ? stowed : equipped;
+            float length = gun != null && gun.Spec != null ?
+                gun.Spec.presentationLengthMetres : 0.91f;
+            float longGunClearance = Mathf.Clamp(
+                (length - 0.91f) * 0.08f, 0f, 0.035f);
             float side = rightShoulder ? 1f : -1f;
+            // Stagger the left slot behind the right one while both are
+            // stowed, so crossed receivers do not occupy the same plane.
+            float backDepth = 0.225f + longGunClearance +
+                (!rightShoulder && stowedRoot != null ? 0.065f : 0f);
             item.SetPositionAndRotation(
-                origin + transform.rotation * new Vector3(side * .17f, .02f, -.21f),
-                transform.rotation * Quaternion.Euler(12f, side * 12f, side * 63f));
+                origin + torso * new Vector3(
+                    side * (0.17f + longGunClearance), 0.02f, -backDepth),
+                torso * Quaternion.Euler(12f, side * 12f, side * 63f));
         }
 
         // Chest anchoring and two-hand IK must use the SAME rig contract.
@@ -707,6 +724,11 @@ namespace Aaris.MapReview
                     forward = view.transform.forward;
                 if (forward.sqrMagnitude < 0.01f) forward = transform.forward;
                 Quaternion aimRotation = Quaternion.LookRotation(forward, Vector3.up);
+                // A sprinting, armed Humanoid keeps the gun in both hands,
+                // lowered slightly rather than teleporting it to the back.
+                // Never apply this presentation pitch during ADS or firing.
+                if (IsSprintLowReady)
+                    aimRotation *= Quaternion.Euler(11f, 0f, 0f);
                 // Rotation and receiver translation share the same aim-yaw basis.
                 // Otherwise the solved hands chase a diagonal pivot during
                 // camera yaw, especially in ADS/prone.
@@ -722,6 +744,8 @@ namespace Aaris.MapReview
                 Vector3 receiver = chest.position +
                     aimRight * 0.12f + shoulderForward * 0.13f -
                     Vector3.up * 0.105f + Vector3.up * aimPitch * 0.025f;
+                if (IsSprintLowReady)
+                    receiver -= shoulderForward * 0.035f + Vector3.up * 0.08f;
                 weaponRoot.SetPositionAndRotation(receiver, aimRotation);
             }
             else
@@ -888,6 +912,11 @@ namespace Aaris.MapReview
             }
             previousAimRotation = currentAim;
             weaponMotionReady = true;
+
+            // The fast running cadence already animates a low-ready rifle;
+            // damp look-driven inertial twist so sprinting cannot whip it
+            // through the chest. Recoil and the aim authority are unchanged.
+            if (IsSprintLowReady) targetSway *= 0.45f;
 
             // Heavier firearms resist rapid direction changes a little longer,
             // while ADS shoulder contact damps the same mass more aggressively.
@@ -1073,6 +1102,7 @@ namespace Aaris.MapReview
         {
             if (equipped == null)
             {
+                IsSprintLowReady = false;
                 IsSprintHolstered = false;
                 return;
             }
@@ -1083,11 +1113,14 @@ namespace Aaris.MapReview
             float planarSpeedSqr = speed.x * speed.x + speed.z * speed.z;
             bool sprintIntent = motor != null && motor.IsAutoSprinting ||
                 Input.GetKey(KeyCode.LeftShift);
-            IsSprintHolstered = !fistMode && !aiming && combat != null &&
+            bool sprinting = !fistMode && !aiming && combat != null &&
                 !combat.FireHeld &&
                 combat.Stance == AarisBattleActions.PlayerStance.Standing &&
                 capsule != null && capsule.isGrounded &&
                 sprintIntent && planarSpeedSqr > 3.75f * 3.75f;
+            FindHumanoidSockets(); // one cached lookup; resolves late-loaded avatars
+            IsSprintLowReady = sprinting && HasCompleteHumanoidGripRig();
+            IsSprintHolstered = sprinting && !IsSprintLowReady;
             AttachModelsToSockets();
             // Apply inertia before solving both arms so the palms follow the
             // final visually displaced receiver/foregrip, not yesterday's pose.
@@ -1111,6 +1144,8 @@ namespace Aaris.MapReview
         private void OnDisable()
         {
             aiming = false;
+            IsSprintLowReady = false;
+            IsSprintHolstered = false;
             weaponMotionReady = false;
             smoothedWeaponSway = Vector3.zero;
             visualRecoilDegrees = 0f;
