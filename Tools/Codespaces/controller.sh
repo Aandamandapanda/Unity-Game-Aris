@@ -79,6 +79,8 @@ if test -n "$ISSUE"; then
     'CS LFS REPORT') OP=lfs_report ;;
     'CS CHANGES') OP=changes ;;
     # Owner-only, exact known gameplay Codespace; no arbitrary host input.
+    'CS WEAPON INFO') OP=info; MACHINE='aaris-ai-ubuntu-minimal-p764pwx4q79536p95' ;;
+    'CS WEAPON START') OP=start; MACHINE='aaris-ai-ubuntu-minimal-p764pwx4q79536p95' ;;
     'CS WEAPON STATUS') OP=status; MACHINE='aaris-ai-ubuntu-minimal-p764pwx4q79536p95' ;;
     'CS WEAPON CHANGES') OP=changes; MACHINE='aaris-ai-ubuntu-minimal-p764pwx4q79536p95' ;;
     'CS WEAPON DELTA SYNC') OP=sync_delta; MACHINE='aaris-ai-ubuntu-minimal-p764pwx4q79536p95' ;;
