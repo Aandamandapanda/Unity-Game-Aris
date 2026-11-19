@@ -657,9 +657,9 @@ def run():
     assert "(shoulderForward * 0.035f + Vector3.up * 0.08f);" in attach
     assert "sprintReadyBlend = Mathf.Lerp(sprintReadyBlend," in late
     assert "if (aiming || (combat != null && combat.FireHeld))" in late
-    assert "Quaternion torso = chest != null ? chest.rotation : transform.rotation;" in attach
-    assert "longGunClearance" in attach
-    assert "stowedRoot != null ? 0.065f : 0f" in attach
+    assert "Quaternion torso = chest != null ? chest.rotation : transform.rotation;" in inventory
+    assert "longGunClearance" in inventory
+    assert "stowedRoot != null ? 0.065f : 0f" in inventory
     assert "if (IsSprintLowReady) targetSway *= 0.45f;" in inventory
     assert "!combat.FireHeld" in late
     assert "capsule.isGrounded" in late
