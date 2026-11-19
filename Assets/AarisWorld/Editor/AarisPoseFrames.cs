@@ -9,6 +9,7 @@ namespace Aaris.MapReview.Editor {
 const string Dir="/tmp/aaris-codespaces/motion-frames";
 const string Req=Dir+"/capture.request";
 static readonly string[] Names={"01_Standing","02_Crouch","03_Prone","04_Walk","05_Sprint","06_Jump"};
+static readonly string[] MotionNames={"01_Standing","02_Walking","03_Running","04_Sprinting","05_Crouching","06_CrouchWalking","07_Prone","08_Crawling","09_GettingUp","10_Jumping"};
 static AarisPoseFrames(){EditorApplication.update+=Tick;}
 static double Now=>EditorApplication.timeSinceStartup;
 static void Log(string s){Directory.CreateDirectory(Dir);File.AppendAllText(Dir+"/report.txt",s+"\n");Debug.Log("AARIS_POSE_FRAME "+s);}
@@ -38,6 +39,13 @@ CaptureBatch();
 // replacing the established seven-frame front-only capture workflow.
 public static void CaptureMultiAnglePortrait(){
 SessionState.SetBool("pose.multiangle",true);
+CapturePortrait();
+}
+// Editor-only native motor matrix. Unlike the legacy 04_Walk label, these
+// captures inject nonzero movement through the actual player Update/motor.
+// Front / side / back frames for ten locomotion and stance states (30 images).
+public static void CaptureLocomotionMatrixPortrait(){
+SessionState.SetBool("pose.motionMatrix",true);
 CapturePortrait();
 }
 // Editor-only time-sampled stance transition portraits. Keep the existing
@@ -100,6 +108,9 @@ return true;
 return false;
 }
 static void Stage(int n,AarisThirdPersonPlayer p,AarisBattleActions b){
+if(SessionState.GetBool("pose.motionMatrix",false)){
+StageMotion(n,p,b);return;
+}
 SessionState.SetInt("pose.step",n);SessionState.SetInt("pose.count",0);
 SessionState.SetFloat("pose.time",(float)Now);
 Phase(Names[n]);
@@ -123,6 +134,44 @@ p.RequestJump();
 }}
 Log("STAGE "+Names[n]+" accepted="+ok);
 if(!ok) Finish("STANCE_REJECTED_"+Names[n]);
+}
+static void StageMotion(int n,AarisThirdPersonPlayer p,AarisBattleActions b){
+if(n<0||n>=MotionNames.Length){Finish("MOTION_STAGE_OUT_OF_RANGE");return;}
+SessionState.SetInt("pose.step",n);SessionState.SetInt("pose.count",0);
+SessionState.SetFloat("pose.time",(float)Now);
+Phase(MotionNames[n]);
+bool ok=true;
+if(n==0){
+ if(!SurveyTeleport(p)){Finish("SURVEY_LOCATION_UNAVAILABLE");return;}
+ p.CancelAutoSprint();p.SetEditorLocomotionQAInput(Vector2.zero);ok=b.TryStand();
+}else if(n==1){
+ p.CancelAutoSprint();p.SetEditorLocomotionQAInput(Vector2.up*.38f);ok=b.TryStand();
+}else if(n==2){
+ p.CancelAutoSprint();p.SetEditorLocomotionQAInput(Vector2.up);ok=b.TryStand();
+}else if(n==3){
+ p.SetEditorLocomotionQAInput(Vector2.up);ok=b.TryStand();
+ if(ok&&!p.IsAutoSprinting)p.ToggleAutoSprint();
+ ok=ok&&p.IsAutoSprinting;
+}else if(n==4){
+ p.CancelAutoSprint();p.SetEditorLocomotionQAInput(Vector2.zero);
+ ok=b.TrySetStance(AarisBattleActions.PlayerStance.Crouching);
+}else if(n==5){
+ p.SetEditorLocomotionQAInput(Vector2.up);
+ ok=b.TrySetStance(AarisBattleActions.PlayerStance.Crouching);
+}else if(n==6){
+ p.SetEditorLocomotionQAInput(Vector2.zero);
+ ok=b.TrySetStance(AarisBattleActions.PlayerStance.Prone);
+}else if(n==7){
+ p.SetEditorLocomotionQAInput(Vector2.up);
+ ok=b.TrySetStance(AarisBattleActions.PlayerStance.Prone);
+}else if(n==8){
+ p.SetEditorLocomotionQAInput(Vector2.zero);ok=b.TryStand();
+}else if(n==9){
+ p.SetEditorLocomotionQAInput(Vector2.zero);ok=b.TryStand();
+ if(ok)p.RequestJump();
+}
+Log("MOTION_STAGE "+MotionNames[n]+" accepted="+ok);
+if(!ok)Finish("MOTION_STAGE_REJECTED_"+MotionNames[n]);
 }
 // Read-only diagnostic: compare the real capsule foot, local terrain and
 // animated mesh bounds; the preview camera alone cannot prove floating.
@@ -175,7 +224,9 @@ Log("PORTRAIT_HEADROOM stance="+b.Stance+
  " excessMetres="+excess.ToString("F3"));
 // The capsule changes immediately on input, while visuals intentionally
 // interpolate. Only enforce the helmet ceiling on settled portrait poses.
-if(!SessionState.GetBool("pose.transitions",false)&&excess>.055f)
+if(!SessionState.GetBool("pose.transitions",false)&&
+ (!SessionState.GetBool("pose.motionMatrix",false)||
+  SessionState.GetInt("pose.count",0)>=2)&&excess>.055f)
 throw new InvalidOperationException("ACTOR_HEAD_PENETRATES_CEILING_"+b.Stance);
 }
 // Make the visual screenshot suite fail for genuinely sideways crouch knees
@@ -366,12 +417,14 @@ int code=(reason=="SUCCESS_18_REAL_FRAMES"||
  reason=="SUCCESS_STANCE_JUMP_MOTOR"||
  reason=="SUCCESS_7_ACTOR_PORTRAITS"||
  reason=="SUCCESS_16_ACTOR_MULTIANGLE_PORTRAITS"||
- reason=="SUCCESS_16_STANCE_TRANSITION_FRAMES")?0:2;
+ reason=="SUCCESS_16_STANCE_TRANSITION_FRAMES"||
+ reason=="SUCCESS_30_MOTION_MATRIX_FRAMES")?0:2;
 SessionState.EraseBool("pose.geometryOnly");
 SessionState.EraseBool("pose.stanceJump");
 SessionState.EraseBool("pose.portrait");
 SessionState.EraseBool("pose.multiangle");
 SessionState.EraseBool("pose.transitions");
+SessionState.EraseBool("pose.motionMatrix");
 SessionState.SetFloat("pose.transitionYawDegrees",90f);
 EditorApplication.delayCall+=()=>EditorApplication.Exit(code);
 }
@@ -466,15 +519,17 @@ return;
 bool fastProbe=SessionState.GetBool("pose.diag",false) ||
 SessionState.GetBool("pose.geometryOnly",false);
 bool portrait=SessionState.GetBool("pose.portrait",false);
+bool motionMatrix=SessionState.GetBool("pose.motionMatrix",false);
 bool multiangle=portrait&&SessionState.GetBool("pose.multiangle",false);
 bool transitions=portrait&&SessionState.GetBool("pose.transitions",false);
-bool orbitStance=multiangle&&n<=2;
+bool orbitStance=motionMatrix||(multiangle&&n<=2);
 bool transitionFrames=transitions&&(n==1||n==2||n==3);
-int needed=portrait?(n==5?2:transitionFrames?4:orbitStance?4:1):
+int needed=portrait?(motionMatrix?3:n==5?2:transitionFrames?4:orbitStance?4:1):
  fastProbe?(n==2?1:0):3;
 // Each orbit frame gets its own measured Play Mode pose/readback. The
 // existing seven front-view frames retain their original timings.
-double readyAge=portrait?(n==5?(count==0?.30:1.15):
+double readyAge=portrait?(motionMatrix?(n==9?.18+count*.17:.42+count*.20):
+ n==5?(count==0?.30:1.15):
  transitionFrames?.10+count*.18:
  orbitStance?.52+count*.22:.52):.25+count*.30;
 if(count<needed&&age>readyAge){
@@ -534,7 +589,7 @@ cam.targetTexture=rt;cam.Render();RenderTexture.active=rt;
 image.ReadPixels(new Rect(0,0,imageWidth,imageHeight),0,0,false);image.Apply(false);
 var bytes=image.EncodeToJPG(82);
 if(bytes.Length<4000)throw new InvalidOperationException("EMPTY_FRAME");
-File.WriteAllBytes(Dir+"/"+Names[n]+"_f"+count+".jpg",bytes);
+File.WriteAllBytes(Dir+"/"+(motionMatrix?MotionNames[n]:Names[n])+"_f"+count+".jpg",bytes);
 }finally{
 cam.transform.SetPositionAndRotation(savedCameraPosition,savedCameraRotation);
 cam.cullingMask=savedMask;cam.clearFlags=savedClear;
@@ -544,7 +599,7 @@ if(groundMaterial!=null)UnityEngine.Object.DestroyImmediate(groundMaterial);
 cam.targetTexture=old;RenderTexture.active=active;
 UnityEngine.Object.DestroyImmediate(image);RenderTexture.ReleaseTemporary(rt);}
 SessionState.SetInt("pose.count",count+1);
-Log("FRAME "+Names[n]+" "+count+" stance="+b.Stance+
+Log("FRAME "+(motionMatrix?MotionNames[n]:Names[n])+" "+count+" stance="+b.Stance+
 " viewDegrees="+(orbitStance?90*count:transitionFrames?
 SessionState.GetFloat("pose.transitionYawDegrees",90f):0)+
 " air="+p.IsInAir+" pos="+p.transform.position.ToString("F2"));
@@ -554,13 +609,15 @@ if(transitionFrames)LogTransitionContact(p,b,count);
 if(count==0 || (orbitStance && count==needed-1)) LogPhysicalHeight(p,b);
 }catch(Exception ex){Finish("ERROR_"+ex.GetType().Name+"_"+ex.Message);return;}
 }
-if(age>(portrait?(n==5?1.35:transitionFrames?.84:
+if(age>(portrait?(motionMatrix?1.06:n==5?1.35:transitionFrames?.84:
  orbitStance?1.40:.70):fastProbe?.38:1.3)&&
  SessionState.GetInt("pose.count",0)>=needed){
 if(SessionState.GetBool("pose.diag",false)&&n>=2){
 p.CancelAutoSprint();Finish("SUCCESS_PRONE_DIAGNOSTIC");
-}else if(n+1>=Names.Length){p.CancelAutoSprint();
-Finish(portrait?(transitions?"SUCCESS_16_STANCE_TRANSITION_FRAMES":
+}else if(n+1>=(motionMatrix?MotionNames.Length:Names.Length)){p.CancelAutoSprint();
+if(motionMatrix)p.ClearEditorLocomotionQAInput();
+Finish(portrait?(motionMatrix?"SUCCESS_30_MOTION_MATRIX_FRAMES":
+transitions?"SUCCESS_16_STANCE_TRANSITION_FRAMES":
 multiangle?"SUCCESS_16_ACTOR_MULTIANGLE_PORTRAITS":
 "SUCCESS_7_ACTOR_PORTRAITS"):"SUCCESS_18_REAL_FRAMES");}
 else Stage(n+1,p,b);}
