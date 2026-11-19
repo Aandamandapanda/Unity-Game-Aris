@@ -18,6 +18,13 @@ namespace Aaris.MapReview
         // discover nearby visible guns without any scene-wide Find call in Update.
         private static readonly HashSet<AarisWeaponPickup> activePickups =
             new HashSet<AarisWeaponPickup>();
+        // Unity's Collider[]-returning overload allocates a new managed array
+        // for EACH streamed weapon pickup, even if an imported FBX has none.
+        // Pickups initialize serially on the Unity main thread; one shared
+        // List<T> overload keeps complete safety filtering with zero result
+        // array allocations after occasional retained-capacity promotion.
+        private static readonly List<Collider> importedColliderScratch =
+            new List<Collider>(8);
         // All streamed pickups share one camera query when the main camera
         // is unavailable during scene transitions or device resume.
         private static Camera sharedBeaconCamera;
@@ -28,6 +35,7 @@ namespace Aaris.MapReview
         private static void ClearPickupRegistry()
         {
             activePickups.Clear();
+            importedColliderScratch.Clear();
             sharedBeaconCamera = null;
             nextSharedCameraLookup = 0f;
         }
@@ -41,6 +49,26 @@ namespace Aaris.MapReview
             sharedBeaconCamera = Camera.main;
             return sharedBeaconCamera != null && sharedBeaconCamera.isActiveAndEnabled
                 ? sharedBeaconCamera : null;
+        }
+
+        private static void DisableImportedColliders(GameObject imported)
+        {
+            importedColliderScratch.Clear();
+            try
+            {
+                imported.GetComponentsInChildren<Collider>(true, importedColliderScratch);
+                for (int i = 0; i < importedColliderScratch.Count; i++)
+                {
+                    Collider collider = importedColliderScratch[i];
+                    if (collider != null) collider.enabled = false;
+                }
+            }
+            finally
+            {
+                // Never retain unloaded FBX/component references in a global
+                // scratch list across stream and low-memory unload cycles.
+                importedColliderScratch.Clear();
+            }
         }
 
         private AarisWeaponState state;
@@ -106,9 +134,9 @@ namespace Aaris.MapReview
             }
             model = visible.transform;
             model.name = "Local " + state.Spec.displayName + " Model";
-            // Loot never interferes with player or map physics.
-            foreach (var collider in visible.GetComponentsInChildren<Collider>(true))
-                collider.enabled = false;
+            // Loot never interferes with player or map physics. Reuse one
+            // complete Collider list instead of allocating a new array.
+            DisableImportedColliders(visible);
             // Floor loot and held weapons share the exact cached PBR finish,
             // so picking up the AR never changes its material appearance.
             AarisWeaponInventory.ApplyTextureAwareWeaponFinish(
@@ -163,15 +191,16 @@ namespace Aaris.MapReview
 
             // Small nonphysical highlight for dark grass; no bright 50m
             // spotlight and no additional real-time mobile lighting.
-            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (shader == null) shader = Shader.Find("Sprites/Default");
-            if (shader != null)
+            // Shader and Material both belong to the shared beacon cache;
+            // resolving the same shader per pickup offers no visual benefit.
+            Material beaconPaint = AarisLootBeaconMaterial.Get();
+            if (beaconPaint != null)
             {
                 var lineObject = new GameObject("Loot subtle beacon");
                 lineObject.transform.SetParent(transform, false);
                 beacon = lineObject.AddComponent<LineRenderer>();
                 beacon.useWorldSpace = false;
-                beacon.sharedMaterial = AarisLootBeaconMaterial.Get(shader);
+                beacon.sharedMaterial = beaconPaint;
                 beacon.positionCount = 2;
                 beacon.SetPosition(0, new Vector3(0f, 0.12f, 0f));
                 beacon.SetPosition(1, new Vector3(0f, 1.65f, 0f));
@@ -328,14 +357,18 @@ namespace Aaris.MapReview
     internal static class AarisLootBeaconMaterial
     {
         private static Material shared;
-        internal static Material Get(Shader shader)
+        internal static Material Get()
         {
-            if (shared == null)
-            {
-                shared = new Material(shader) { name = "Aaris Loot Beacon Shared" };
-                if (shared.HasProperty("_BaseColor"))
-                    shared.SetColor("_BaseColor", Color.white);
-            }
+            // Resolve and allocate just ONCE for all currently streamed and
+            // later re-streamed weapons. Preserve original URP/Unlit preference
+            // and Sprites fallback when the current pipeline is unavailable.
+            if (shared != null) return shared;
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null) shader = Shader.Find("Sprites/Default");
+            if (shader == null) return null;
+            shared = new Material(shader) { name = "Aaris Loot Beacon Shared" };
+            if (shared.HasProperty("_BaseColor"))
+                shared.SetColor("_BaseColor", Color.white);
             return shared;
         }
     }
