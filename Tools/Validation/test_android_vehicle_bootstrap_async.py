@@ -32,19 +32,26 @@ class BudgetAndroidVehicleWarmup(unittest.TestCase):
             "private IEnumerator SetupAfterBudgetAndroidPrewarm(", 1
         )[1]
         self.assertIn('Resources.LoadAsync<TextAsset>("AarisVehicles/vehicle_catalog")', warmup)
-        self.assertIn("Resources.LoadAsync<GameObject>(path)", warmup)
-        self.assertIn("request.priority = -1;", warmup)
+        # Optional vehicle models now share the one low-RAM prewarm
+        # admission. The gate owns LoadAsync and low-priority scheduling.
+        self.assertIn(
+            "AarisMobileStreamingFrameGate.TryStartOptionalLoadAsync<GameObject>(path)",
+            warmup)
+        self.assertIn("while ((request =", warmup)
+        gate = (ROOT / "Assets/AarisWorld/Scripts/AarisMobileStreamingFrameGate.cs").read_text()
+        self.assertIn("Resources.LoadAsync<T>(path)", gate)
+        self.assertIn("request.priority = -1;", gate)
         self.assertIn("yield return request;", warmup)
         self.assertIn("yield return null;", warmup)
         self.assertIn("new HashSet<string>(StringComparer.Ordinal)", warmup)
         self.assertIn("type.modelResource, type.wheelResource", warmup)
         self.assertNotIn("type.authoredModelResource", warmup)
         self.assertNotIn("Instantiate(", warmup)
-        self.assertLess(warmup.index("yield return request;"), warmup.index("if (!Setup())"))
+        self.assertLess(warmup.index("yield return request;"), warmup.index("if (!Setup(preloadedPoints, text))"))
 
     def test_original_validation_and_vehicles_kept(self):
         self.assertIn("if (!world.Setup()) { Destroy(obj); return; }", self.bootstrap)
-        self.assertIn("if (!Setup()) { Destroy(gameObject); yield break; }", self.bootstrap)
+        self.assertIn("if (!Setup(preloadedPoints, text)) { Destroy(gameObject); yield break; }", self.bootstrap)
         self.assertIn("AttachSessionAndHud(motor, this);", self.bootstrap)
         self.assertIn("AttachSessionAndHud(motor, world);", self.bootstrap)
         self.assertIn("private const int TargetVehicles = 44;", SOURCE)

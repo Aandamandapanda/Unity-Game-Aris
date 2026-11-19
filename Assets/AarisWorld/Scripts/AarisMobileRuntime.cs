@@ -52,6 +52,10 @@ namespace Aaris.MapReview
         private AarisOfflineDrop startupDrop;
         private float startupTime;
         private int startupSampleIndex;
+        // Diagnostics are observations, not gameplay. Preserve immediate
+        // crash/low-memory/stall evidence, but allow only one non-urgent
+        // periodic JSON/profiler snapshot in a rendered Android frame.
+        private int lastDiagnosticFrame = -1;
         private Task<string> pendingLogWrite;
         // One prior-process OS report only, never queried during a hot frame.
         private AarisAndroidExitHistory.Snapshot previousExitSnapshot;
@@ -741,6 +745,12 @@ namespace Aaris.MapReview
                 {
                     assetUnloadStartedRealtime = Time.realtimeSinceStartup;
                     unloading = Resources.UnloadUnusedAssets();
+#if UNITY_ANDROID && !UNITY_EDITOR
+                    // Critical-memory reclamation takes priority over optional
+                    // scene hierarchies and cosmetic asset imports. Other
+                    // streamers retry without dropping authored content.
+                    AarisMobileStreamingFrameGate.DeferOptionalWorkDuringAssetCleanup(unloading);
+#endif
                     assetUnloadStartedCount++;
                     unloadAfter = Time.unscaledTime + 30;
                 }
@@ -751,7 +761,7 @@ namespace Aaris.MapReview
 #if UNITY_ANDROID && !UNITY_EDITOR
             // The regular 15-second ring no longer contains the opening frames.
             // Keep three bounded snapshots for comparing cold and warm launches.
-            if (startupSampleIndex < 3)
+            if (startupSampleIndex < 3 && CanRecordPeriodicDiagnostics())
             {
                 float seconds = Time.unscaledTime - startupTime;
                 float threshold = startupSampleIndex == 0 ? 1f : startupSampleIndex == 1 ? 3f : 8f;
@@ -762,11 +772,23 @@ namespace Aaris.MapReview
                 }
             }
 #endif
-            if (Time.unscaledTime >= sampleAt)
+            if (Time.unscaledTime >= sampleAt && CanRecordPeriodicDiagnostics())
             {
                 Record("sample");
                 sampleAt = Time.unscaledTime + ReportInterval;
             }
+        }
+
+        private bool CanRecordPeriodicDiagnostics()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // An urgent event or earlier startup snapshot already used this
+            // frame. Keep periodic evidence pending until the next frame,
+            // rather than scheduling another profiler/JSON/IO task now.
+            return Time.frameCount != lastDiagnosticFrame;
+#else
+            return true;
+#endif
         }
 
         private void OnLowMemory() { lowMemoryPending = true; }
@@ -906,6 +928,19 @@ namespace Aaris.MapReview
             // One-time airplane startup phases, not recurring GPU frame times.
             public float planeModelResolveMs = -1f, planeInstantiateMs = -1f,
                 planeTotalCreationMs = -1f;
+            // One-time main-thread HUD glyph raster/upload cost, not GPU timing.
+            public float hudAtlasBuildMs = -1f;
+            // Native FBX LoadAll<AnimationClip> work; measured only while
+            // prewarming clips, never by the per-frame render loop.
+            public float characterMocapGroupLoadMs = -1f, characterMaxClipGroupLoadMs = -1f;
+            public int characterClipGroupLoadCount;
+            // One-time essential rig stage durations. Values are actual
+            // native/main-thread costs, not GPU frame rendering timings.
+            public float characterRigInstantiateMs = -1f;
+            public float characterRigGraphSetupMs = -1f;
+            public float characterRigBakeMeshMs = -1f;
+            // One-time JSON decode only; excludes asynchronous native import.
+            public float lootCandidateParseMs = -1f, weaponDefinitionParseMs = -1f;
             public bool planeHighDetailSelected;
             public int assetUnloadStartedCount, assetUnloadCompletedCount, assetUnloadSuppressedCount;
             public float lastAssetUnloadElapsedMs = -1f;
@@ -929,6 +964,18 @@ namespace Aaris.MapReview
             public bool terrainLitSupported;
             public int lowMemoryWindZonesDisabled, lowMemoryGrassTilesDisabled;
             public float lowMemoryShadowDistance;
+            // Read-only URP snapshot: distinguish real GPU state on the phone
+            // from serialized high/low assets. No render setting is changed.
+            public int urpMsaaSamples = -1, urpShadowCascades = -1;
+            public int urpMainLightShadowmapResolution = -1;
+            public float urpShadowDistance = -1f;
+            public bool urpRequiresDepthTexture, urpRequiresOpaqueTexture, urpSupportsHdr;
+            // These count denied admission *attempts*, not unique jobs or
+            // milliseconds of work. Source of truth is the native GPU profiler.
+            public int optionalStreamCleanupDeferrals;
+            public int optionalStreamFrameDeferrals;
+            public int optionalStreamImportDeferrals;
+            public int optionalStreamRigFrameDeferrals;
             // Previous Android 11+ process exit, not current usage or proof
             // that this launch crashed. -1 means unobserved/unavailable.
             public string previousExitEvidence = "pending";
@@ -941,6 +988,11 @@ namespace Aaris.MapReview
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             using var profilerScope = k_DiagnosticsRecord.Auto();
+#endif
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // Track early-boot and pause/quit snapshots. Periodic reports
+            // yield to any urgent event already emitted this frame.
+            lastDiagnosticFrame = Time.frameCount;
 #endif
             if (reason == "low-memory") warningCount++;
             float total = 0;
@@ -984,7 +1036,10 @@ namespace Aaris.MapReview
                 planeModelResolveMs = AarisOfflineDropVisuals.PlaneModelResolveMs,
                 planeInstantiateMs = AarisOfflineDropVisuals.PlaneInstantiateMs,
                 planeTotalCreationMs = AarisOfflineDropVisuals.PlaneTotalCreationMs,
-                planeHighDetailSelected = AarisOfflineDropVisuals.PlaneHighDetailSelected
+                planeHighDetailSelected = AarisOfflineDropVisuals.PlaneHighDetailSelected,
+                hudAtlasBuildMs = AarisHudGlyphs.AtlasBuildMs,
+                lootCandidateParseMs = AarisLootDocument.AndroidParseMs,
+                weaponDefinitionParseMs = AarisWeaponCatalog.AndroidDefinitionParseMs
             };
 #if UNITY_ANDROID && !UNITY_EDITOR
             // Android Debug.getPss() synchronously walks process memory and
@@ -1030,8 +1085,32 @@ namespace Aaris.MapReview
                 timingSamples = gpuLimitedSamples = cpuLimitedSamples = 0;
                 gpuFrameTimeTotalMs = cpuMainTimeTotalMs = cpuRenderTimeTotalMs = 0d;
             }
+            s.characterMocapGroupLoadMs = AarisCharacterVisual.AndroidMocapGroupLoadMs;
+            s.characterMaxClipGroupLoadMs = AarisCharacterVisual.AndroidMaxClipGroupLoadMs;
+            s.characterClipGroupLoadCount = AarisCharacterVisual.AndroidClipGroupLoadCount;
+            s.characterRigInstantiateMs = AarisCharacterVisual.AndroidRigInstantiateMs;
+            s.characterRigGraphSetupMs = AarisCharacterVisual.AndroidRigGraphSetupMs;
+            s.characterRigBakeMeshMs = AarisCharacterVisual.AndroidRigBakeMeshMs;
+            s.optionalStreamRigFrameDeferrals =
+                AarisMobileStreamingFrameGate.RigReservedDeferredAttempts;
+            s.optionalStreamCleanupDeferrals =
+                AarisMobileStreamingFrameGate.CleanupDeferredAttempts;
+            s.optionalStreamFrameDeferrals =
+                AarisMobileStreamingFrameGate.SameFrameDeferredAttempts;
+            s.optionalStreamImportDeferrals =
+                AarisMobileStreamingFrameGate.ImportDeferredAttempts;
             if (GraphicsSettings.currentRenderPipeline is UniversalRenderPipelineAsset pipeline)
+            {
                 s.renderScale = pipeline.renderScale;
+                s.urpMsaaSamples = pipeline.msaaSampleCount;
+                s.urpShadowCascades = pipeline.shadowCascadeCount;
+                s.urpShadowDistance = pipeline.shadowDistance;
+                s.urpMainLightShadowmapResolution =
+                    pipeline.mainLightShadowmapResolution;
+                s.urpRequiresDepthTexture = pipeline.supportsCameraDepthTexture;
+                s.urpRequiresOpaqueTexture = pipeline.supportsCameraOpaqueTexture;
+                s.urpSupportsHdr = pipeline.supportsHDR;
+            }
 #endif
             LatestReport = JsonUtility.ToJson(s);
             if (logPath == null) return;

@@ -23,6 +23,12 @@ namespace Aaris.MapReview
         // One shared material is assigned once per HUD canvas, never per frame.
         private static Material overlayMaterial;
         private static bool overlayChecked;
+        // One measured cold atlas construction, not a per-pixel/per-frame timer.
+        // -1 means the HUD atlas has not yet been generated this play session.
+        internal static float AtlasBuildMs { get; private set; } = -1f;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetAtlasTiming() { AtlasBuildMs = -1f; }
 
         internal static void ApplyCanvasShader(Transform canvasRoot)
         {
@@ -59,6 +65,31 @@ namespace Aaris.MapReview
             return Sprites[index];
         }
 
+        // Strictly conservative bounds around the authored antialiased
+        // lines/circles (including their 0.008 SDF transition). The original
+        // math runs unchanged INSIDE each envelope; outside, every primitive
+        // has exactly zero alpha. On slow Android startup this avoids most
+        // expensive Vector2 lengths in transparent glyph pixels without
+        // changing a single opaque or edge pixel, atlas resolution or style.
+        private static bool OutsideGlyphInk(Glyph glyph, Vector2 p)
+        {
+            switch (glyph)
+            {
+                case Glyph.Fire:
+                    return p.x < .15f || p.x > .83f || p.y < .15f || p.y > .82f;
+                case Glyph.Jump:
+                    return p.x < .18f || p.x > .84f || p.y < .19f || p.y > .95f;
+                case Glyph.Crouch:
+                    return p.x < .19f || p.x > .88f || p.y < .18f || p.y > .84f;
+                case Glyph.Prone:
+                    return p.x < .06f || p.x > .94f || p.y < .20f || p.y > .63f;
+                case Glyph.Sprint:
+                    return p.x < .12f || p.x > .88f || p.y < .18f || p.y > .90f;
+                default:
+                    return false;
+            }
+        }
+
         private static float Circle(Vector2 p, float x, float y, float radius)
         {
             float distance = (p - new Vector2(x, y)).magnitude - radius;
@@ -76,6 +107,7 @@ namespace Aaris.MapReview
 
         private static float Human(Glyph id, Vector2 p)
         {
+            if (OutsideGlyphInk(id, p)) return 0f;
             float a = 0f;
             if (id == Glyph.Sprint)
             {
@@ -131,6 +163,7 @@ namespace Aaris.MapReview
 
         private static float Fire(Vector2 p)
         {
+            if (OutsideGlyphInk(Glyph.Fire, p)) return 0f;
             // Angled cartridge with speed lines, clearly distinct from the
             // limb/stance glyphs. Fire becomes unarmed melee via game state.
             float a = 0f;
@@ -145,6 +178,7 @@ namespace Aaris.MapReview
 
         private static void BuildAtlas()
         {
+            double startedAt = Time.realtimeSinceStartupAsDouble;
             const int width = Size * Columns, height = Size * 2;
             var pixels = new Color32[width * height];
             var texture = new Texture2D(width, height, TextureFormat.RGBA32, false)
@@ -180,6 +214,7 @@ namespace Aaris.MapReview
                 Sprites[i] = Sprite.Create(texture,
                     new Rect(i % Columns * Size, i / Columns * Size, Size, Size),
                     Vector2.one * 0.5f, 100f, 0, SpriteMeshType.FullRect);
+            AtlasBuildMs = (float)((Time.realtimeSinceStartupAsDouble - startedAt) * 1000d);
         }
     }
 }

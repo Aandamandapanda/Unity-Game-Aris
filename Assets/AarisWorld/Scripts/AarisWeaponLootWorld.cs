@@ -20,9 +20,61 @@ namespace Aaris.MapReview
         public AarisLootCandidate[] candidates;
 
         private static AarisLootDocument cached;
+        internal static AarisLootDocument AndroidCached => cached;
+        internal static bool AndroidWarmupFinished { get; private set; }
+        internal static float AndroidParseMs { get; private set; } = -1f;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void ResetCache() => cached = null;
+        private static void ResetCache()
+        {
+            cached = null;
+            AndroidWarmupFinished = false;
+            AndroidParseMs = -1f;
+        }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        internal static IEnumerator LoadForAndroidAsync()
+        {
+            if (cached != null)
+            {
+                AndroidWarmupFinished = true;
+                yield break;
+            }
+            // The tactical medical HUD and gun loot share these same authored
+            // candidates. Load them once off the opening-frame synchronous
+            // Resources.Load path, then publish the complete immutable document.
+            ResourceRequest request = Resources.LoadAsync<TextAsset>(
+                "AarisWeapons/loot_candidates");
+            // Authored loot is gameplay-critical, unlike optional scenery.
+            // Do not downgrade this small JSON import below model streams.
+            request.priority = 0;
+            yield return request;
+            // Avoid parsing JSON in the same rendered frame as native
+            // ResourceRequest completion or the weapon catalog import.
+            yield return null;
+            TextAsset source = request.asset as TextAsset;
+            if (source != null)
+            {
+                double parsingStarted = Time.realtimeSinceStartupAsDouble;
+                try { cached = JsonUtility.FromJson<AarisLootDocument>(source.text); }
+                catch (Exception e)
+                {
+                    Debug.LogError("Aaris: invalid loot candidates JSON: " + e.Message);
+                }
+                finally
+                {
+                    // This is only the one-time JSON decode on the main thread,
+                    // not native Resources import time or ongoing streaming.
+                    AndroidParseMs = (float)((Time.realtimeSinceStartupAsDouble -
+                        parsingStarted) * 1000d);
+                }
+            }
+            else Debug.LogError("Aaris: missing embedded AarisWeapons/loot_candidates.json.");
+            // Even a failed import finishes: HUD stops retrying on every frame,
+            // while the weapon world fails closed on its original schema checks.
+            AndroidWarmupFinished = true;
+        }
+#endif
 
         internal static AarisLootDocument Load()
         {
@@ -174,12 +226,19 @@ namespace Aaris.MapReview
             if (player != null) drop = player.GetComponent<AarisOfflineDrop>();
         }
 
+#if UNITY_ANDROID && !UNITY_EDITOR
         private IEnumerator InitializeAndroid()
         {
             yield return null; // Render the aircraft before loading ground-only models.
+            // Prewarm the single authored candidate document before either
+            // weapon placement or medical-site discovery needs to inspect it.
+            yield return AarisLootDocument.LoadForAndroidAsync();
+            if (!isActiveAndEnabled) yield break;
             yield return AarisWeaponCatalog.LoadForMatchAsync();
+            if (!isActiveAndEnabled) yield break;
             Initialize();
         }
+#endif
 
         private void Initialize()
         {
@@ -189,6 +248,12 @@ namespace Aaris.MapReview
                 return;
             }
             AarisLootDocument doc;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // A missing/bad async document must never force a synchronous
+            // retry in the first gameplay frame. The original validation
+            // below disables loot safely if the cached document is absent.
+            doc = AarisLootDocument.AndroidCached;
+#else
             try { doc = AarisLootDocument.Load(); }
             catch (Exception e)
             {
@@ -196,6 +261,7 @@ namespace Aaris.MapReview
                 enabled = false;
                 return;
             }
+#endif
             if (doc == null || doc.schema != 1 || doc.sizeMetres != 2000 ||
                 doc.candidates == null || doc.candidates.Length < 50)
             {

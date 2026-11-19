@@ -82,10 +82,21 @@ namespace Aaris.MapReview
             yield return new WaitForSecondsRealtime(2f);
             for (int i = 0; i < RivalVisualResourcePaths.Length; i++)
             {
-                ResourceRequest request =
-                    Resources.LoadAsync<GameObject>(RivalVisualResourcePaths[i]);
+                ResourceRequest request;
+                while ((request = AarisMobileStreamingFrameGate.TryStartOptionalLoadAsync<GameObject>(
+                           RivalVisualResourcePaths[i])) == null)
+                    yield return null;
                 yield return request;
                 GameObject candidate = request.asset as GameObject;
+#if UNITY_ANDROID && !UNITY_EDITOR
+                // Async completion is NOT the same as a free native frame.
+                // Renderer hierarchy inspection can still coincide with a
+                // car, settlement or pickup build. Do not throw away a
+                // successfully loaded rival while that slot is occupied.
+                if (candidate != null)
+                    while (!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild())
+                        yield return null;
+#endif
                 if (HasRenderableRivalPrefab(candidate))
                 {
                     prewarmedRivalPrefab = candidate;
@@ -101,14 +112,16 @@ namespace Aaris.MapReview
             // instantiates an Animator nor replaces the original clip fallback.
             const string idlePath = "AarisCharacters/Primary/Animations/idle";
             const string runPath = "AarisCharacters/Primary/Animations/run";
-            ResourceRequest idleRequest = Resources.LoadAsync<AnimationClip>(idlePath);
-            idleRequest.priority = -1;
+            ResourceRequest idleRequest;
+            while ((idleRequest = AarisMobileStreamingFrameGate.TryStartOptionalLoadAsync<AnimationClip>(idlePath)) == null)
+                yield return null;
             yield return idleRequest;
             var idle = idleRequest.asset as AnimationClip;
             if (IsUsableRivalClip(idle)) prewarmedRivalIdle = idle;
             yield return null;
-            ResourceRequest runRequest = Resources.LoadAsync<AnimationClip>(runPath);
-            runRequest.priority = -1;
+            ResourceRequest runRequest;
+            while ((runRequest = AarisMobileStreamingFrameGate.TryStartOptionalLoadAsync<AnimationClip>(runPath)) == null)
+                yield return null;
             yield return runRequest;
             var run = runRequest.asset as AnimationClip;
             if (IsUsableRivalClip(run)) prewarmedRivalRun = run;

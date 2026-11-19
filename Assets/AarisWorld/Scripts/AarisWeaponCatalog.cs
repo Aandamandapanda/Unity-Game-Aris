@@ -69,6 +69,11 @@ namespace Aaris.MapReview
         private static readonly int MetallicId = Shader.PropertyToID("_Metallic");
         private static readonly int SmoothnessId = Shader.PropertyToID("_Smoothness");
         public static bool Ready => specs != null && specs.Length > 0;
+        // Once per cold Android import; -1 if not yet attempted.
+        internal static float AndroidDefinitionParseMs { get; private set; } = -1f;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetAndroidImportTiming() { AndroidDefinitionParseMs = -1f; }
 
         private static void TuneFlatWeaponSurfaces(GameObject prefab)
         {
@@ -113,9 +118,15 @@ namespace Aaris.MapReview
             }
         }
 
-        private static AarisWeaponSpec[] ReadDefinitions()
+        private static AarisWeaponSpec[] ReadDefinitions(
+            TextAsset asset = null, bool allowSynchronousFallback = true)
         {
-            TextAsset asset = Resources.Load<TextAsset>("AarisWeapons/weapon_catalog");
+            // Editor/essential synchronous callers retain their old route.
+            // Android match prewarm supplies the resolved TextAsset directly:
+            // on a missing async asset it must fail closed, not trigger a
+            // blocking Resources.Load retry on the next rendered frame.
+            if (asset == null && allowSynchronousFallback)
+                asset = Resources.Load<TextAsset>("AarisWeapons/weapon_catalog");
             if (asset == null)
             {
                 Debug.LogError("Aaris: missing embedded AarisWeapons/weapon_catalog.json.");
@@ -189,7 +200,24 @@ namespace Aaris.MapReview
         internal static IEnumerator LoadForMatchAsync()
         {
             if (Ready) yield break;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            ResourceRequest definitionsRequest = Resources.LoadAsync<TextAsset>(
+                "AarisWeapons/weapon_catalog");
+            // Essential weapon definitions outrank optional environment art.
+            definitionsRequest.priority = 0;
+            yield return definitionsRequest;
+            if (Ready) yield break;
+            // Parse the small JSON catalog away from its native completion
+            // and the first heavy weapon prefab import frame.
+            yield return null;
+            double parseStarted = Time.realtimeSinceStartupAsDouble;
+            var definitions = ReadDefinitions(
+                definitionsRequest.asset as TextAsset, false);
+            AndroidDefinitionParseMs = (float)((Time.realtimeSinceStartupAsDouble -
+                parseStarted) * 1000d);
+#else
             var definitions = ReadDefinitions();
+#endif
             if (definitions == null) yield break;
             var available = new List<AarisWeaponSpec>(definitions.Length);
             foreach (var spec in definitions)

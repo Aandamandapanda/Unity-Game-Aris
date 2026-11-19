@@ -111,9 +111,18 @@ namespace Aaris.MapReview
             // Never integrate the two different Resources objects in one
             // scripted frame. Existing tree/site budgets still apply later.
             yield return null;
-            ResourceRequest catalog = Resources.LoadAsync<AarisExpansionCatalog>(
-                "AarisExpansion/AarisExpansionCatalog");
-            catalog.priority = -1;
+            // The catalog directly references every settlement prefab.
+            // Keep its optional native imports behind the same low-memory
+            // admission used by cars, rivals and other visual streams.
+            // The tiny world-plan JSON remains on its original async path.
+            ResourceRequest catalog = null;
+            while (isActiveAndEnabled && catalog == null)
+            {
+                catalog = AarisMobileStreamingFrameGate.TryStartOptionalLoadAsync<AarisExpansionCatalog>(
+                    "AarisExpansion/AarisExpansionCatalog");
+                if (catalog == null) yield return null;
+            }
+            if (!isActiveAndEnabled) yield break;
             yield return catalog;
             if (!isActiveAndEnabled) yield break;
             InitializeExpansion(plan.asset as TextAsset,
@@ -291,6 +300,14 @@ namespace Aaris.MapReview
                         }
                     }
 
+#if UNITY_ANDROID && !UNITY_EDITOR
+                    // Site validation never consumes an optional build slot.
+                    // Only a fully valid house/watchtower admission competes
+                    // with cars, ground loot, motorcycles and medical visuals.
+                    // This yields rather than skipping any authored landmark.
+                    while (!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild())
+                        yield return null;
+#endif
                     Vector3 position = new Vector3(site.x, y - 0.025f, site.z);
                     Quaternion rotation = Quaternion.Euler(0f, site.yaw, 0f);
                     // Original vendor houses have ONE fused mesh/collider; an
