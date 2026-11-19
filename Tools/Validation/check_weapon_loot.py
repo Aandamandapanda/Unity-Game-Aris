@@ -638,8 +638,9 @@ def run():
     assert "middleDegrees * frameScale" in inventory
     assert "weaponRoot.SetParent(transform, false);" in attach
     assert "PlaceOnBack(stowedRoot, true)" in attach
-    # Fists AND full-speed armed sprint must carry the physical gun on
-    # the back, while ADS/fire/prone retain the shoulder-ready weapon.
+    # Fists stow both guns. Complete humanoids keep the active rifle in
+    # a two-hand low-ready pose when sprinting; incomplete rigs retain the
+    # back-holster fallback while ADS/fire/prone stay shoulder-ready.
     assert "if (fistMode || IsSprintHolstered)" in attach
     assert "PlaceOnBack(weaponRoot, stowedRoot != null ? false : true);" in attach
     assert "AimCamera" in attach
@@ -647,7 +648,16 @@ def run():
     assert "Quaternion.LookRotation(forward, Vector3.up)" in attach
     assert "AttachModelsToSockets();" in late
     assert "AlignSupportHand();" in late
-    assert "IsSprintHolstered = !fistMode && !aiming" in late
+    assert "bool sprinting = !fistMode && !aiming" in late
+    assert "IsSprintLowReady = sprinting && HasCompleteHumanoidGripRig();" in late
+    assert "IsSprintHolstered = sprinting && !IsSprintLowReady;" in late
+    assert "if (IsSprintLowReady)" in attach
+    assert "aimRotation *= Quaternion.Euler(11f, 0f, 0f);" in attach
+    assert "receiver -= shoulderForward * 0.035f + Vector3.up * 0.08f;" in attach
+    assert "Quaternion torso = chest != null ? chest.rotation : transform.rotation;" in attach
+    assert "longGunClearance" in attach
+    assert "stowedRoot != null ? 0.065f : 0f" in attach
+    assert "if (IsSprintLowReady) targetSway *= 0.45f;" in inventory
     assert "!combat.FireHeld" in late
     assert "capsule.isGrounded" in late
     assert "sprintIntent && planarSpeedSqr > 3.75f * 3.75f" in late
