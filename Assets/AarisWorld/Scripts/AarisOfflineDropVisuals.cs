@@ -25,12 +25,44 @@ namespace Aaris.MapReview
         private static Mesh cachedPropellerMesh, cachedPropellerBlurMesh;
 #if UNITY_ANDROID && !UNITY_EDITOR
         private static GameObject prewarmedCanopyPrefab;
+        // Five authored PBR finishes were previously loaded synchronously
+        // on the same frame as the high-detail plane Instantiate. Prefetch
+        // their exact Resources assets across frames before that expensive
+        // native hierarchy integration, without changing any material data.
+        private static readonly string[] AircraftFinishNames = {
+            "CargoPlane-HulledMetal", "CargoPlane-DarkCockpit",
+            "CargoPlane-WingPanels", "CargoPlane-EngineDark",
+            "CargoPlane-SafetyAccent"
+        };
+        private static readonly Dictionary<string, Material> aircraftFinishCache =
+            new Dictionary<string, Material>(5, StringComparer.Ordinal);
+        private static bool aircraftFinishesPrewarmed;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetCanopyPrewarm()
         {
             // Static references must not outlive a Unity player domain reload.
             prewarmedCanopyPrefab = null;
+            aircraftFinishCache.Clear();
+            aircraftFinishesPrewarmed = false;
+        }
+
+        internal static IEnumerator PrewarmAircraftFinishes()
+        {
+            if (aircraftFinishesPrewarmed) yield break;
+            for (int i = 0; i < AircraftFinishNames.Length; i++)
+            {
+                string name = AircraftFinishNames[i];
+                // One low-priority native import in flight at a time. Never
+                // construct a new Material or modify authored shader keywords.
+                ResourceRequest request = Resources.LoadAsync<Material>(
+                    "AarisDrop/Materials/" + name);
+                request.priority = -1;
+                yield return request;
+                aircraftFinishCache[name] = request.asset as Material;
+                yield return null;
+            }
+            aircraftFinishesPrewarmed = true;
         }
 
         internal static IEnumerator PrewarmCanopyPrefab()
@@ -131,7 +163,16 @@ namespace Aaris.MapReview
         private static Material SavedAircraftFinish(string materialName,
             ref Material fallback, Color fallbackColor, float metallic, float smoothness)
         {
-            Material saved = Resources.Load<Material>("AarisDrop/Materials/" + materialName);
+            Material saved;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // Android flight prewarm resolves all five entries first. Keep
+            // the original sync fallback for an unexpected immediate spawn.
+            if (!aircraftFinishesPrewarmed ||
+                !aircraftFinishCache.TryGetValue(materialName, out saved))
+                saved = Resources.Load<Material>("AarisDrop/Materials/" + materialName);
+#else
+            saved = Resources.Load<Material>("AarisDrop/Materials/" + materialName);
+#endif
             if (saved != null && saved.shader != null &&
                 saved.shader.name.StartsWith("Universal Render Pipeline/", StringComparison.Ordinal))
                 return saved;
