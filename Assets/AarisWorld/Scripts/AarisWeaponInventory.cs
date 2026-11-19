@@ -21,6 +21,11 @@ namespace Aaris.MapReview
         private AarisThirdPersonPlayer motor;
         private AarisWeaponLootWorld lootWorld;
         private Transform hand, chest, leftUpperArm, leftForearm, leftHand;
+        // A Humanoid chest's bind-axis can differ by 90/180 degrees from
+        // player-forward. Calibrate once per imported rig before positioning
+        // crossed back weapons in the animated torso's corrected world basis.
+        private Transform calibratedChest;
+        private Quaternion chestToRootRestRotation;
         private Transform leftThumb, leftMiddle;
         private Transform rightUpperArm, rightForearm;
         private readonly Transform[] rightGripDigits = new Transform[12];
@@ -623,6 +628,12 @@ namespace Aaris.MapReview
                 chest = animator.GetBoneTransform(HumanBodyBones.UpperChest);
                 if (chest == null) chest = animator.GetBoneTransform(HumanBodyBones.Chest);
                 if (chest == null) chest = animator.GetBoneTransform(HumanBodyBones.Spine);
+                if (chest != null && chest != calibratedChest)
+                {
+                    calibratedChest = chest;
+                    chestToRootRestRotation = Quaternion.Inverse(chest.rotation) *
+                        transform.rotation;
+                }
                 leftUpperArm = animator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
                 leftForearm = animator.GetBoneTransform(HumanBodyBones.LeftLowerArm);
                 leftHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
@@ -670,7 +681,8 @@ namespace Aaris.MapReview
             // Follow the ANIMATED upper torso, not only the motor yaw: a
             // crouching/turning spine must not leave either gun in mid-air.
             // Apply offsets in world metres, never as a child of FBX bones.
-            Quaternion torso = chest != null ? chest.rotation : transform.rotation;
+            Quaternion torso = chest != null && chest == calibratedChest
+                ? chest.rotation * chestToRootRestRotation : transform.rotation;
             AarisEquippedGun gun = item == stowedRoot ? stowed : equipped;
             float length = gun != null && gun.Spec != null ?
                 gun.Spec.presentationLengthMetres : 0.91f;
