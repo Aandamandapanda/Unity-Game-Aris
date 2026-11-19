@@ -1233,7 +1233,37 @@ namespace Aaris.MapReview
                                 maximumSideTurnDegrees * Mathf.Deg2Rad, 0f);
                             Vector3 candidateKnee = hip + axis * along +
                                 candidateBend * across;
-                            // Do not undo the floor-safe bend-circle solve.
+                            // When the lateral trim wants to lower an already
+                            // ground-level crouch knee, rejecting it entirely
+                            // leaves a 50cm sideways bend. Choose the upward
+                            // branch of the SAME exact-length bend circle:
+                            // preserve the desired side value and maximize
+                            // upward reach in the remaining tangent plane.
+                            // No new IK pass, allocations or collision probe.
+                            if (candidateKnee.y < minimumKneeWorldY - 0.002f)
+                            {
+                                Vector3 safeUp = Vector3.ProjectOnPlane(
+                                    Vector3.up, axis);
+                                safeUp -= lateralBasis *
+                                    Vector3.Dot(safeUp, lateralBasis);
+                                if (safeUp.sqrMagnitude > 0.0001f)
+                                {
+                                    Vector3 raisedBend =
+                                        lateralBasis * desiredSide +
+                                        safeUp.normalized * Mathf.Sqrt(
+                                            Mathf.Max(0f, 1f -
+                                                desiredSide * desiredSide));
+                                    candidateBend = Vector3.RotateTowards(
+                                        bend, raisedBend,
+                                        maximumSideTurnDegrees * Mathf.Deg2Rad,
+                                        0f);
+                                    candidateKnee = hip + axis * along +
+                                        candidateBend * across;
+                                }
+                            }
+                            // Never trade ground clearance for a cosmetic
+                            // side constraint if the upward solution cannot
+                            // reach the valid floor-safe sector this frame.
                             if (candidateKnee.y >= minimumKneeWorldY - 0.002f)
                             {
                                 bend = candidateBend;
