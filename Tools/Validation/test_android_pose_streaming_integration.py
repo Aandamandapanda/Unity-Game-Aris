@@ -59,13 +59,18 @@ class PoseAndStreamingIntegration(unittest.TestCase):
         self.assertIn("float distance = Mathf.Clamp(actualDistance,", solver)
         self.assertIn("float across = Mathf.Sqrt(Mathf.Max(", solver)
         self.assertIn("foot.rotation = footRotation;", solver)
-        # Only in entering prone: never retroactively change standing clip pose.
-        low = VISUAL.split("float entryKneeSideTurn = 0f;", 1)[1].split(
+        # Low-stance knee guard now covers transitions and grounded movement.
+        # Never apply its additional bend-circle turn in airborne poses.
+        low = VISUAL.split("float transitionKneeSideTurn = 0f;", 1)[1].split(
             "// Resolve X/Z BEFORE sampling Y.", 1)[0]
-        self.assertIn("if (prone && groundedNow && !visuallyAirborne &&", low)
+        self.assertIn("if (groundedNow && !visuallyAirborne &&", low)
         self.assertIn("transitioningLowStance && authoredProne &&", low)
-        self.assertIn("entryKneeSideTurn = 55f * entry * settle *", low)
-        self.assertEqual(VISUAL.count("kneeSideAxis, 0.26f, entryKneeSideTurn);"), 2)
+        self.assertIn("transitionKneeSideTurn = 80f *", low)
+        self.assertIn("(crouching || prone) && kneeSideAxis.sqrMagnitude > 0.25f)", low)
+        self.assertIn("75f * movingLowStance * kneeTurnStability", low)
+        self.assertIn("transitionKneeSideTurn = Mathf.Max(", low)
+        self.assertEqual(VISUAL.count(
+            "kneeSideAxis, 0.23f, transitionKneeSideTurn);"), 2)
 
     def test_rig_stage_timing_and_original_bakemesh_validation_remain(self):
         for native, field in (
