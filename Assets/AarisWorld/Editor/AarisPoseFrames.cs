@@ -135,6 +135,49 @@ p.RequestJump();
 Log("STAGE "+Names[n]+" accepted="+ok);
 if(!ok) Finish("STANCE_REJECTED_"+Names[n]);
 }
+// Editor-only root-cause probe for an actual rejected prone->stand request.
+// Duplicate the motor's *new headroom* overlap shape without modifying
+// collision, moving the actor or overriding the safety rejection.
+static void LogRejectedGetUpHeadroom(AarisThirdPersonPlayer p,
+ AarisBattleActions b){
+ var capsule=p.GetComponent<CharacterController>();
+ if(capsule==null||b==null)return;
+ var flags=System.Reflection.BindingFlags.Instance|
+  System.Reflection.BindingFlags.NonPublic;
+ var type=typeof(AarisBattleActions);
+ var heightField=type.GetField("standingHeight",flags);
+ var centerField=type.GetField("standingCenter",flags);
+ if(heightField==null||centerField==null){
+  Log("GETUP_HEADROOM_QA_REFLECTION_UNAVAILABLE");return;
+ }
+ float standingHeight=(float)heightField.GetValue(b);
+ Vector3 standingCenter=(Vector3)centerField.GetValue(b);
+ float floor=standingCenter.y-standingHeight*.5f;
+ float radius=Mathf.Max(.05f,capsule.radius-capsule.skinWidth);
+ float currentTop=floor+capsule.height;
+ float from=Mathf.Max(floor+radius,currentTop-radius*.35f);
+ float to=Mathf.Max(from,floor+standingHeight-radius);
+ Vector3 low=p.transform.TransformPoint(new Vector3(
+  standingCenter.x,from,standingCenter.z));
+ Vector3 high=p.transform.TransformPoint(new Vector3(
+  standingCenter.x,to,standingCenter.z));
+ Collider[] hits=Physics.OverlapCapsule(low,high,radius,
+  Physics.DefaultRaycastLayers,QueryTriggerInteraction.Ignore);
+ int blockers=0;
+ foreach(var hit in hits){
+  if(hit==null||hit.transform.IsChildOf(p.transform))continue;
+  if(blockers<12)Log("GETUP_HEADROOM_BLOCKER type="+
+   hit.GetType().Name+" name="+hit.name+
+   " pos="+hit.transform.position.ToString("F2"));
+  blockers++;
+ }
+ Log("GETUP_HEADROOM_QA blockers="+blockers+
+  " grounded="+capsule.isGrounded+
+  " capsuleHeight="+capsule.height.ToString("F3")+
+  " root="+p.transform.position.ToString("F3")+
+  " low="+low.ToString("F3")+
+  " high="+high.ToString("F3"));
+}
 static void StageMotion(int n,AarisThirdPersonPlayer p,AarisBattleActions b){
 FinishMotionContactSummary();
 motionContactStage=-1;
@@ -168,6 +211,7 @@ if(n==0){
  ok=b.TrySetStance(AarisBattleActions.PlayerStance.Prone);
 }else if(n==8){
  p.SetEditorLocomotionQAInput(Vector2.zero);ok=b.TryStand();
+  if(!ok)LogRejectedGetUpHeadroom(p,b);
 }else if(n==9){
  p.SetEditorLocomotionQAInput(Vector2.zero);ok=b.TryStand();
  if(ok)p.RequestJump();
