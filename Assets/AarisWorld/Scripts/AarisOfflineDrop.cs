@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -43,6 +44,7 @@ namespace Aaris.MapReview
         private float sampledGroundClearance = float.PositiveInfinity;
         private float noGroundContactSince = -1f;
         private GameObject plane, canopy;
+        private bool planeReady;
         private Transform[] propellers;
         private Renderer[] initialPlayerRenderers;
         private bool[] previousRendererStates;
@@ -145,8 +147,48 @@ namespace Aaris.MapReview
             if (weaponCanvas != null) weaponCanvas.enabled = false;
 
             BuildFlightPath();
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // Let URP render the opening terrain before loading the authored plane.
+            StartCoroutine(LoadPlaneAndBeginFlight());
+#else
             plane = AarisOfflineDropVisuals.CreatePlane(pathStart,
                 planeHeadingRotation, out propellers);
+            CompleteFlightSetup();
+#endif
+        }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        private IEnumerator LoadPlaneAndBeginFlight()
+        {
+            // Keep the exact authored high-detail and backup plane assets.
+            yield return null;
+            ResourceRequest request = Resources.LoadAsync<GameObject>(
+                "AarisDrop/CargoPlaneRealistic");
+            request.priority = -1;
+            yield return request;
+            if (!isActiveAndEnabled) yield break;
+            GameObject source = request.asset as GameObject;
+            bool highDetail = source != null;
+            if (!highDetail)
+            {
+                yield return null;
+                request = Resources.LoadAsync<GameObject>("AarisDrop/CargoPlane");
+                request.priority = -1;
+                yield return request;
+                if (!isActiveAndEnabled) yield break;
+                source = request.asset as GameObject;
+            }
+            // Avoid integrating materials and meshes in the async completion frame.
+            yield return null;
+            if (!isActiveAndEnabled) yield break;
+            plane = AarisOfflineDropVisuals.CreatePlane(pathStart,
+                planeHeadingRotation, out propellers, source, highDetail, true);
+            CompleteFlightSetup();
+        }
+#endif
+
+        private void CompleteFlightSetup()
+        {
             capsule.enabled = false;
             HidePlayer();
             transform.position = pathStart + Vector3.down * 6f;
@@ -170,6 +212,7 @@ namespace Aaris.MapReview
                     Quaternion.LookRotation(initialFocus - initialPosition, Vector3.up));
             }
             previousMouse = Input.mousePosition;
+            planeReady = true;
         }
 
         private void BuildFlightPath()
@@ -222,7 +265,7 @@ namespace Aaris.MapReview
 
         private void Update()
         {
-            if (phase == DropPhase.Landed || view == null) return;
+            if (!planeReady || phase == DropPhase.Landed || view == null) return;
             // Keep up to 200 ms of elapsed flight time on slower mobile frames.
             // MoveAirborne below uses bounded capsule sweeps rather than one long step.
             float dt = Mathf.Clamp(Time.deltaTime, 0f, 0.20f);
@@ -864,7 +907,7 @@ namespace Aaris.MapReview
 
         private void LateUpdate()
         {
-            if (view == null || phase == DropPhase.Landed) return;
+            if (!planeReady || view == null || phase == DropPhase.Landed) return;
             Vector3 pos, focus;
             if (phase == DropPhase.InPlane && plane != null)
             {

@@ -309,7 +309,8 @@ namespace Aaris.MapReview
         }
 
         internal static GameObject CreatePlane(Vector3 position, Quaternion rotation,
-            out Transform[] propellers)
+            out Transform[] propellers, GameObject preloadedPrefab = null,
+            bool preloadedHighDetail = false, bool preloadedResolved = false)
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             using var profilerScope = k_PlaneCreate.Auto();
@@ -321,12 +322,20 @@ namespace Aaris.MapReview
             double lookupStartedAt = totalStartedAt;
             // Prefer the vendored CC0 flight-state twin turboprop. Keep the
             // original lightweight transport as an offline/mobile fallback.
-            var prefab = Resources.Load<GameObject>("AarisDrop/CargoPlaneRealistic");
+            var prefab = preloadedPrefab;
             bool highDetailTwin = prefab != null;
-            if (!highDetailTwin)
-                prefab = Resources.Load<GameObject>("AarisDrop/CargoPlane");
-            PlaneModelResolveMs = (float)((Time.realtimeSinceStartupAsDouble -
-                lookupStartedAt) * 1000d);
+            if (!preloadedResolved)
+            {
+                // Editor/desktop keep immediate loading for scene preview.
+                prefab = Resources.Load<GameObject>("AarisDrop/CargoPlaneRealistic");
+                highDetailTwin = prefab != null;
+                if (!highDetailTwin)
+                    prefab = Resources.Load<GameObject>("AarisDrop/CargoPlane");
+            }
+            else highDetailTwin = preloadedHighDetail && prefab != null;
+            // Async disk IO was completed in earlier frames, not in this timer.
+            PlaneModelResolveMs = preloadedResolved ? -1f :
+                (float)((Time.realtimeSinceStartupAsDouble - lookupStartedAt) * 1000d);
             PlaneHighDetailSelected = highDetailTwin;
             GameObject root;
             if (prefab != null)
