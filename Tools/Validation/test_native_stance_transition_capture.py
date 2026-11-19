@@ -42,10 +42,12 @@ assert visual.count('planar, yawRate, ankleRigWeight, transitioningLowStance,') 
 
 # Normal settled multi-angle mode must still capture standing/crouch/prone
 # from four angles, not be accidentally replaced by this transition mode.
-assert "bool orbitStance=multiangle&&n<=2;" in editor
+assert "bool orbitStance=motionMatrix||(multiangle&&n<=2);" in editor
 assert "SUCCESS_16_ACTOR_MULTIANGLE_PORTRAITS" in editor
 assert "CaptureMultiAnglePortrait()" in editor
-assert "SessionState.GetBool(\"pose.transitions\",false)&&excess>.055f" in editor
+assert 'if(!SessionState.GetBool("pose.transitions",false)&&' in editor
+assert '(!SessionState.GetBool("pose.motionMatrix",false)||' in editor
+assert 'SessionState.GetInt("pose.count",0)>=2)&&excess>.055f)' in editor
 
 for transitions in (False, True):
     frame_counts = [
