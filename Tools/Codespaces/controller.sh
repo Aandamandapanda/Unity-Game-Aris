@@ -256,6 +256,17 @@ TARGET_CODESPACE="aaris-ai-unity-ssh-vp5g97jv4r4gfpjgq"
 if test -n "$MACHINE"; then
   TARGET_CODESPACE="$MACHINE"
   CS="$(jq -r --arg target "$TARGET_CODESPACE" '[.[] | select(.name == $target)][0].name // ""' <<< "$LIST")"
+  # An owner may have more Codespaces than the bounded list returns.
+  # For this single preapproved gameplay machine only, fall back to a
+  # direct authenticated GitHub lookup and validate repository ownership.
+  # No arbitrary issue-supplied machine names are accepted.
+  if test -z "$CS" && test "$TARGET_CODESPACE" = 'aaris-ai-ubuntu-minimal-p764pwx4q79536p95'; then
+    CS="$(gh api "/user/codespaces/$TARGET_CODESPACE" 2>/dev/null |
+      jq -r --arg repo "$REPO" --arg target "$TARGET_CODESPACE" '
+        if .name == $target and .repository.full_name == $repo
+        then .name else empty end
+      ' 2>/dev/null)" || CS=""
+  fi
 elif jq -e --arg target "$TARGET_CODESPACE" 'any(.[]; .name == $target)' <<< "$LIST" >/dev/null; then
   CS="$TARGET_CODESPACE"
 else
