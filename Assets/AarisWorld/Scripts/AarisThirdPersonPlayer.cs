@@ -47,6 +47,22 @@ namespace Aaris.MapReview
         private bool running, previousSimulateMouse, inputConfigured;
         private int moveFinger = -1, lookFinger = -1;
         private Vector2 moveInput;
+#if UNITY_EDITOR
+        // An Editor-only override drives the REAL CharacterController for
+        // screenshot QA; it is absent from Android builds and normal input.
+        private bool editorLocomotionQAEnabled;
+        private Vector2 editorLocomotionQAInput;
+        public void SetEditorLocomotionQAInput(Vector2 intent)
+        {
+            editorLocomotionQAInput = Vector2.ClampMagnitude(intent, 1f);
+            editorLocomotionQAEnabled = true;
+        }
+        public void ClearEditorLocomotionQAInput()
+        {
+            editorLocomotionQAEnabled = false;
+            editorLocomotionQAInput = Vector2.zero;
+        }
+#endif
         private Vector3 lastMouse;
         private Rect jumpButton, runButton, homeButton, reportButton, fpsButton;
         private float reportCopiedUntil;
@@ -436,6 +452,9 @@ namespace Aaris.MapReview
                 if (weaponInventory == null) weaponInventory = GetComponent<AarisWeaponInventory>();
             }
             ReadInput();
+#if UNITY_EDITOR
+            if (editorLocomotionQAEnabled) moveInput = editorLocomotionQAInput;
+#endif
             // Do not silently discard elapsed time on 10–20 FPS phones.
             // A 50ms cap previously made a character at 10 FPS move at
             // HALF speed. Cap only exceptional >150ms hitches for safety.
