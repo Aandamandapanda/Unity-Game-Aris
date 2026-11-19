@@ -1427,6 +1427,43 @@ namespace Aaris.MapReview
                 leftGoal += inward;
                 rightGoal -= inward;
             }
+            // Native 30-frame Play Mode measurement of an ACTUALLY moving
+            // prone actor found 0.66-0.81m lateral shoe separation even though
+            // the grounded knees were guarded. The stationary-only spread
+            // correction above fades out during movement, so shoe targets
+            // remain wider than the hips throughout crawl strides.
+            //
+            // Trim ONLY the excess hip-side component while a predominantly
+            // prone actor is moving and settled. Leave the sagittal stride
+            // completely authored: moving both feet towards the hip midline
+            // along the current anatomical right axis does not shorten steps.
+            // Smoothly gate entry/exit and cap each shoe's shift to 17.5cm.
+            // Support Y is still sampled at the *corrected* X/Z below, with
+            // the existing 2-bone reach and terrain guard as final authority.
+            // This is value-type math; no new physics query or allocation.
+            float movingProneGuard =
+                Mathf.SmoothStep(0f, 1f,
+                    Mathf.InverseLerp(0.48f, 0.94f, proneShare)) *
+                Mathf.SmoothStep(0f, 1f,
+                    Mathf.InverseLerp(0.12f, 0.48f, planarSpeed)) *
+                Mathf.SmoothStep(0f, 1f,
+                    Mathf.InverseLerp(0.78f, 0.98f, dominantRigWeight));
+            if (validAnatomicalRight && movingProneGuard > 0.001f)
+            {
+                float lateralSeparation = Vector3.Dot(
+                    rightGoal - leftGoal, anatomicalRight);
+                float excessLateral = Mathf.Abs(lateralSeparation) - 0.47f;
+                if (excessLateral > 0f)
+                {
+                    float eachShoe = Mathf.Min(excessLateral * 0.5f,
+                        0.175f) * movingProneGuard;
+                    Vector3 inward = anatomicalRight *
+                        (Mathf.Sign(lateralSeparation) * eachShoe);
+                    leftGoal += inward;
+                    rightGoal -= inward;
+                }
+            }
+
             // A crouch->prone crossfade can have lowPose=1 with BOTH
             // individual stance weights around 0.5. That is not settled:
             // a full reach correction there can yank heels by 52-74cm and
