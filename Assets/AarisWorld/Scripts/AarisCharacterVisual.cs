@@ -1233,7 +1233,37 @@ namespace Aaris.MapReview
                                 maximumSideTurnDegrees * Mathf.Deg2Rad, 0f);
                             Vector3 candidateKnee = hip + axis * along +
                                 candidateBend * across;
-                            // Do not undo the floor-safe bend-circle solve.
+                            // When the lateral trim wants to lower an already
+                            // ground-level crouch knee, rejecting it entirely
+                            // leaves a 50cm sideways bend. Choose the upward
+                            // branch of the SAME exact-length bend circle:
+                            // preserve the desired side value and maximize
+                            // upward reach in the remaining tangent plane.
+                            // No new IK pass, allocations or collision probe.
+                            if (candidateKnee.y < minimumKneeWorldY - 0.002f)
+                            {
+                                Vector3 safeUp = Vector3.ProjectOnPlane(
+                                    Vector3.up, axis);
+                                safeUp -= lateralBasis *
+                                    Vector3.Dot(safeUp, lateralBasis);
+                                if (safeUp.sqrMagnitude > 0.0001f)
+                                {
+                                    Vector3 raisedBend =
+                                        lateralBasis * desiredSide +
+                                        safeUp.normalized * Mathf.Sqrt(
+                                            Mathf.Max(0f, 1f -
+                                                desiredSide * desiredSide));
+                                    candidateBend = Vector3.RotateTowards(
+                                        bend, raisedBend,
+                                        maximumSideTurnDegrees * Mathf.Deg2Rad,
+                                        0f);
+                                    candidateKnee = hip + axis * along +
+                                        candidateBend * across;
+                                }
+                            }
+                            // Never trade ground clearance for a cosmetic
+                            // side constraint if the upward solution cannot
+                            // reach the valid floor-safe sector this frame.
                             if (candidateKnee.y >= minimumKneeWorldY - 0.002f)
                             {
                                 bend = candidateBend;
@@ -2145,12 +2175,17 @@ namespace Aaris.MapReview
                     ? Vector3.ProjectOnPlane(
                         rightThigh.position - leftThigh.position, Vector3.up)
                     : Vector3.zero;
+                // Always normalize the imported hip-right axis before using
+                // its projection in a world-metre knee offset constraint.
+                // Settled low-stance movement used to skip normalization,
+                // leaving the optional circle guard inactive.
+                if (kneeSideAxis.sqrMagnitude > 0.02f)
+                    kneeSideAxis.Normalize();
                 float transitionKneeSideTurn = 0f;
                 if (groundedNow && !visuallyAirborne &&
                     transitioningLowStance && authoredProne &&
                     kneeSideAxis.sqrMagnitude > 0.02f)
                 {
-                    kneeSideAxis.Normalize();
                     // The same crossing-knee defect occurs in crouch entry
                     // and prone exit, not just during prone entry.
                     float crouchEntry = crouching
@@ -2166,6 +2201,26 @@ namespace Aaris.MapReview
                     transitionKneeSideTurn = 80f *
                         Mathf.Max(crouchEntry, proneTransition) *
                         kneeStillness * kneeTurnStability;
+                }
+                // Native 30-frame motor QA found 0.53m crouch-walk and 0.43m
+                // crawl knee excursions, although stationary low stances
+                // remained aligned. The transition-only circle guard stops
+                // once those authored clips fully settle. Give the existing
+                // analytical solver a bounded lateral correction while the
+                // grounded low-stance actor actually moves. Fade it with
+                // resolved motor speed and turn stability: do not force a
+                // knee pole during stance switches, airborne poses or pivots.
+                // Existing ankle targets and floor-safe bend limits remain
+                // authoritative. No additional raycasts or allocations.
+                if (groundedNow && !visuallyAirborne && authoredProne &&
+                    (crouching || prone) && kneeSideAxis.sqrMagnitude > 0.25f)
+                {
+                    float movingLowStance = Mathf.SmoothStep(0f, 1f,
+                        Mathf.InverseLerp(0.20f, 0.88f, planar)) *
+                        Mathf.Clamp01(Mathf.Max(crouchRigWeight, proneRigWeight));
+                    transitionKneeSideTurn = Mathf.Max(
+                        transitionKneeSideTurn,
+                        75f * movingLowStance * kneeTurnStability);
                 }
                 // Resolve X/Z BEFORE sampling Y. This keeps the one existing
                 // Physics query per foot on the actual locked point, rather
