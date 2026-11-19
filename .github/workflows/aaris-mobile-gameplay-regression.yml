@@ -30,6 +30,7 @@ on:
       - 'Tools/Validation/test_android_plane_finish_async_stage.py'
       - 'Tools/Validation/test_gloo_preview_pose_budget.py'
       - 'Tools/Validation/test_loot_visibility_pacing.py'
+      - 'Tools/Validation/test_loot_pickup_one_time_native_cost.py'
       - 'Tools/Validation/test_open_combat_houses.py'
       - 'Tools/Validation/test_house_facade_details.py'
       - 'Tools/Validation/test_house_facade_lod_texture.py'
@@ -72,6 +73,7 @@ on:
       - 'Tools/Validation/test_android_plane_finish_async_stage.py'
       - 'Tools/Validation/test_gloo_preview_pose_budget.py'
       - 'Tools/Validation/test_loot_visibility_pacing.py'
+      - 'Tools/Validation/test_loot_pickup_one_time_native_cost.py'
       - 'Tools/Validation/test_open_combat_houses.py'
       - 'Tools/Validation/test_house_facade_details.py'
       - 'Tools/Validation/test_house_facade_lod_texture.py'
@@ -125,6 +127,7 @@ jobs:
           python Tools/Validation/test_android_logcat_triage.py
           python Tools/Validation/test_weapon_pause_input_authority.py
           python Tools/Validation/test_loot_visibility_pacing.py
+          python Tools/Validation/test_loot_pickup_one_time_native_cost.py
           python Tools/Validation/test_audio_footstep_gait.py
           python Tools/Validation/test_jump_contact_transition.py
           python Tools/Validation/test_balanced_low_stance_ik.py
