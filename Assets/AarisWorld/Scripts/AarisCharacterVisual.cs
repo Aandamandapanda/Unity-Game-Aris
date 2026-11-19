@@ -2145,12 +2145,17 @@ namespace Aaris.MapReview
                     ? Vector3.ProjectOnPlane(
                         rightThigh.position - leftThigh.position, Vector3.up)
                     : Vector3.zero;
+                // Always normalize the imported hip-right axis before using
+                // its projection in a world-metre knee offset constraint.
+                // Settled low-stance movement used to skip normalization,
+                // leaving the optional circle guard inactive.
+                if (kneeSideAxis.sqrMagnitude > 0.02f)
+                    kneeSideAxis.Normalize();
                 float transitionKneeSideTurn = 0f;
                 if (groundedNow && !visuallyAirborne &&
                     transitioningLowStance && authoredProne &&
                     kneeSideAxis.sqrMagnitude > 0.02f)
                 {
-                    kneeSideAxis.Normalize();
                     // The same crossing-knee defect occurs in crouch entry
                     // and prone exit, not just during prone entry.
                     float crouchEntry = crouching
@@ -2166,6 +2171,26 @@ namespace Aaris.MapReview
                     transitionKneeSideTurn = 80f *
                         Mathf.Max(crouchEntry, proneTransition) *
                         kneeStillness * kneeTurnStability;
+                }
+                // Native 30-frame motor QA found 0.53m crouch-walk and 0.43m
+                // crawl knee excursions, although stationary low stances
+                // remained aligned. The transition-only circle guard stops
+                // once those authored clips fully settle. Give the existing
+                // analytical solver a bounded lateral correction while the
+                // grounded low-stance actor actually moves. Fade it with
+                // resolved motor speed and turn stability: do not force a
+                // knee pole during stance switches, airborne poses or pivots.
+                // Existing ankle targets and floor-safe bend limits remain
+                // authoritative. No additional raycasts or allocations.
+                if (groundedNow && !visuallyAirborne && authoredProne &&
+                    (crouching || prone) && kneeSideAxis.sqrMagnitude > 0.25f)
+                {
+                    float movingLowStance = Mathf.SmoothStep(0f, 1f,
+                        Mathf.InverseLerp(0.20f, 0.88f, planar)) *
+                        Mathf.Clamp01(Mathf.Max(crouchRigWeight, proneRigWeight));
+                    transitionKneeSideTurn = Mathf.Max(
+                        transitionKneeSideTurn,
+                        75f * movingLowStance * kneeTurnStability);
                 }
                 // Resolve X/Z BEFORE sampling Y. This keeps the one existing
                 // Physics query per foot on the actual locked point, rather
