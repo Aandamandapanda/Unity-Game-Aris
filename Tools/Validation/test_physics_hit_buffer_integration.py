@@ -41,10 +41,27 @@ class PhysicsScratchIntegration(unittest.TestCase):
         for token in ['Task.Run', 'Thread', 'GC.Collect', 'Array.Sort', 'Object.Find',
                       'Time.timeScale', 'QualitySettings', 'GetComponent', 'new GameObject']:
             self.assertNotIn(token, helper)
-        self.assertEqual(helper.count('if (count >= retained.Length)'), 2)
-        self.assertEqual(helper.count('count = hits.Length;'), 2)
+        self.assertEqual(helper.count('if (count >= retained.Length)'), 3)
+        self.assertEqual(helper.count('count = hits.Length;'), 3)
         self.assertIn('Physics.RaycastAll(ray, distance,', helper)
         self.assertIn('Physics.SphereCastAll(ray, radius, distance,', helper)
+        self.assertIn('Physics.OverlapSphere(position, radius, mask,', helper)
+
+    def test_tactical_grenade_clearance_reuses_complete_physics_results(self):
+        tactical = (SCRIPTS / 'AarisOfflineTacticalHUD.cs').read_text()
+        method = tactical.split('private bool TryGetGrenadeRelease(', 1)[1].split(
+            'private void Build()', 1)[0]
+        self.assertIn('private Collider[] grenadeOverlapHits = new Collider[16];', tactical)
+        self.assertIn('private RaycastHit[] grenadeSweepHits = new RaycastHit[16];', tactical)
+        self.assertEqual(method.count('AarisPhysicsHitBuffer.OverlapSphere('), 2)
+        self.assertEqual(method.count('AarisPhysicsHitBuffer.SphereCast('), 1)
+        self.assertIn('new Ray(hand, flat), radius,', method)
+        self.assertIn('0.85f, ~0, ref grenadeSweepHits, 128,', method)
+        self.assertIn('ref grenadeOverlapHits, 128,', method)
+        self.assertIn('overlaps[i].transform.IsChildOf(transform)', method)
+        self.assertIn('sweep[i].collider.transform.IsChildOf(transform)', method)
+        self.assertNotIn('Physics.OverlapSphere(', method)
+        self.assertNotIn('Physics.SphereCastAll(', method)
 
 
 if __name__ == '__main__':

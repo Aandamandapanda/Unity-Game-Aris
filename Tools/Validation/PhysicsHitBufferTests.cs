@@ -8,10 +8,14 @@ namespace UnityEngine
 {
     public struct Ray { public int token; }
     public struct RaycastHit { public int id; public float distance; }
+    public struct Vector3 { public int token; }
+    public sealed class Collider { public int id; }
     public enum QueryTriggerInteraction { UseGlobal, Ignore, Collide }
     public static class Physics
     {
         public static RaycastHit[] Source = new RaycastHit[0];
+        public static Collider[] OverlapSource = new Collider[0];
+        public static int OverlapNonAllocCalls, OverlapAllCalls;
         public static int NonAllocCalls, AllCalls;
         public static bool ExpectSphere;
         private static void Validate(Ray ray, float radius, float distance,
@@ -32,6 +36,26 @@ namespace UnityEngine
         {
             AllCalls++;
             return (RaycastHit[])Source.Clone();
+        }
+        public static int OverlapSphereNonAlloc(Vector3 position, float radius,
+            Collider[] output, int mask, QueryTriggerInteraction trigger)
+        {
+            if (position.token != 456 || radius != .15f || mask != -1 ||
+                trigger != QueryTriggerInteraction.Ignore)
+                throw new Exception("Overlap geometry changed");
+            OverlapNonAllocCalls++;
+            int count = Math.Min(OverlapSource.Length, output.Length);
+            Array.Copy(OverlapSource, output, count);
+            return count;
+        }
+        public static Collider[] OverlapSphere(Vector3 position, float radius,
+            int mask, QueryTriggerInteraction trigger)
+        {
+            if (position.token != 456 || radius != .15f || mask != -1 ||
+                trigger != QueryTriggerInteraction.Ignore)
+                throw new Exception("Overlap fallback geometry changed");
+            OverlapAllCalls++;
+            return (Collider[])OverlapSource.Clone();
         }
         public static int RaycastNonAlloc(Ray ray, RaycastHit[] output,
             float distance, int mask, QueryTriggerInteraction trigger)
@@ -134,14 +158,86 @@ internal static class PhysicsHitBufferTests
         if (UnityEngine.Physics.NonAllocCalls != 1200 || UnityEngine.Physics.AllCalls != 0)
             throw new Exception("Repeated queries regressed");
     }
+
+    private static void OverlapCompleteness(UnityEngine.Collider[] actual, int count)
+    {
+        if (count != UnityEngine.Physics.OverlapSource.Length)
+            throw new Exception("Incomplete grenade overlap result");
+        var ids = new HashSet<int>();
+        foreach (var hit in UnityEngine.Physics.OverlapSource) ids.Add(hit.id);
+        for (int i = 0; i < count; i++)
+            if (actual[i] == null || !ids.Remove(actual[i].id))
+                throw new Exception("Lost or repeated grenade overlap");
+        if (ids.Count > 0) throw new Exception("Missing grenade overlap");
+        checks++;
+    }
+    private static void OverlapBoundariesAndReuse(int initial, int limit)
+    {
+        foreach (int count in new[] { 0, 1, initial - 1, initial,
+                                      initial + 1, limit - 1, limit, limit + 1, 1024 })
+        {
+            var source = new UnityEngine.Collider[count];
+            for (int i = 0; i < count; i++)
+                source[i] = new UnityEngine.Collider { id = i };
+            UnityEngine.Physics.OverlapSource = source;
+            var retained = new UnityEngine.Collider[initial];
+            var initialReference = retained;
+            UnityEngine.Collider[] results;
+            UnityEngine.Physics.OverlapNonAllocCalls = UnityEngine.Physics.OverlapAllCalls = 0;
+            int used = AarisPhysicsHitBuffer.OverlapSphere(
+                new UnityEngine.Vector3 { token = 456 }, .15f, -1,
+                ref retained, limit, out results);
+            OverlapCompleteness(results, used);
+            if (count < initial && !ReferenceEquals(initialReference, retained))
+                throw new Exception("Sparse grenade overlap promoted");
+            if (retained.Length > limit ||
+                UnityEngine.Physics.OverlapAllCalls != (count >= limit ? 1 : 0))
+                throw new Exception("Exactly-full grenade overlap policy changed");
+            var warm = retained;
+            UnityEngine.Physics.OverlapNonAllocCalls = UnityEngine.Physics.OverlapAllCalls = 0;
+            used = AarisPhysicsHitBuffer.OverlapSphere(
+                new UnityEngine.Vector3 { token = 456 }, .15f, -1,
+                ref retained, limit, out results);
+            OverlapCompleteness(results, used);
+            if (!ReferenceEquals(warm, retained) ||
+                UnityEngine.Physics.OverlapNonAllocCalls != 1)
+                throw new Exception("Warm grenade overlap did not reuse buffer");
+        }
+
+        // Reuse once promoted: > initial but below limit, no managed result arrays.
+        var dense = new UnityEngine.Collider[initial + 1];
+        for (int i = 0; i < dense.Length; i++)
+            dense[i] = new UnityEngine.Collider { id = i };
+        UnityEngine.Physics.OverlapSource = dense;
+        var buffer = new UnityEngine.Collider[initial];
+        UnityEngine.Collider[] hits;
+        AarisPhysicsHitBuffer.OverlapSphere(
+            new UnityEngine.Vector3 { token = 456 }, .15f, -1,
+            ref buffer, limit, out hits);
+        var warmed = buffer;
+        UnityEngine.Physics.OverlapNonAllocCalls = UnityEngine.Physics.OverlapAllCalls = 0;
+        for (int i = 0; i < 1200; i++)
+        {
+            int n = AarisPhysicsHitBuffer.OverlapSphere(
+                new UnityEngine.Vector3 { token = 456 }, .15f, -1,
+                ref buffer, limit, out hits);
+            OverlapCompleteness(hits, n);
+            if (!ReferenceEquals(buffer, warmed) || !ReferenceEquals(hits, warmed))
+                throw new Exception("Grenade overlap hot path allocated");
+        }
+        if (UnityEngine.Physics.OverlapNonAllocCalls != 1200 ||
+            UnityEngine.Physics.OverlapAllCalls != 0)
+            throw new Exception("Warm grenade overlap created arrays");
+    }
     public static void Main()
     {
+        OverlapBoundariesAndReuse(16, 128);
         BoundariesAndReuse(false, 12, 128); // Two feet share one owner buffer.
         BoundariesAndReuse(false, 48, 256); // Gun camera + muzzle + pellets.
         BoundariesAndReuse(false, 72, 256); // Aerial support.
         BoundariesAndReuse(true, 64, 256);  // Aerial camera.
         Console.WriteLine("PHYSICS_HIT_BUFFER_UNIT_PASS checks=" + checks);
-        Console.WriteLine("WARM_QUERIES=4800 ALL_RESULT_ALLOCATIONS=0 after one promotion per caller");
+        Console.WriteLine("WARM_QUERIES=6000 ALL_RESULT_ALLOCATIONS=0 after one promotion per caller");
         Console.WriteLine("Controlled backend only; native PhysX and device FPS remain untested.");
     }
 }
