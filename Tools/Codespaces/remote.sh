@@ -237,6 +237,446 @@ PYINPLACE
     echo 'AARIS_GAMEPLAY_INPLACE_STATIC_TESTS_PASSED'
     ;;
   sync_delta)
+    # Fail closed if the exact SSH machine points to anything other than
+    # this GitHub repository. Never print a remote URL (could embed credentials).
+    origin_url="$(git remote get-url origin 2>/dev/null || true)"
+    if ! printf '%s\n' "$origin_url" | grep -Eq '^(https://([^/@]+@)?github\.com/|git@github\.com:|ssh://git@github\.com/)sundamunda289-art/Unity-Game-Aris(\.git)?
+    # live Unity worktree and never download LFS blobs in this operation.
+    # If another agent has tracked edits, stop without changing any files.
+    test "$(git branch --show-current)" = main || {
+      echo 'WEAPON_DELTA_SYNC_BLOCKED_NOT_MAIN'; exit 81;
+    }
+    if test -n "$(git status --porcelain=v1 --untracked-files=no)"; then
+      echo 'WEAPON_DELTA_SYNC_BLOCKED_TRACKED_CHANGES'
+      printf 'codespace_head=%s\n' "$(git rev-parse HEAD)"
+      exit 82
+    fi
+    if ! git fetch --quiet --no-tags origin main; then
+      echo 'WEAPON_DELTA_SYNC_FETCH_FAILED'; exit 83
+    fi
+    if ! git merge-base --is-ancestor HEAD origin/main; then
+      echo 'WEAPON_DELTA_SYNC_DIVERGED'; exit 84
+    fi
+    # A pre-existing untracked local file may collide with a newly added
+    # file in main. Reject before invoking Git rather than overwriting it.
+    python3 - <<'PY'
+import os, pathlib, subprocess, sys
+paths=subprocess.check_output(
+    ['git','diff','--name-only','--diff-filter=A','-z','HEAD','origin/main']
+).split(b'\0')
+for raw in paths:
+    if not raw: continue
+    path=os.fsdecode(raw)
+    candidate=pathlib.Path(path)
+    if candidate.exists() or candidate.is_symlink():
+        print('WEAPON_DELTA_SYNC_BLOCKED_UNTRACKED_COLLISION')
+        sys.exit(85)
+PY
+    # Disable LFS smudge during this delta-only Git sync: original weapon,
+    # map and model LFS objects remain undisturbed in the Codespace cache.
+    if ! git -c filter.lfs.process= -c filter.lfs.clean=cat \
+        -c filter.lfs.smudge=cat -c filter.lfs.required=false \
+        merge --ff-only --quiet origin/main; then
+      echo 'WEAPON_DELTA_SYNC_FAST_FORWARD_FAILED'; exit 86
+    fi
+    test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || {
+      echo 'WEAPON_DELTA_SYNC_HASH_MISMATCH'; exit 87;
+    }
+    printf 'WEAPON_DELTA_SYNC_CONFIRMED_SHA=%s\n' "$(git rev-parse HEAD)"
+    echo 'WEAPON_DELTA_SYNC_NO_LFS_DOWNLOAD_NO_RESET_NO_STASH'
+    ;;
+  sync)
+    # Never discard unsaved work. The legacy repo contains exactly 11 checked-in
+    # full blobs mistakenly matched by a later git-lfs clean filter. Allow these
+    # only after proving raw byte-for-byte equality with the current Git index.
+    test "$(git branch --show-current)" = main || { echo 'SYNC_REQUIRES_MAIN_BRANCH'; exit 8; }
+    python3 - <<'PY'
+import subprocess,sys
+# These 11 files have a known Git-LFS filter false positive, while two
+# ProjectSettings files may be genuinely changed by Unity's first import.
+# Never bypass the raw-blob integrity guard on any asset or unrelated file.
+settings={
+    'ProjectSettings/ProjectSettings.asset',
+    'ProjectSettings/ProjectVersion.txt',
+}
+allowed={
+'Assets/AarisWorld/Props/ClimbableTower/Geometry.asset',
+'Assets/AarisWorld/Props/ClimbableTower/Geometry_LOD1.asset',
+'Assets/AarisWorld/Props/ClimbableTower/Geometry_LOD2.asset',
+'Assets/AarisWorld/Props/RockCover/Geometry.asset',
+'Assets/AarisWorld/Props/RockCover/Geometry_LOD1.asset',
+'Assets/AarisWorld/Props/RockCover/Geometry_LOD2.asset',
+'Assets/AarisWorld/Props/Shared/rock_09_ARM.png',
+'Assets/AarisWorld/Props/Shared/rusty_metal_02_ARM.png',
+'Assets/AarisWorld/Props/StaticWreck/Geometry.asset',
+'Assets/AarisWorld/Props/StaticWreck/Geometry_LOD1.asset',
+'Assets/AarisWorld/Props/StaticWreck/Geometry_LOD2.asset'}
+data=subprocess.check_output(['git','status','--porcelain=v1','--untracked-files=no','-z'])
+entries=[e for e in data.split(b'\0') if e]
+for e in entries:
+    status=e[:2].decode('ascii','replace')
+    path=e[3:].decode('utf-8','replace')
+    if status not in {' M','M '} or path not in (allowed | settings):
+        print('SYNC_BLOCKED_REAL_OR_UNEXPECTED_CHANGE')
+        sys.exit(8)
+    if path in allowed:
+        index=subprocess.check_output(['git','ls-files','-s','--',path],text=True).split('\t')[0].split()[1]
+        raw=subprocess.check_output(['git','hash-object','--no-filters','--',path],text=True).strip()
+        if raw!=index:
+            print('SYNC_BLOCKED_CHANGED_BYTES')
+            sys.exit(8)
+print('SYNC_WORKTREE_VERIFIED_RAW_IDENTICAL='+str(len(entries)-sum(e[3:].decode('utf-8','replace') in settings for e in entries)))
+PY
+    # Unity 6000.3 may write real local ProjectSettings migration changes as it
+    # imports the scene. Snapshot them in /workspaces, then stash ONLY these
+    # two explicitly reviewed files before the fast-forward. Never reset/clean.
+    if ! git diff --quiet -- ProjectSettings/ProjectSettings.asset ProjectSettings/ProjectVersion.txt ||
+       ! git diff --cached --quiet -- ProjectSettings/ProjectSettings.asset ProjectSettings/ProjectVersion.txt; then
+      umask 077
+      BACKUP="$PROJECT/.aaris-recovery/project-settings/$(date -u +%Y%m%dT%H%M%SZ)-$"
+      mkdir -p "$BACKUP"
+      cp -p ProjectSettings/ProjectSettings.asset "$BACKUP/ProjectSettings.asset"
+      cp -p ProjectSettings/ProjectVersion.txt "$BACKUP/ProjectVersion.txt"
+      # Stop rather than silently discard local ProjectSettings if Git cannot
+      # create a recoverable stash commit. The persistent copies remain in repo.
+      if ! GIT_AUTHOR_NAME='Aaris Codespace Recovery' \
+           GIT_AUTHOR_EMAIL='codespace-recovery@users.noreply.github.com' \
+           GIT_COMMITTER_NAME='Aaris Codespace Recovery' \
+           GIT_COMMITTER_EMAIL='codespace-recovery@users.noreply.github.com' \
+           git stash push -m 'Aaris Unity project settings before safe sync' -- \
+             ProjectSettings/ProjectSettings.asset ProjectSettings/ProjectVersion.txt >/dev/null; then
+        echo 'SYNC_SETTINGS_BACKUP_SAVED_STASH_FAILED'
+        exit 12
+      fi
+      if ! git diff --quiet -- ProjectSettings/ProjectSettings.asset ProjectSettings/ProjectVersion.txt; then
+        echo 'SYNC_SETTINGS_STILL_DIRTY'
+        exit 12
+      fi
+      echo 'SYNC_SETTINGS_BACKUP_AND_STASH_SAVED'
+    fi
+    git fetch --quiet origin main
+    # Suppress only the already-proven LFS clean-filter false positives.
+    git -c filter.lfs.process= -c filter.lfs.clean=cat \
+        -c filter.lfs.required=false merge --ff-only --quiet origin/main || {
+      echo 'SYNC_NON_FAST_FORWARD_OR_FILTER_CONFLICT'; exit 9;
+    }
+    git lfs pull >/dev/null 2>&1 || { echo 'SYNC_LFS_FAILED'; exit 10; }
+    echo 'SYNC_LFS_READY'
+    ;;
+  lfs_report)
+    # Report pointer hydration and diagnostics without printing any raw network logs.
+    python3 - <<'PY'
+import pathlib,subprocess,re
+root=pathlib.Path('.')
+res=subprocess.run(['git','lfs','ls-files','--name-only'],capture_output=True,text=True,timeout=25)
+if res.returncode:
+    print('LFS_ENUMERATION_FAILED')
+    raise SystemExit(2)
+files=[x for x in res.stdout.splitlines() if x]
+pointers=[]
+for item in files:
+    p=root/item
+    if p.is_file():
+        try:
+            if p.open('rb').read(110).startswith(b'version https://git-lfs.github.com/spec/v1'):
+                pointers.append(item)
+        except OSError:
+            pass
+log=pathlib.Path('/tmp/aaris-codespaces/lfs-pull.log')
+s=log.read_text(errors='replace')[-300000:] if log.is_file() else ''
+def kind(s):
+    if re.search(r'\[404\]|Object does not exist on the server|batch response: Repository or object not found',s,re.I):
+        return 'REMOTE_404'
+    if re.search(r'\[403\]|not authorized|permission denied|unauthorized',s,re.I):
+        return 'REMOTE_403'
+    if re.search(r'bandwidth|quota|billing|exceeded',s,re.I):
+        return 'QUOTA'
+    if re.search(r'no such file or directory|not found',s,re.I):
+        return 'LOCAL_PATH_OR_REMOTE_NOT_FOUND'
+    if re.search(r'certificate|dns|connection|timeout|TLS',s,re.I):
+        return 'NETWORK'
+    return 'UNKNOWN'
+print('lfs_tracked_count='+str(len(files)))
+print('lfs_unhydrated_pointer_count='+str(len(pointers)))
+print('lfs_error_kind='+kind(s))
+print('lfs_log_recorded='+('yes' if s else 'no'))
+critical='Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity'
+p=root/critical
+if not p.is_file(): scene='missing'
+elif critical in pointers: scene='pointer'
+else: scene='file_not_pointer'
+print('scene='+scene)
+# LFS errors may identify object OIDs, which are public content hashes, not credentials.
+sha=list(dict.fromkeys(re.findall(r'\b[a-f0-9]{64}\b',s,re.I)))
+print('lfs_error_hash_count='+str(len(sha)))
+for i,oid in enumerate(sha[:3],1):
+    print('lfs_object_hash_'+str(i)+'='+oid.lower())
+PY
+    ;;
+  lfs)
+    mkdir -p /tmp/aaris-unity-runtime/lfs
+    if ! git lfs version >/dev/null 2>&1; then
+      echo 'GIT_LFS_CLI_MISSING'
+      exit 19
+    fi
+    echo 'GIT_LFS_CLI_PRESENT'
+    git config --local lfs.storage /tmp/aaris-unity-runtime/lfs
+    if git lfs pull > "$RUN/lfs-pull.log" 2>&1; then
+      echo 'LFS_DOWNLOAD_OK'
+    else
+      python3 - "$RUN/lfs-pull.log" <<'PY'
+import sys,re,pathlib
+s=pathlib.Path(sys.argv[1]).read_text(errors='replace')[-20000:]
+if re.search(r'quota|bandwidth|data transfer limit|billing|over its data',s,re.I):
+    reason='quota_or_bandwidth'
+elif re.search(r'403|permission denied|not authorized|authentication|unauthorized',s,re.I):
+    reason='authorization'
+elif re.search(r'404|not found|does not exist',s,re.I):
+    reason='missing_lfs_object'
+elif re.search(r'no space left|insufficient space',s,re.I):
+    reason='disk_full'
+elif re.search(r'network|connection|timeout|TLS|certificate',s,re.I):
+    reason='network'
+elif re.search(r'not a git command|git-lfs is not installed',s,re.I):
+    reason='lfs_cli_missing'
+else:
+    reason='unclassified'
+print('LFS_FAIL_CATEGORY_'+reason.upper())
+PY
+      exit 20
+    fi
+    ;;
+  cli_diag)
+    # Read-only bounded diagnostics. The Unity CLI's raw output, OAuth state,
+    # paths and arbitrary log lines are never returned to the public issue.
+    python3 - <<'PY'
+import os, pathlib, re, subprocess
+home=pathlib.Path.home()
+candidates=[home/".local/bin/unity",home/".local/share/aaris-unity-cli/bin/unity",
+            home/".unity/bin/unity",pathlib.Path("/home/vscode/.local/bin/unity")]
+cli=next((str(p) for p in candidates if p.is_file() and os.access(p,os.X_OK)),None)
+print("UNITY_CLI_PRESENT="+("yes" if cli else "no"))
+if cli:
+    try:
+        r=subprocess.run([cli,"install","--help"],capture_output=True,
+                         text=True,errors="replace",timeout=25,check=False)
+        h=(r.stdout+"\n"+r.stderr)[:100000]
+        print("UNITY_CLI_INSTALL_HELP_EXIT_"+str(r.returncode if 0<=r.returncode<256 else 255))
+        flags={"CHANGESET":"--changeset","DOWNLOAD_DIRECTORY":"--download-directory",
+               "RESUME":"--resume","NON_INTERACTIVE":"--non-interactive",
+               "YES":"--yes","ACCEPT_EULA":"--accept-eula","FORMAT":"--format"}
+        for name,flag in flags.items():
+            print("UNITY_CLI_INSTALL_FLAGS_"+name+"="+("yes" if flag in h else "no"))
+    except (OSError,subprocess.TimeoutExpired):
+        print("UNITY_CLI_INSTALL_HELP_UNAVAILABLE")
+log=pathlib.Path("/tmp/aaris-codespaces/cli-editor-install.log")
+if not log.is_file():
+    print("UNITY_CLI_INSTALL_LOG_MISSING")
+else:
+    s=log.read_text(errors="replace")[-100000:]
+    codes=set(re.findall(r'"code"\s*:\s*"([A-Z_]{3,50})"',s))
+    allowed={"INVALID_COMMAND_ARGS","INVALID_ARGUMENTS","RELEASE_NOT_FOUND",
+             "COMMAND_FAILED","PATH_NOT_A_DIRECTORY","AUTH_REQUIRED",
+             "EULA_REQUIRED","INSTALL_FAILED","ELEVATION_FAILED"}
+    print("UNITY_CLI_INSTALL_LOG_RECORDED=yes")
+    for c in sorted(codes & allowed):
+        print("UNITY_CLI_INSTALL_LOG_CODE_"+c)
+    print("UNITY_CLI_INSTALL_LOG_CODE_OTHER="+("yes" if bool(codes-allowed) else "no"))
+    for name,pattern in {
+        "CONFLICTING_ARGUMENTS":r"mutually exclusive|conflict(?:s|ing)? with",
+        "MISSING_REQUIRED_ARGUMENT":r"missing (?:required )?argument",
+        "UNKNOWN_ARGUMENT":r"unknown (?:option|flag|argument)|unexpected argument|unrecognized option",
+        "VERSION_FORMAT":r"invalid version|invalid version format",
+        "CHANGESET":r"invalid changeset|changeset.*(invalid|unexpected)",
+        "AUTHORIZATION":r"not signed in|authentication required|authorization",
+    }.items():
+        print("UNITY_CLI_INSTALL_LOG_DIAGNOSTIC_"+name+"="+("yes" if re.search(pattern,s,re.I) else "no"))
+    for name,flag in {"CHANGESET":"--changeset","DOWNLOAD_DIRECTORY":"--download-directory",
+                      "RESUME":"--resume","NON_INTERACTIVE":"--non-interactive",
+                      "YES":"--yes","ACCEPT_EULA":"--accept-eula",
+                      "FORMAT":"--format"}.items():
+        # Only flag names from a constant allowlist can enter the response.
+        bad=(r"(?:unknown|unrecognized|unexpected|invalid|unsupported)"
+             r".{0,90}"+re.escape(flag))
+        print("UNITY_CLI_INSTALL_LOG_REJECTED_"+name+"="+("yes" if re.search(bad,s,re.I|re.S) else "no"))
+PY
+    ;;
+  bootstrap)
+    bash "$PROJECT/.devcontainer/bootstrap.sh"
+    ;;
+  install)
+    bash "$PROJECT/Tools/Codespaces/install_unity.sh"
+    ;;
+  editor_diag)
+    # A bounded, read-only scan of the local Editor launch log: no raw text,
+    # source paths, user IDs, license XML, OAuth URLs or credentials emitted.
+    python3 - <<'PY'
+from pathlib import Path
+import re
+logs=[Path("/tmp/aaris-codespaces/Editor.log"),
+      Path("/tmp/aaris-codespaces/editor-launch-stderr.log")]
+available=[p for p in logs if p.is_file() and p.stat().st_size>0]
+# Only a bounded integer is public; never show raw crash paths/logs.
+exit_witness=Path("/tmp/aaris-codespaces/editor-exit-code.txt")
+if exit_witness.is_file():
+    try:
+        code=int(exit_witness.read_text().strip())
+        if 0 <= code <= 255:
+            print("AARIS_EDITOR_EXIT_CODE_"+str(code))
+            if code==127:
+                print("AARIS_EDITOR_DIAG_EXEC_OR_LIBRARY_FAILURE")
+            elif code==137:
+                print("AARIS_EDITOR_DIAG_SIGKILL_OR_OOM")
+            elif code==139:
+                print("AARIS_EDITOR_DIAG_SEGFAULT")
+            elif code != 0:
+                print("AARIS_EDITOR_DIAG_NONZERO_EXIT")
+    except (OSError,ValueError):
+        print("AARIS_EDITOR_DIAG_EXIT_STATUS_UNREADABLE")
+if not available:
+    print("AARIS_EDITOR_DIAG_LOG_MISSING")
+    raise SystemExit(0)
+s="\n".join(p.read_text(errors="replace")[-100000:] for p in available)
+print("AARIS_EDITOR_DIAG_LOG_FOUND")
+classes={
+    "LICENSING":r"no valid.*licen[sc]e|licen[sc]e.*(failed|expired|invalid|not found|required|not active)|failed to activate",
+    "GRAPHICS":r"failed.*(initialize|init).*(graphics|opengl|vulkan)|could not create.*(gl|graphics)|GfxDevice.*failed",
+    "DISPLAY":r"cannot open display|cannot connect to.*X server|X11.*error|no display",
+    "LIBRARY":r"error while loading shared libraries|cannot open shared object file|lib[A-Za-z0-9._+-]+\\.so[^\\n]*not found",
+    "CRASH":r"segmentation fault|SIGSEGV|signal 11|crash handler",
+    "OOM":r"out of memory|std::bad_alloc|failed to allocate",
+    "PROJECT_LOCK":r"project.*(already open|in use|lock)",
+    "IMPORT_ERROR":r"failed to import|asset database.*error|project.*corrupt",
+    "PACKAGE_ERROR":r"package manager.*error|failed.*(resolve|download).*package"
+}
+found=False
+for name,pattern in classes.items():
+    if re.search(pattern,s,re.I):
+        print("AARIS_EDITOR_DIAG_"+name)
+        found=True
+if not found:
+    print("AARIS_EDITOR_DIAG_UNCLASSIFIED")
+PY
+    ;;
+  editor)
+    case "${2:-}" in ''|glcore) ;; *) echo 'EDITOR_LAUNCH_MODE_NOT_ALLOWED'; exit 12;; esac
+    EDITOR_ARGS=()
+    if test "${2:-}" = glcore; then EDITOR_ARGS=(-force-glcore); fi
+    if ! test -x "$EDITOR"; then
+      echo 'EDITOR_ABSENT_INSTALLING_ON_TMP_DISK'
+      echo 'EDITOR_NOT_INSTALLED_USE_CS_INSTALL_FIRST'
+      exit 11
+    fi
+    # Put Unity's large import cache on /tmp and preserve checked-in source files.
+    mkdir -p /tmp/aaris-unity-runtime/project-cache
+    for name in Library Temp Logs obj; do
+      target="$PROJECT/$name"
+      if test -L "$target"; then
+        # The Codespace's /tmp cache is ephemeral. A persisted symlink
+        # can outlive its target after restart; Unity then fails to create
+        # Library/Logs and can segfault before compilation.
+        cache_target="/tmp/aaris-unity-runtime/project-cache/$name"
+        if test "$(readlink "$target")" = "$cache_target"; then
+          mkdir -p "$cache_target"
+        elif ! test -d "$target"; then
+          echo "CACHE_DANGLING_UNKNOWN_TARGET_$name"
+          exit 13
+        fi
+        continue
+      fi
+      if test -d "$target"; then
+        if test -n "$(ls -A "$target" 2>/dev/null)"; then
+          echo "CACHE_DIRECTORY_NONEMPTY_$name"
+          continue
+        fi
+        rmdir "$target"
+      fi
+      if ! test -e "$target"; then
+        mkdir -p "/tmp/aaris-unity-runtime/project-cache/$name"
+        ln -s "/tmp/aaris-unity-runtime/project-cache/$name" "$target"
+      fi
+    done
+    bash "$PROJECT/.devcontainer/start_screen.sh" >/dev/null
+    if ! pgrep -f '[E]ditor/Unity.*-projectPath' >/dev/null 2>&1; then
+      mkdir -p "$RUN/UnityTemp"
+      # Keep raw loader errors PRIVATE on this Codespace; only editor_diag
+      # may export a fixed classification to the owner Issue.
+      rm -f "$RUN/editor-exit-code.txt"
+      # A private exit-status witness survives a fast native crash. No raw
+      # arguments, OAuth values, terminal output or proprietary logs leave
+      # this Codespace. The wrapper is detached from the SSH session.
+      nohup setsid env DISPLAY=:99 TMPDIR="$RUN/UnityTemp" LIBGL_ALWAYS_SOFTWARE=1 \
+        bash -c 'rc=0; "$1" -projectPath "$2" "${@:5}" -logFile "$3" || rc=$?; printf "%s\\n" "$rc" > "$4"; exit "$rc"' \
+        bash "$EDITOR" "$PROJECT" "$RUN/Editor.log" "$RUN/editor-exit-code.txt" "${EDITOR_ARGS[@]}" \
+        </dev/null >"$RUN/editor-launch-stdout.log" 2>"$RUN/editor-launch-stderr.log" &
+      sleep 8
+    fi
+    if ! pgrep -f '[E]ditor/Unity.*-projectPath' >/dev/null 2>&1; then
+      echo 'EDITOR_LAUNCH_FAILED'
+      exit 12
+    fi
+    # Process existence after eight seconds is NOT a successful Editor launch.
+    # Large imports must remain running; catch delayed licensing/GL crashes
+    # before reporting a false-positive and requesting a screenshot.
+    sleep 12
+    if pgrep -f '[E]ditor/Unity.*-projectPath' >/dev/null 2>&1; then
+      echo 'EDITOR_PROCESS_STARTED_LICENSE_NOT_VERIFIED'
+    else
+      echo 'EDITOR_EXITED_DURING_STARTUP'
+      exit 12
+    fi
+    ;;
+  license)
+    # Unity CLI may be installed under UNITY_CLI_HOME/bin, not ~/.local/bin.
+    # Use the effective SSH user's real home when inherited HOME is misleading.
+    AUTH_HOME="$(getent passwd "$(id -u)" | cut -d: -f6)"
+    if ! test -d "$AUTH_HOME"; then AUTH_HOME="$HOME"; fi
+    CLI=""
+    for candidate in "$AUTH_HOME/.local/share/aaris-unity-cli/bin/unity" \
+                     "$AUTH_HOME/.local/bin/unity" "$AUTH_HOME/.unity/bin/unity" \
+                     "$HOME/.local/share/aaris-unity-cli/bin/unity" "$HOME/.local/bin/unity" \
+                     "/home/vscode/.local/share/aaris-unity-cli/bin/unity" \
+                     "/home/vscode/.local/bin/unity" "/tmp/aaris-unity-runtime/cli/bin/unity"; do
+      if test -x "$candidate"; then CLI="$candidate"; break; fi
+    done
+    if test -z "$CLI"; then
+      echo 'UNITY_CLI_NOT_INSTALLED'
+    else
+      echo 'UNITY_CLI_DISCOVERED'
+      if env UNITY_CLI_HOME="$AUTH_HOME/.local/share/aaris-unity-cli" \
+          "$CLI" license status --format json --non-interactive >/dev/null 2>&1; then
+        echo 'UNITY_PERSONAL_OR_SUBSCRIPTION_LICENSE_ACTIVE'
+      else
+        echo 'UNITY_LICENSE_NOT_VERIFIED'
+      fi
+    fi
+    ;;
+  shot)
+    pgrep -f '[E]ditor/Unity.*-projectPath' >/dev/null || { echo 'SHOT_BLOCKED_EDITOR_NOT_RUNNING'; exit 14; }
+    DISPLAY=:99 xdpyinfo >/dev/null 2>&1 || { echo 'SHOT_BLOCKED_NO_DISPLAY'; exit 15; }
+    DISPLAY=:99 scrot -o "$RUN/screen.png" || { echo 'SHOT_FAILED'; exit 16; }
+    test -s "$RUN/screen.png" || exit 16
+    VARIANCE="$(convert "$RUN/screen.png" -colorspace Gray -format '%[fx:standard_deviation]' info: 2>/dev/null || echo 0)"
+    python3 - "$VARIANCE" <<'PY'
+import sys
+try: ok=float(sys.argv[1])>=0.015
+except ValueError: ok=False
+if not ok: raise SystemExit("SHOT_BLANK_REJECTED")
+PY
+    echo 'SHOT_CREATED_NEEDS_VISUAL_REVIEW'
+    ;;
+  test)
+    python3 Tools/CI/ai_world_commands.py
+    python3 Tools/CI/session_store.py selftest
+    echo 'SELFTEST_OK'
+    ;;
+  *)
+    echo 'INVALID_TASK'; exit 2 ;;
+esac
+; then
+      echo 'WEAPON_DELTA_SYNC_BLOCKED_UNEXPECTED_REPOSITORY'
+      exit 88
+    fi
     # Owner-only weapon upgrade reconciliation. Never reset/clean/stash the
     # live Unity worktree and never download LFS blobs in this operation.
     # If another agent has tracked edits, stop without changing any files.
