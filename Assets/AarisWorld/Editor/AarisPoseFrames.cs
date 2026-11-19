@@ -201,6 +201,14 @@ if(n==0){
  p.CancelAutoSprint();p.SetEditorLocomotionQAInput(Vector2.zero);
  ok=b.TrySetStance(AarisBattleActions.PlayerStance.Crouching);
 }else if(n==5){
+ // Walking/sprinting through the full terrain scene may reach a real cabin
+ // before the prone->stand stage. Reset the QA route ONCE on entering the
+ // low-stance locomotion block, while preserving the actual motor, collision
+ // checks, real terrain and the ensuing crouch-walk/prone/crawl/get-up path.
+ // This is Editor-only: no gameplay teleport, no fake stance acceptance.
+ p.CancelAutoSprint();
+ if(!SurveyTeleport(p)){Finish("SURVEY_LOCATION_UNAVAILABLE");return;}
+ Log("EDITOR_ONLY_LOW_STANCE_OPEN_GROUND_ROUTE_RESET");
  p.SetEditorLocomotionQAInput(Vector2.up);
  ok=b.TrySetStance(AarisBattleActions.PlayerStance.Crouching);
 }else if(n==6){
