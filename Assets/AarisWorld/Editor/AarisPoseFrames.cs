@@ -136,6 +136,8 @@ Log("STAGE "+Names[n]+" accepted="+ok);
 if(!ok) Finish("STANCE_REJECTED_"+Names[n]);
 }
 static void StageMotion(int n,AarisThirdPersonPlayer p,AarisBattleActions b){
+FinishMotionContactSummary();
+motionContactStage=-1;
 if(n<0||n>=MotionNames.Length){Finish("MOTION_STAGE_OUT_OF_RANGE");return;}
 SessionState.SetInt("pose.step",n);SessionState.SetInt("pose.count",0);
 SessionState.SetFloat("pose.time",(float)Now);
@@ -328,6 +330,158 @@ Log("MEASURE stance="+b.Stance+" footY="+foot.y.ToString("F3")+
 " meshGap="+(meshMin-terrainY).ToString("F3")+
 " skins="+count+" capsuleHeight="+capsule.height.ToString("F3"));
 }
+// Only the Editor QA observes shoe movement at full Play-Mode cadence.
+// Three orbit photos at different instants cannot prove foot sliding; this
+// monitor samples the true animated ankles between photographs instead.
+static int motionContactStage=-1,motionContactSamples;
+static float motionLastSampleTime,motionLastLGap,motionLastRGap;
+static float motionContactMaxSpeed,motionContactSumSpeed;
+static Vector3 motionLastLeftFoot,motionLastRightFoot;
+static void FinishMotionContactSummary(){
+ if(motionContactStage<0)return;
+ float mean=motionContactSamples>0
+  ?motionContactSumSpeed/motionContactSamples:0f;
+ Log("MOTION_CONTACT_QA state="+MotionNames[motionContactStage]+
+  " samples="+motionContactSamples+
+  " meanMetresPerSecond="+mean.ToString("F3")+
+  " maxMetresPerSecond="+motionContactMaxSpeed.ToString("F3"));
+ motionContactStage=-1;
+}
+static float MotionAnkleTerrainGap(Transform foot){
+ if(foot==null)return float.NaN;
+ Vector3 p=foot.position;
+ foreach(var tile in Terrain.activeTerrains){
+  if(tile==null||tile.terrainData==null)continue;
+  Vector3 origin=tile.transform.position,size=tile.terrainData.size;
+  if(p.x>=origin.x&&p.z>=origin.z&&
+     p.x<=origin.x+size.x&&p.z<=origin.z+size.z)
+   return p.y-(origin.y+tile.SampleHeight(p));
+ }
+ return float.NaN;
+}
+static void ObserveMotionContacts(AarisThirdPersonPlayer p,int stage){
+ if(stage<0||stage>=MotionNames.Length)return;
+ var anim=p.GetComponentInChildren<Animator>(true);
+ if(anim==null||!anim.isHuman)return;
+ var left=anim.GetBoneTransform(HumanBodyBones.LeftFoot);
+ var right=anim.GetBoneTransform(HumanBodyBones.RightFoot);
+ if(left==null||right==null)return;
+ float time=Time.unscaledTime;
+ float lGap=MotionAnkleTerrainGap(left),rGap=MotionAnkleTerrainGap(right);
+ if(motionContactStage!=stage){
+  FinishMotionContactSummary();
+  motionContactStage=stage;
+  motionContactSamples=0;motionContactMaxSpeed=0f;
+  motionContactSumSpeed=0f;
+  motionLastSampleTime=time;
+  motionLastLeftFoot=left.position;motionLastRightFoot=right.position;
+  motionLastLGap=lGap;motionLastRGap=rGap;
+  return;
+ }
+ float dt=time-motionLastSampleTime;
+ if(dt<0.018f)return; // No duplicate Editor ticks on the same frame.
+ if(dt<0.18f&&p.GetComponent<CharacterController>().isGrounded&&
+    (stage==1||stage==2||stage==3||stage==5||stage==7)){
+  // A foot hovering or actively swinging is not a planted contact.
+  // Contact must hold both at previous and current sampled instants.
+  if(lGap>=-0.06f&&lGap<=0.15f&&
+     motionLastLGap>=-0.06f&&motionLastLGap<=0.15f){
+   Vector3 delta=Vector3.ProjectOnPlane(
+    left.position-motionLastLeftFoot,Vector3.up);
+   float speed=delta.magnitude/dt;
+   if(speed<12f){motionContactSamples++;motionContactSumSpeed+=speed;
+    motionContactMaxSpeed=Mathf.Max(motionContactMaxSpeed,speed);}
+  }
+  if(rGap>=-0.06f&&rGap<=0.15f&&
+     motionLastRGap>=-0.06f&&motionLastRGap<=0.15f){
+   Vector3 delta=Vector3.ProjectOnPlane(
+    right.position-motionLastRightFoot,Vector3.up);
+   float speed=delta.magnitude/dt;
+   if(speed<12f){motionContactSamples++;motionContactSumSpeed+=speed;
+    motionContactMaxSpeed=Mathf.Max(motionContactMaxSpeed,speed);}
+  }
+ }
+ motionLastSampleTime=time;
+ motionLastLeftFoot=left.position;motionLastRightFoot=right.position;
+ motionLastLGap=lGap;motionLastRGap=rGap;
+}
+// The native photo matrix logs measurable bones at every sample, not only
+// the first and last photograph. This is Editor-only: no Android cost.
+// Ground samples are per shoe, rather than assuming both shoes stand at
+// the capsule center (which is wrong on ramps and sloped terrain).
+static void LogMotionRigQuality(AarisThirdPersonPlayer p,
+ AarisBattleActions b,int frame){
+ var animator=p.GetComponentInChildren<Animator>(true);
+ if(animator==null||!animator.isHuman)return;
+ var lh=animator.GetBoneTransform(HumanBodyBones.LeftUpperLeg);
+ var rh=animator.GetBoneTransform(HumanBodyBones.RightUpperLeg);
+ var lk=animator.GetBoneTransform(HumanBodyBones.LeftLowerLeg);
+ var rk=animator.GetBoneTransform(HumanBodyBones.RightLowerLeg);
+ var lf=animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+ var rf=animator.GetBoneTransform(HumanBodyBones.RightFoot);
+ var hips=animator.GetBoneTransform(HumanBodyBones.Hips);
+ var head=animator.GetBoneTransform(HumanBodyBones.Head);
+ if(lh==null||rh==null||lk==null||rk==null||
+    lf==null||rf==null||hips==null||head==null)return;
+ Vector3 hipSide=Vector3.ProjectOnPlane(
+  rh.position-lh.position,Vector3.up);
+ if(hipSide.sqrMagnitude<0.01f)return;
+ hipSide.Normalize();
+ float leftKneeSide=Vector3.Dot(Vector3.ProjectOnPlane(
+  lk.position-lh.position,Vector3.up),hipSide);
+ float rightKneeSide=Vector3.Dot(Vector3.ProjectOnPlane(
+  rk.position-rh.position,Vector3.up),hipSide);
+ float footSpread=Vector3.ProjectOnPlane(
+  lf.position-rf.position,Vector3.up).magnitude;
+ Vector3 spineForward=Vector3.ProjectOnPlane(
+  head.position-hips.position,Vector3.up);
+ float spineFacing=spineForward.sqrMagnitude>0.01f
+  ?Vector3.Dot(spineForward.normalized,p.transform.forward):float.NaN;
+ float leftGap=float.NaN,rightGap=float.NaN;
+ foreach(var tile in Terrain.activeTerrains){
+  if(tile==null||tile.terrainData==null)continue;
+  Vector3 origin=tile.transform.position,sz=tile.terrainData.size;
+  Vector3 lp=lf.position,rp=rf.position;
+  if(float.IsNaN(leftGap)&&lp.x>=origin.x&&lp.z>=origin.z&&
+     lp.x<=origin.x+sz.x&&lp.z<=origin.z+sz.z)
+   leftGap=lp.y-(origin.y+tile.SampleHeight(lp));
+  if(float.IsNaN(rightGap)&&rp.x>=origin.x&&rp.z>=origin.z&&
+     rp.x<=origin.x+sz.x&&rp.z<=origin.z+sz.z)
+   rightGap=rp.y-(origin.y+tile.SampleHeight(rp));
+ }
+ float leftSpeed=float.NaN,rightSpeed=float.NaN;
+ float seconds=Time.unscaledTime;
+ if(frame>0){
+  float dt=seconds-SessionState.GetFloat("pose.motionMetricTime",seconds);
+  if(dt>0.025f){
+   Vector3 oldL=new Vector3(
+    SessionState.GetFloat("pose.motionLX",lf.position.x),0f,
+    SessionState.GetFloat("pose.motionLZ",lf.position.z));
+   Vector3 oldR=new Vector3(
+    SessionState.GetFloat("pose.motionRX",rf.position.x),0f,
+    SessionState.GetFloat("pose.motionRZ",rf.position.z));
+   leftSpeed=Vector3.Distance(
+    oldL,Vector3.ProjectOnPlane(lf.position,Vector3.up))/dt;
+   rightSpeed=Vector3.Distance(
+    oldR,Vector3.ProjectOnPlane(rf.position,Vector3.up))/dt;
+  }
+ }
+ SessionState.SetFloat("pose.motionMetricTime",seconds);
+ SessionState.SetFloat("pose.motionLX",lf.position.x);
+ SessionState.SetFloat("pose.motionLZ",lf.position.z);
+ SessionState.SetFloat("pose.motionRX",rf.position.x);
+ SessionState.SetFloat("pose.motionRZ",rf.position.z);
+ Log("MOTION_RIG state="+MotionNames[SessionState.GetInt("pose.step",0)]+
+  " frame="+frame+
+  " leftGap="+leftGap.ToString("F3")+
+  " rightGap="+rightGap.ToString("F3")+
+  " spread="+footSpread.ToString("F3")+
+  " leftKneeSide="+leftKneeSide.ToString("F3")+
+  " rightKneeSide="+rightKneeSide.ToString("F3")+
+  " torsoFacingDot="+spineFacing.ToString("F3")+
+  " leftFootSpeed="+leftSpeed.ToString("F3")+
+  " rightFootSpeed="+rightSpeed.ToString("F3"));
+}
 // Native, read-only transition diagnostic: only a pose that is actually
 // blending is required to release both previous low-stance world locks.
 // The reflection stays in Editor QA, never the Android gameplay hot path.
@@ -406,6 +560,7 @@ Log("TRANSITION_LEGS stance="+b.Stance+" frame="+sampleIndex+
 " rightKneeSide="+rSide.ToString("F3"));
 }
 static void Finish(string reason){
+FinishMotionContactSummary();
 Log(reason);SessionState.SetString("pose.state","");Phase("07_COMPLETE");
 if(EditorApplication.isPlaying)EditorApplication.isPlaying=false;
 if(SessionState.GetBool("pose.batch",false)){
@@ -473,6 +628,8 @@ return;
 }
 if(b==null){Finish("NO_BATTLE_COMPONENT");return;}
 int count=SessionState.GetInt("pose.count",0);
+if(SessionState.GetBool("pose.motionMatrix",false))
+ ObserveMotionContacts(p,n);
 // Deterministic stand > crouch > prone > stand > jump > land sequence.
 // Treat a rejected stance, missing takeoff or missing landing event as FAIL.
 if(SessionState.GetBool("pose.stanceJump",false)){
@@ -606,7 +763,9 @@ SessionState.GetFloat("pose.transitionYawDegrees",90f):0)+
 if(transitionFrames)LogTransitionContact(p,b,count);
 // Measure both the first pose and its final settled multi-angle frame.
 // Editor-only QA: zero work or allocations in Android players.
-if(count==0 || (orbitStance && count==needed-1)) LogPhysicalHeight(p,b);
+if(motionMatrix || count==0 || (orbitStance && count==needed-1))
+ LogPhysicalHeight(p,b);
+if(motionMatrix)LogMotionRigQuality(p,b,count);
 }catch(Exception ex){Finish("ERROR_"+ex.GetType().Name+"_"+ex.Message);return;}
 }
 if(age>(portrait?(motionMatrix?1.06:n==5?1.35:transitionFrames?.84:
