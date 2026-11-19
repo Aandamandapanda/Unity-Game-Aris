@@ -23,8 +23,12 @@ namespace Aaris.MapReview
         // One runtime-only copy per aircraft finish keeps the saved assets untouched.
         private static Material hullDaylightFinish, wingDaylightFinish;
         private static Mesh cachedPropellerMesh, cachedPropellerBlurMesh;
+        // Same Unity built-in cylinder mesh as CreatePrimitive, but cached
+        // once so parachute ropes no longer manufacture throwaway colliders.
+        private static Mesh cachedCanopyCordMesh;
 #if UNITY_ANDROID && !UNITY_EDITOR
         private static GameObject prewarmedCanopyPrefab;
+        private static bool canopyVisualsPrewarmed;
         // Five authored PBR finishes were previously loaded synchronously
         // on the same frame as the high-detail plane Instantiate. Prefetch
         // their exact Resources assets across frames before that expensive
@@ -43,6 +47,8 @@ namespace Aaris.MapReview
         {
             // Static references must not outlive a Unity player domain reload.
             prewarmedCanopyPrefab = null;
+            canopyVisualsPrewarmed = false;
+            cachedCanopyCordMesh = null;
             aircraftFinishCache.Clear();
             aircraftFinishesPrewarmed = false;
         }
@@ -68,14 +74,31 @@ namespace Aaris.MapReview
         internal static IEnumerator PrewarmCanopyPrefab()
         {
             // The cargo aircraft and essential flight input render first.
-            // This never instantiates geometry or changes original materials.
+            // Keep all art identical; stage the first canopy's material setup
+            // and one built-in rope mesh away from the OPEN gameplay frame.
             yield return null;
-            if (prewarmedCanopyPrefab != null) yield break;
-            ResourceRequest request = Resources.LoadAsync<GameObject>(
-                "AarisDrop/ElongatedParachute");
-            request.priority = -1;
-            yield return request;
-            prewarmedCanopyPrefab = request.asset as GameObject;
+            if (prewarmedCanopyPrefab == null)
+            {
+                ResourceRequest request = Resources.LoadAsync<GameObject>(
+                    "AarisDrop/ElongatedParachute");
+                request.priority = -1;
+                yield return request;
+                prewarmedCanopyPrefab = request.asset as GameObject;
+            }
+            if (canopyVisualsPrewarmed) yield break;
+            // Each potentially expensive Shader.Find/Material allocation gets
+            // its own later flight frame, not the initial aircraft renderer.
+            yield return null;
+            Paint(ref canopyBlue, new Color(0.05f, 0.23f, 0.39f));
+            yield return null;
+            Paint(ref canopyWhite, new Color(0.91f, 0.91f, 0.83f));
+            yield return null;
+            Paint(ref canopyOrange, new Color(0.97f, 0.45f, 0.13f));
+            yield return null;
+            Paint(ref rope, new Color(0.09f, 0.12f, 0.15f));
+            yield return null;
+            EnsureCanopyCordMesh();
+            canopyVisualsPrewarmed = true;
         }
 #endif
         // One-time cold-start timings. Resolve, instantiate and material setup
@@ -218,14 +241,36 @@ namespace Aaris.MapReview
             return obj;
         }
 
+        private static Mesh EnsureCanopyCordMesh()
+        {
+            if (cachedCanopyCordMesh != null) return cachedCanopyCordMesh;
+            // Get Unity's EXACT original cylinder mesh once. The temporary
+            // prototype is inactive before any collider can enter physics.
+            // Rope instances below are render-only, as the old colliders were
+            // destroyed immediately after CreatePrimitive anyway.
+            GameObject prototype = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            prototype.SetActive(false);
+            cachedCanopyCordMesh = prototype.GetComponent<MeshFilter>().sharedMesh;
+            UnityEngine.Object.Destroy(prototype);
+            return cachedCanopyCordMesh;
+        }
+
         private static void RigidLine(Transform parent, string name, Vector3 a, Vector3 b,
             float diameter, Material material)
         {
             Vector3 offset = b - a;
             if (offset.sqrMagnitude < 0.0001f) return;
-            Part(parent, name, PrimitiveType.Cylinder,
-                (a + b) * 0.5f, Quaternion.FromToRotation(Vector3.up, offset),
-                new Vector3(diameter, offset.magnitude * 0.5f, diameter), material);
+            // A regular cylinder primitive creates a Collider for every
+            // suspension rope, then schedules every Collider for Destroy.
+            // Use the same native mesh with no temporary physics components.
+            GameObject line = new GameObject(name, typeof(MeshFilter), typeof(MeshRenderer));
+            line.transform.SetParent(parent, false);
+            line.transform.localPosition = (a + b) * 0.5f;
+            line.transform.localRotation = Quaternion.FromToRotation(Vector3.up, offset);
+            line.transform.localScale =
+                new Vector3(diameter, offset.magnitude * 0.5f, diameter);
+            line.GetComponent<MeshFilter>().sharedMesh = EnsureCanopyCordMesh();
+            line.GetComponent<MeshRenderer>().sharedMaterial = material;
         }
 
         // One lightweight three-blade rotor mesh is shared by all four propellers.
