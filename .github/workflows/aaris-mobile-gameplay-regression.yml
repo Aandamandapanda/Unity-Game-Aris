@@ -25,6 +25,7 @@ on:
       - 'Tools/Validation/test_android_shared_streaming_frame_gate.py'
       - 'Tools/Validation/test_android_runtime_diagnostics_analysis.py'
       - 'Tools/Validation/test_android_plane_async_boot.py'
+      - 'Tools/Validation/test_gloo_preview_pose_budget.py'
       - 'Tools/Validation/test_loot_visibility_pacing.py'
       - 'Tools/Validation/test_open_combat_houses.py'
       - 'Tools/Validation/test_house_facade_details.py'
@@ -63,6 +64,7 @@ on:
       - 'Tools/Validation/test_android_shared_streaming_frame_gate.py'
       - 'Tools/Validation/test_android_runtime_diagnostics_analysis.py'
       - 'Tools/Validation/test_android_plane_async_boot.py'
+      - 'Tools/Validation/test_gloo_preview_pose_budget.py'
       - 'Tools/Validation/test_loot_visibility_pacing.py'
       - 'Tools/Validation/test_open_combat_houses.py'
       - 'Tools/Validation/test_house_facade_details.py'
@@ -108,6 +110,7 @@ jobs:
           python Tools/Validation/test_android_hotloop_blocking_calls.py
           python Tools/Validation/test_android_shared_streaming_frame_gate.py
           python Tools/Validation/test_android_plane_async_boot.py
+          python Tools/Validation/test_gloo_preview_pose_budget.py
           python Tools/Validation/test_android_runtime_diagnostics_analysis.py
           python Tools/Validation/test_android_logcat_triage.py
           python Tools/Validation/test_weapon_pause_input_authority.py
