@@ -29,6 +29,7 @@ namespace Aaris.MapReview
         private CharacterController capsule;
         private float nextRigSearch;
         private bool aiming, fistMode;
+        private float sprintReadyBlend;
         // Lightweight third-person weapon inertia. These are visual-only
         // values: hitscan authority stays camera-aligned and no Rigidbody or
         // Animation Rigging graph is added for the local player's firearm.
@@ -727,8 +728,8 @@ namespace Aaris.MapReview
                 // A sprinting, armed Humanoid keeps the gun in both hands,
                 // lowered slightly rather than teleporting it to the back.
                 // Never apply this presentation pitch during ADS or firing.
-                if (IsSprintLowReady)
-                    aimRotation *= Quaternion.Euler(11f, 0f, 0f);
+                if (sprintReadyBlend > 0.001f)
+                    aimRotation *= Quaternion.Euler(11f * sprintReadyBlend, 0f, 0f);
                 // Rotation and receiver translation share the same aim-yaw basis.
                 // Otherwise the solved hands chase a diagonal pivot during
                 // camera yaw, especially in ADS/prone.
@@ -744,8 +745,8 @@ namespace Aaris.MapReview
                 Vector3 receiver = chest.position +
                     aimRight * 0.12f + shoulderForward * 0.13f -
                     Vector3.up * 0.105f + Vector3.up * aimPitch * 0.025f;
-                if (IsSprintLowReady)
-                    receiver -= shoulderForward * 0.035f + Vector3.up * 0.08f;
+                receiver -= sprintReadyBlend *
+                    (shoulderForward * 0.035f + Vector3.up * 0.08f);
                 weaponRoot.SetPositionAndRotation(receiver, aimRotation);
             }
             else
@@ -1104,6 +1105,7 @@ namespace Aaris.MapReview
             {
                 IsSprintLowReady = false;
                 IsSprintHolstered = false;
+                sprintReadyBlend = 0f;
                 return;
             }
             // Never holster on a slow crouch/crawl, while ADS, or during
@@ -1121,6 +1123,14 @@ namespace Aaris.MapReview
             FindHumanoidSockets(); // one cached lookup; resolves late-loaded avatars
             IsSprintLowReady = sprinting && HasCompleteHumanoidGripRig();
             IsSprintHolstered = sprinting && !IsSprintLowReady;
+            // Wall-clock easing avoids a sudden 11-degree muzzle snap when
+            // the motor crosses the sprint speed threshold. No allocations.
+            float sprintAlpha = 1f - Mathf.Exp(
+                -12f * Mathf.Clamp(Time.deltaTime, 0f, 0.05f));
+            sprintReadyBlend = Mathf.Lerp(sprintReadyBlend,
+                IsSprintLowReady ? 1f : 0f, sprintAlpha);
+            if (aiming || (combat != null && combat.FireHeld))
+                sprintReadyBlend = 0f;
             AttachModelsToSockets();
             // Apply inertia before solving both arms so the palms follow the
             // final visually displaced receiver/foregrip, not yesterday's pose.
@@ -1146,6 +1156,7 @@ namespace Aaris.MapReview
             aiming = false;
             IsSprintLowReady = false;
             IsSprintHolstered = false;
+            sprintReadyBlend = 0f;
             weaponMotionReady = false;
             smoothedWeaponSway = Vector3.zero;
             visualRecoilDegrees = 0f;
