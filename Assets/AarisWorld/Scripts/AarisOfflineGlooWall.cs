@@ -40,6 +40,12 @@ namespace Aaris.MapReview
         // native color updates at 30/60/120 FPS while the wall is held.
         private bool ghostTintInitialized, ghostTintValid;
         private float nextDeployment;
+        // Skip identical steady-pose previews for at most 80ms, without
+        // changing the original geometry or final deploy collision checks.
+        private const float PreviewPhysicsMaxAgeSeconds = 0.08f;
+        private bool previewPoseCached;
+        private float nextPreviewPhysicsRefresh;
+        private Vector3 previewPlayerPosition, previewCameraPosition, previewLook;
 
         public int Count => carriedWalls;
         public bool Aiming => aiming;
@@ -124,6 +130,7 @@ namespace Aaris.MapReview
             EnsureGhostCreated();
             aiming = true;
             placementValid = false;
+            previewPoseCached = false;
             UpdatePlacement();
         }
 
@@ -131,6 +138,7 @@ namespace Aaris.MapReview
         {
             aiming = false;
             placementValid = false;
+            previewPoseCached = false;
             if (ghost != null) ghost.SetActive(false);
         }
 
@@ -138,7 +146,9 @@ namespace Aaris.MapReview
         {
             if (!aiming) return;
             RefreshOptionalComponents(true); // Newly attached vehicle/drop state must veto deployment.
-            // Do not trust the prior frame's preview: player and vehicles can move.
+            // A new actor/vehicle may invalidate the preview before release.
+            // Clear the cache and run the original full collision checks.
+            previewPoseCached = false;
             UpdatePlacement();
             bool allowed = CanUse && placementValid && Time.time >= nextDeployment;
             Vector3 point = proposedPoint;
@@ -174,17 +184,34 @@ namespace Aaris.MapReview
 
         private void UpdatePlacement()
         {
-            placementValid = false;
             if (motor == null || motor.AimCamera == null)
             {
+                placementValid = false;
+                previewPoseCached = false;
                 if (ghost != null) ghost.SetActive(false);
                 return;
             }
 
-            Vector3 look = motor.AimCamera.transform.forward;
+            Transform cameraPose = motor.AimCamera.transform;
+            Vector3 look = cameraPose.forward;
+            Vector3 cameraPosition = cameraPose.position;
+            Vector3 player = transform.position;
+            float now = Time.unscaledTime;
+            // Camera/player motion refreshes immediately; idle previews still
+            // revalidate dynamic cover within 80ms. Release ALWAYS refreshes.
+            if (previewPoseCached && ghost != null && ghost.activeSelf &&
+                now < nextPreviewPhysicsRefresh &&
+                player == previewPlayerPosition &&
+                cameraPosition == previewCameraPosition && look == previewLook)
+                return;
+            previewPoseCached = true;
+            previewPlayerPosition = player;
+            previewCameraPosition = cameraPosition;
+            previewLook = look;
+            nextPreviewPhysicsRefresh = now + PreviewPhysicsMaxAgeSeconds;
+            placementValid = false;
             Vector3 ahead = Vector3.ProjectOnPlane(look, Vector3.up).normalized;
             if (ahead.sqrMagnitude < 0.5f) ahead = transform.forward;
-            Vector3 player = transform.position;
             float desired = Mathf.Lerp(minimumDistance, Mathf.Max(maximumDistance, minimumDistance),
                 Mathf.InverseLerp(-0.75f, 0.4f, look.y));
             // Favor the first walkable surface under the aiming reticle.
@@ -196,7 +223,7 @@ namespace Aaris.MapReview
             Vector3 lookAhead = ahead;
             float nearestGround = float.PositiveInfinity;
             RaycastHit[] cameraHitResults;
-            int cameraHits = CompleteRayHits(motor.AimCamera.transform.position,
+            int cameraHits = CompleteRayHits(cameraPosition,
                 look, maximumDistance + 8f, forwardHits, out cameraHitResults);
             for (int i = 0; i < cameraHits; i++)
                 {
