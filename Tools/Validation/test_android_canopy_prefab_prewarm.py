@@ -25,7 +25,7 @@ class CanopyPrewarm(unittest.TestCase):
         # C# nested conditions add indentation; verify the same resource
         # and typed asynchronous request without a brittle whitespace contract.
         self.assertRegex(section,
-                         r'Resources\\.LoadAsync<GameObject>\\(\\s*"AarisDrop/ElongatedParachute"\\)')
+                         r'Resources\.LoadAsync<GameObject>\(\s*"AarisDrop/ElongatedParachute"\)')
         self.assertIn("request.priority = -1;", section)
         self.assertIn("yield return request;", section)
         self.assertIn("prewarmedCanopyPrefab = request.asset as GameObject;", section)
