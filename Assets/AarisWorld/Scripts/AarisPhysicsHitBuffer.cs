@@ -32,6 +32,30 @@ namespace Aaris.MapReview
             return count;
         }
 
+        // NonAlloc sphere overlaps are unordered just like ray/sweep queries.
+        // Keep a caller-owned growable scratch array for both grenade endpoints.
+        internal static int OverlapSphere(Vector3 position, float radius, int mask,
+            ref Collider[] retained, int retainedLimit, out Collider[] hits)
+        {
+            int count = Physics.OverlapSphereNonAlloc(position, radius, retained,
+                mask, QueryTriggerInteraction.Ignore);
+            if (count >= retained.Length && retained.Length < retainedLimit)
+            {
+                retained = new Collider[retainedLimit];
+                count = Physics.OverlapSphereNonAlloc(position, radius, retained,
+                    mask, QueryTriggerInteraction.Ignore);
+            }
+            hits = retained;
+            if (count >= retained.Length)
+            {
+                // A full 128-hit result must NEVER incorrectly approve release.
+                hits = Physics.OverlapSphere(position, radius, mask,
+                    QueryTriggerInteraction.Ignore);
+                count = hits.Length;
+            }
+            return count;
+        }
+
         internal static int SphereCast(Ray ray, float radius, float distance,
             int mask, ref RaycastHit[] retained, int retainedLimit,
             out RaycastHit[] hits)
