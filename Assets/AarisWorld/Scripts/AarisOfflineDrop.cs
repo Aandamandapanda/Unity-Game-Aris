@@ -178,6 +178,10 @@ namespace Aaris.MapReview
                 if (!isActiveAndEnabled) yield break;
                 source = request.asset as GameObject;
             }
+            // The original five URP material resources are loaded ahead of
+            // their expensive plane hierarchy/material integration frame.
+            yield return AarisOfflineDropVisuals.PrewarmAircraftFinishes();
+            if (!isActiveAndEnabled) yield break;
             // Avoid integrating materials and meshes in the async completion frame.
             yield return null;
             if (!isActiveAndEnabled) yield break;
