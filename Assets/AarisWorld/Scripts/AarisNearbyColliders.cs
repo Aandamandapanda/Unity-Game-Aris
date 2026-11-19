@@ -32,6 +32,16 @@ namespace Aaris.MapReview
         // Android indexing frame expand millions of cell entries. Large
         // authored shapes stay physical and are queried by their cached bounds.
         private readonly List<int> oversizedIndices = new List<int>(8);
+        // Ordinary Android movement must never disable a whole settlement's
+        // distant MeshColliders in one frame. Enabling nearby cover stays
+        // immediate; the old distant solids retire in small native batches.
+        private readonly List<int> pendingColliderRelease = new List<int>(64);
+        private bool[] colliderReleaseQueued;
+        private Coroutine deferredColliderRelease;
+        private int colliderReleaseCursor;
+        private const int AndroidReleaseUpdatesPerFrame = 12;
+        private const double AndroidReleaseFrameBudgetSeconds = 0.001;
+        private const int AndroidReleaseClockCheckInterval = 4;
         private const int MaxCellsPerCollider = 64;
         private List<int> active, nextActive;
         private int[] visited, wanted, probeVisited;
@@ -67,6 +77,7 @@ namespace Aaris.MapReview
             streamed = new bool[obstacles.Length];
             visited = new int[obstacles.Length]; wanted = new int[obstacles.Length];
             probeVisited = new int[obstacles.Length];
+            colliderReleaseQueued = new bool[obstacles.Length];
             active = new List<int>(obstacles.Length); nextActive = new List<int>(obstacles.Length);
             cellSize = Mathf.Max(32, cellSize);
             if (Application.platform == RuntimePlatform.Android)
@@ -347,16 +358,99 @@ namespace Aaris.MapReview
                 if (!c.enabled) c.enabled = true;
                 nextActive.Add(i);
             }
+            bool androidMovementRefresh = !forcePhysicsSync &&
+                Application.platform == RuntimePlatform.Android;
             foreach (int i in active)
                 if (wanted[i] != query && obstacles[i] != null && obstacles[i].enabled)
-                { obstacles[i].enabled = false; }
+                {
+                    if (androidMovementRefresh)
+                    {
+                        // Keep wall physics available until the worker verifies
+                        // the *latest* player position. A return/teleport can
+                        // reacquire the collider before this retirement runs.
+                        if (!colliderReleaseQueued[i])
+                        {
+                            colliderReleaseQueued[i] = true;
+                            pendingColliderRelease.Add(i);
+                        }
+                    }
+                    else obstacles[i].enabled = false;
+                }
             List<int> swap = active; active = nextActive; nextActive = swap;
+            if (forcePhysicsSync)
+            {
+                // Explicit refresh/teleport retains the original all-at-once
+                // guarantee. Pending previous-frame releases cannot escape
+                // the new position's wanted set or linger indefinitely.
+                FlushPendingColliderReleases();
+            }
+            else if (androidMovementRefresh && deferredColliderRelease == null &&
+                     colliderReleaseCursor < pendingColliderRelease.Count)
+                deferredColliderRelease = StartCoroutine(ReleaseDistantAcrossFrames());
             // Collider.enabled toggles do not require a global Transform sync.
             // Only startup/teleport callers explicitly request the flush; leave
             // regular 2-metre / 0.25-second streaming checks non-blocking.
             // Renderer visibility, terrain and native tree collisions are unchanged.
             if (forcePhysicsSync) Physics.SyncTransforms();
         }
+        private void FlushPendingColliderReleases()
+        {
+            if (deferredColliderRelease != null)
+            {
+                StopCoroutine(deferredColliderRelease);
+                deferredColliderRelease = null;
+            }
+            for (int n = colliderReleaseCursor; n < pendingColliderRelease.Count; n++)
+            {
+                int i = pendingColliderRelease[n];
+                colliderReleaseQueued[i] = false;
+                // A collider reacquired by the latest spatial refresh is live.
+                if (wanted[i] != query && obstacles[i] != null && obstacles[i].enabled)
+                    obstacles[i].enabled = false;
+            }
+            pendingColliderRelease.Clear();
+            colliderReleaseCursor = 0;
+        }
+
+        private IEnumerator ReleaseDistantAcrossFrames()
+        {
+            // An ordinary movement refresh already enabled nearby cover. Give
+            // its expensive native collider toggles their own rendered frames.
+            yield return null;
+            int processed = 0;
+            double frameStartedAt = Time.realtimeSinceStartupAsDouble;
+            while (colliderReleaseCursor < pendingColliderRelease.Count)
+            {
+                int i = pendingColliderRelease[colliderReleaseCursor++];
+                colliderReleaseQueued[i] = false;
+                Collider collider = obstacles[i];
+                if (target != null && collider != null && collider.enabled &&
+                    wanted[i] != query)
+                {
+                    Vector3 position = target.position;
+                    Vector3 closest = worldBounds[i].ClosestPoint(position);
+                    float dx = closest.x - position.x, dz = closest.z - position.z;
+                    float retain = Mathf.Max(0f, activationDistance) +
+                        ColliderReleaseMargin;
+                    if (dx * dx + dz * dz > retain * retain)
+                        collider.enabled = false;
+                }
+                processed++;
+                if (processed >= AndroidReleaseUpdatesPerFrame ||
+                    (processed % AndroidReleaseClockCheckInterval == 0 &&
+                     Time.realtimeSinceStartupAsDouble - frameStartedAt >=
+                     AndroidReleaseFrameBudgetSeconds))
+                {
+                    processed = 0;
+                    yield return null;
+                    frameStartedAt = Time.realtimeSinceStartupAsDouble;
+                }
+            }
+            pendingColliderRelease.Clear();
+            colliderReleaseCursor = 0;
+            deferredColliderRelease = null;
+        }
+
         // Parked cars can stream as far as 105 m away, while authored house/wall
         // colliders only activate near the player. A remote Physics overlap query
         // cannot see the disabled geometry. Reject such candidate locations using
@@ -451,6 +545,15 @@ namespace Aaris.MapReview
                 StopCoroutine(deferredDeactivation);
                 deferredDeactivation = null;
             }
+            if (deferredColliderRelease != null)
+            {
+                StopCoroutine(deferredColliderRelease);
+                deferredColliderRelease = null;
+            }
+            pendingColliderRelease.Clear();
+            colliderReleaseCursor = 0;
+            if (colliderReleaseQueued != null)
+                Array.Clear(colliderReleaseQueued, 0, colliderReleaseQueued.Length);
             if (obstacles == null || streamed == null) return;
             restoredOnDisable = active != null;
             // Only restore colliders that this streamer disabled itself.
