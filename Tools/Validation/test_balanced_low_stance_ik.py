@@ -2,6 +2,7 @@
 """Regression contract for mobile low-stance foot layout, not a Unity render test."""
 from pathlib import Path
 from math import sqrt
+import re
 
 visual = (Path(__file__).resolve().parents[2] /
           "Assets/AarisWorld/Scripts/AarisCharacterVisual.cs").read_text()
@@ -36,7 +37,9 @@ assert "crouchKneeForward = Vector3.Cross(anatomicalRight," in layout
 assert "crouchKneeForward * 0.14f" in layout
 assert "crouchKneeForward * 0.22f" in layout
 assert "out Vector3 crouchKneeForward" in layout
-assert "new " not in layout  # value-type Vector3 operations; no managed allocations
+# Comments are explanations, not C# allocation expressions. Check code only.
+layout_code = re.sub(r"//[^\n]*|/\*.*?\*/", "", layout, flags=re.S)
+assert "new " not in layout_code  # no allocations in this IK method
 assert "Physics.Raycast" not in layout
 
 # Foot-layout footprint is symmetric around its pelvic midpoint.
