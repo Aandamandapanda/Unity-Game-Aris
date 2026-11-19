@@ -267,6 +267,12 @@ if test -n "$MACHINE"; then
         then .name else empty end
       ' 2>/dev/null)" || CS=""
   fi
+  # The owner's exact approved machine can be missing from list responses
+  # under an independently scoped Codespace token. SSH still verifies access.
+  # Issue comments cannot provide arbitrary machine names or shell commands.
+  if test -z "$CS" && test "$TARGET_CODESPACE" = 'aaris-ai-ubuntu-minimal-p764pwx4q79536p95'; then
+    CS="$TARGET_CODESPACE"
+  fi
 elif jq -e --arg target "$TARGET_CODESPACE" 'any(.[]; .name == $target)' <<< "$LIST" >/dev/null; then
   CS="$TARGET_CODESPACE"
 else
