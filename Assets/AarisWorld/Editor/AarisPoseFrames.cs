@@ -668,7 +668,13 @@ if(b.Stance==AarisBattleActions.PlayerStance.Standing&&
  throw new InvalidOperationException("RETURN_TO_STAND_FOOT_FLOAT");
 }
 Vector3 hipRight=Vector3.ProjectOnPlane(rh.position-lh.position,Vector3.up);
-if(hipRight.sqrMagnitude<0.02f)return;
+if(hipRight.sqrMagnitude<0.02f){
+ // A collapsed pelvis lateral axis must not silently pass the pose
+ // quality gate during a grounded crouch/prone crossfade.
+ if(transitioning && !p.IsInAir)
+  throw new InvalidOperationException("TRANSITION_HIP_AXIS_DEGENERATE");
+ return;
+}
 hipRight.Normalize();
 Vector3 feetXZ=Vector3.ProjectOnPlane(rf.position-lf.position,Vector3.up);
 float footLateralSpan=Mathf.Abs(Vector3.Dot(feetXZ,hipRight));
@@ -887,7 +893,7 @@ double readyAge=portrait?(motionMatrix?(n==9?.18+count*.17:.42+count*.20):
  transitionFrames?.10+count*.18:
  orbitStance?.52+count*.22:.52):.25+count*.30;
 if(count<needed&&age>readyAge&&
- (!motionMatrix || Time.frameCount != lastMotionCaptureFrame)){
+ ((!motionMatrix && !transitionFrames) || Time.frameCount != lastMotionCaptureFrame)){
 try{
 Camera cam=Camera.main;if(cam==null)throw new InvalidOperationException("CAMERA_MISSING");
 int imageWidth=portrait?640:SessionState.GetBool("pose.diag",false)?640:960;
@@ -953,13 +959,19 @@ if(portraitGround!=null)UnityEngine.Object.DestroyImmediate(portraitGround);
 if(groundMaterial!=null)UnityEngine.Object.DestroyImmediate(groundMaterial);
 cam.targetTexture=old;RenderTexture.active=active;
 UnityEngine.Object.DestroyImmediate(image);RenderTexture.ReleaseTemporary(rt);}
-if(motionMatrix) lastMotionCaptureFrame = Time.frameCount;
+if(motionMatrix || transitionFrames) lastMotionCaptureFrame = Time.frameCount;
 SessionState.SetInt("pose.count",count+1);
 Log("FRAME "+(motionMatrix?MotionNames[n]:Names[n])+" "+count+" stance="+b.Stance+
 " viewDegrees="+(orbitStance?90*count:transitionFrames?
 SessionState.GetFloat("pose.transitionYawDegrees",90f):0)+
 " air="+p.IsInAir+" pos="+p.transform.position.ToString("F2"));
-if(transitionFrames)LogTransitionContact(p,b,count);
+if(transitionFrames){
+ Log("TRANSITION_TIMESTAMP stance="+b.Stance+
+ " frame="+count+" gameFrame="+Time.frameCount+
+ " unscaledSeconds="+Time.unscaledTimeAsDouble.ToString("F6",
+  System.Globalization.CultureInfo.InvariantCulture));
+ LogTransitionContact(p,b,count);
+}
 // A 30-frame capture contains sequential camera samples, not the same
 // time instant. Include their real game-clock timestamps for bone audits.
 if(motionMatrix)
