@@ -123,7 +123,7 @@ class MotionMatrixBoneAuditTests(unittest.TestCase):
             "lastMotionCaptureFrame = Time.frameCount;", editor,
         )
         self.assertIn("TRANSITION_TIMESTAMP stance=", editor)
-        self.assertIn("gameFrame="+ "Time.frameCount", editor)
+        self.assertIn('" gameFrame="+Time.frameCount', editor)
         self.assertIn("Time.unscaledTimeAsDouble.ToString(\"F6\"", editor)
         self.assertIn(
             "if(motionMatrix || count==0 || (orbitStance && count==needed-1))",
