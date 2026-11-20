@@ -1515,25 +1515,23 @@ namespace Aaris.MapReview
                 crouchKneeForward = Vector3.Cross(anatomicalRight,
                     Vector3.up).normalized;
             }
-            // Stance targets follow the measured humanoid proportions,
-            // not a fixed 38cm footprint and asymmetric imported-clip offsets.
-            // Like a TwoBoneIK target/hint rig, X/Z is planned first and the
-            // existing support sampler remains responsible for grounded Y.
+            // Preserve the native-validated crouch foot stagger on this
+            // humanoid; the fully symmetric candidate caused a 25.5 cm
+            // left/right knee-height difference in real Unity Play Mode.
+            // Derive a small width-only extension on unusually broad rigs.
+            // For this soldier's normal hip width the goals remain exactly
+            // the reviewed crouch baseline, not a new knee-pole guess.
             float hipWidth = Mathf.Abs(Vector3.Dot(
                 rightThigh.position - leftThigh.position, anatomicalRight));
-            float crouchHalfWidth = Mathf.Clamp(
-                hipWidth * 0.55f, 0.15f, 0.23f);
-            float authoredStagger = Mathf.Clamp(
-                Vector3.Dot(rightGoal - leftGoal, crouchKneeForward),
-                -0.18f, 0.18f) * 0.35f;
-            Vector3 crouchCenter = hipMid +
-                crouchKneeForward * 0.17f;
-            Vector3 crouchLeft = crouchCenter -
-                anatomicalRight * crouchHalfWidth -
-                crouchKneeForward * authoredStagger;
-            Vector3 crouchRight = crouchCenter +
+            float extraCrouchHalfWidth = Mathf.Clamp(
+                (hipWidth - 0.38f) * 0.33f, 0f, 0.035f);
+            float crouchHalfWidth = 0.19f + extraCrouchHalfWidth;
+            Vector3 crouchLeft = hipMid -
                 anatomicalRight * crouchHalfWidth +
-                crouchKneeForward * authoredStagger;
+                crouchKneeForward * 0.14f;
+            Vector3 crouchRight = hipMid +
+                anatomicalRight * crouchHalfWidth +
+                crouchKneeForward * 0.22f;
             // Scale the prone extension to EACH leg's actual segment lengths.
             // A hardcoded 1.055m target is unreachable on shorter retargeted
             // avatars and can make a knee fold while the foot is ground-locked.
