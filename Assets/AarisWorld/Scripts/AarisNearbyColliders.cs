@@ -103,6 +103,7 @@ namespace Aaris.MapReview
             // Don't compete with scene activation, player rig and URP state
             // during the first Android Awake. Untouched colliders stay solid.
             yield return null;
+            AarisMobileStreamingFrameGate.ReservePhysicsStreamingFrame();
             int processed = 0;
             double frameStartedAt = Time.realtimeSinceStartupAsDouble;
             while (indexCursor < obstacles.Length)
@@ -119,6 +120,7 @@ namespace Aaris.MapReview
                 {
                     processed = 0;
                     yield return null;
+                    AarisMobileStreamingFrameGate.ReservePhysicsStreamingFrame();
                     frameStartedAt = Time.realtimeSinceStartupAsDouble;
                 }
             }
@@ -223,6 +225,8 @@ namespace Aaris.MapReview
             // Avoid following that work with the first batch of native toggles
             // in the same Android render frame; Editor keeps its old cadence.
             if (constrainTime) yield return null;
+            if (constrainTime)
+                AarisMobileStreamingFrameGate.ReservePhysicsStreamingFrame();
             double frameStartedAt = constrainTime ? Time.realtimeSinceStartupAsDouble : 0d;
             for (int i = 0; i < obstacles.Length; i++)
             {
@@ -248,6 +252,8 @@ namespace Aaris.MapReview
                 {
                     processed = 0;
                     yield return null;
+                    if (constrainTime)
+                        AarisMobileStreamingFrameGate.ReservePhysicsStreamingFrame();
                     if (constrainTime)
                         frameStartedAt = Time.realtimeSinceStartupAsDouble;
                 }
@@ -303,6 +309,7 @@ namespace Aaris.MapReview
         private void RefreshNow(bool forcePhysicsSync)
         {
             if (!indexReady || target == null || worldBounds == null) return;
+            AarisMobileStreamingFrameGate.ReservePhysicsStreamingFrame();
             lastPosition = target.position;
             nextCheck = Time.unscaledTime + 1f;
             float enterDistance = Mathf.Max(0f, activationDistance);
@@ -417,6 +424,7 @@ namespace Aaris.MapReview
             // An ordinary movement refresh already enabled nearby cover. Give
             // its expensive native collider toggles their own rendered frames.
             yield return null;
+            AarisMobileStreamingFrameGate.ReservePhysicsStreamingFrame();
             int processed = 0;
             double frameStartedAt = Time.realtimeSinceStartupAsDouble;
             while (colliderReleaseCursor < pendingColliderRelease.Count)
@@ -443,6 +451,7 @@ namespace Aaris.MapReview
                 {
                     processed = 0;
                     yield return null;
+                    AarisMobileStreamingFrameGate.ReservePhysicsStreamingFrame();
                     frameStartedAt = Time.realtimeSinceStartupAsDouble;
                 }
             }
