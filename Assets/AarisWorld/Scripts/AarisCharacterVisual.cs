@@ -2520,13 +2520,13 @@ namespace Aaris.MapReview
                     float rightReach = Vector3.Distance(rightThigh.position,
                         rightShin.position) +
                         Vector3.Distance(rightShin.position, rightFootBone.position);
-                    float commonExtension = Mathf.Min(leftReach, rightReach) * 0.91f;
+                    float commonExtension = Mathf.Min(leftReach, rightReach) * 0.985f;
                     Vector3 leftGoal = leftThigh.position + bodyBack * commonExtension;
                     Vector3 rightGoal = rightThigh.position + bodyBack * commonExtension;
-                    float leftGround = SupportedAnkleY(leftFootBone,
-                        ProneAnkleClearanceMetres, out Vector3 leftGroundNormal, leftGoal);
-                    float rightGround = SupportedAnkleY(rightFootBone,
-                        ProneAnkleClearanceMetres, out Vector3 rightGroundNormal, rightGoal);
+                    float leftGround = SupportedAnkleY(leftFootBone, UprightAnkleClearanceMetres,
+                        out Vector3 leftGroundNormal, leftGoal);
+                    float rightGround = SupportedAnkleY(rightFootBone, UprightAnkleClearanceMetres,
+                        out Vector3 rightGroundNormal, rightGoal);
                     float safeKneeInset = hipWidth * 0.12f;
                     float allowedSide = hipWidth * 0.48f;
                     if (!float.IsNaN(leftGround))
