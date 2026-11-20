@@ -1,0 +1,59 @@
+name: Opt-in World Chunk Streaming QA
+
+on:
+  pull_request:
+    paths:
+      - 'Assets/AarisWorld/Scripts/AarisChunkStreamingPolicy.cs'
+      - 'Assets/AarisWorld/Scripts/AarisAdditiveChunkStreamer.cs'
+      - 'Tools/Validation/AdditiveChunkStreamingTests.cs'
+      - 'Tools/Validation/test_additive_chunk_streaming.py'
+      - '.github/workflows/aaris-opt-in-world-chunks-qa.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Assets/AarisWorld/Scripts/AarisChunkStreamingPolicy.cs'
+      - 'Assets/AarisWorld/Scripts/AarisAdditiveChunkStreamer.cs'
+      - 'Tools/Validation/AdditiveChunkStreamingTests.cs'
+      - 'Tools/Validation/test_additive_chunk_streaming.py'
+      - '.github/workflows/aaris-opt-in-world-chunks-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-chunk-streamer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check source-only opt-in safety contracts
+        run: python Tools/Validation/test_additive_chunk_streaming.py
+      - name: Compile production scripts and exercise async state machine
+        run: |
+          dotnet --version
+          dotnet new console -o /tmp/aaris-chunk-qa --framework net8.0 --no-restore
+          rm /tmp/aaris-chunk-qa/Program.cs
+          cp Assets/AarisWorld/Scripts/AarisChunkStreamingPolicy.cs /tmp/aaris-chunk-qa/
+          cp Assets/AarisWorld/Scripts/AarisAdditiveChunkStreamer.cs /tmp/aaris-chunk-qa/
+          cp Tools/Validation/AdditiveChunkStreamingTests.cs /tmp/aaris-chunk-qa/
+          dotnet run --project /tmp/aaris-chunk-qa --framework net8.0
+          dotnet run --project /tmp/aaris-chunk-qa --framework net8.0 -p:DefineConstants=UNITY_ANDROID
+      - name: Check touched source formatting
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for path in [
+              Path('Assets/AarisWorld/Scripts/AarisChunkStreamingPolicy.cs'),
+              Path('Assets/AarisWorld/Scripts/AarisAdditiveChunkStreamer.cs'),
+              Path('Tools/Validation/AdditiveChunkStreamingTests.cs'),
+          ]:
+              src = path.read_text()
+              assert all(line == line.rstrip() for line in src.splitlines()), path
+          print('PASS: source formatting')
+          PY
