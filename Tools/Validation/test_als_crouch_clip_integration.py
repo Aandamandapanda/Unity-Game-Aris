@@ -12,7 +12,7 @@ asset_dir = root / "Assets/Resources/AarisCharacters/Primary/ALS"
 license_file = root / "Docs/ThirdParty/ALS_Unity_MIT_LICENSE.txt"
 attribution = root / "Docs/ThirdParty/ALS_CROUCH_CC0_ATTRIBUTION.md"
 
-assert "CrouchIdle" in blend and "CrouchMove" in blend
+assert "MovingWeight(" in blend and "InterpTo(" in blend
 assert "StanceBlendSeconds = 0.25f" in blend
 assert "NominalForwardMetresPerSecond = 0.72f" in blend
 assert "Mathf.Clamp01(deltaTime * speed)" in blend
