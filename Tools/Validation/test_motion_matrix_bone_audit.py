@@ -90,6 +90,22 @@ class MotionMatrixBoneAuditTests(unittest.TestCase):
         self.assertIn("transitioning && !p.IsInAir", transition)
         self.assertIn("Mathf.Max(Mathf.Abs(lSide),Mathf.Abs(rSide)) > 0.30f", transition)
 
+    def test_transition_logs_both_leg_reach_before_knee_failure(self):
+        editor = (ROOT / "Assets/AarisWorld/Editor/AarisPoseFrames.cs").read_text()
+        start = editor.index("static void LogTransitionContact(")
+        end = editor.index("static void Finish(string reason)", start)
+        transition = editor[start:end]
+        self.assertIn('LogTransitionLegReach("L",lh,lk,lf,hipRight)', transition)
+        self.assertIn('LogTransitionLegReach("R",rh,rk,rf,hipRight)', transition)
+        self.assertLess(transition.index("LogTransitionLegReach(\"R\""),
+                        transition.index("TRANSITION_KNEE_SIDEWAYS_OVER_30CM"))
+        self.assertIn("TRANSITION_LEG_REACH side=", transition)
+        for metric in ("upper=", "lower=", "hipAnkle=", "reachRatio=",
+                       "minimumReach=", "ankleSide=", "kneeSide=",
+                       "kneeAboveAnkle="):
+            self.assertIn(metric, transition)
+        self.assertIn("if(transitioning){", transition)
+
     def test_editor_contract_is_only_in_motion_matrix_mode(self):
         editor = (ROOT / "Assets/AarisWorld/Editor/AarisPoseFrames.cs").read_text()
         self.assertIn("if(motionMatrix)", editor)

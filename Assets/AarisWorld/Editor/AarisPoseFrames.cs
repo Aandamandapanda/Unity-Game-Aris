@@ -685,12 +685,48 @@ Log("TRANSITION_LEGS stance="+b.Stance+" frame="+sampleIndex+
 " foreAftFootStagger="+footForwardStagger.ToString("F3")+
 " leftKneeSide="+lSide.ToString("F3")+
 " rightKneeSide="+rSide.ToString("F3"));
+// These data are measured after the existing IK pass. In a mixed stance,
+// lateral knee flare can come from an overextended ankle target OR a bend
+// plane that cannot satisfy knee clearance. Record both legs independently
+// before the strict quality gate throws; never infer this from image count.
+if(transitioning){
+ LogTransitionLegReach("L",lh,lk,lf,hipRight);
+ LogTransitionLegReach("R",rh,rk,rf,hipRight);
+}
 // Only stationary grounded stance crossfades are subject to this limit;
 // jump motion remains authored. A passed image count is NOT a pose PASS
 // when a measured knee flares laterally more than 30 cm.
 if(transitioning && !p.IsInAir &&
  Mathf.Max(Mathf.Abs(lSide),Mathf.Abs(rSide)) > 0.30f)
  throw new InvalidOperationException("TRANSITION_KNEE_SIDEWAYS_OVER_30CM");
+}
+static void LogTransitionLegReach(string side,Transform hip,
+ Transform knee,Transform ankle,Vector3 hipRight){
+if(hip==null||knee==null||ankle==null)return;
+Vector3 hipToKnee=knee.position-hip.position;
+Vector3 kneeToFoot=ankle.position-knee.position;
+Vector3 hipToFoot=ankle.position-hip.position;
+float upper=hipToKnee.magnitude;
+float lower=kneeToFoot.magnitude;
+float hipFoot=hipToFoot.magnitude;
+float reach=upper+lower;
+if(reach<0.001f)return;
+// Measure anatomical sideways displacement separately from ankle reach.
+// Values make a native 0.411m knee failure attributable to its geometry.
+float footSide=Vector3.Dot(hipToFoot,hipRight);
+float kneeSide=Vector3.Dot(hipToKnee,hipRight);
+float kneeYMinusFoot=knee.position.y-ankle.position.y;
+float reachFraction=hipFoot/reach;
+float minimumReach=Mathf.Abs(upper-lower);
+Log("TRANSITION_LEG_REACH side="+side+
+ " upper="+upper.ToString("F4")+
+ " lower="+lower.ToString("F4")+
+ " hipAnkle="+hipFoot.ToString("F4")+
+ " reachRatio="+reachFraction.ToString("F4")+
+ " minimumReach="+minimumReach.ToString("F4")+
+ " ankleSide="+footSide.ToString("F4")+
+ " kneeSide="+kneeSide.ToString("F4")+
+ " kneeAboveAnkle="+kneeYMinusFoot.ToString("F4"));
 }
 static void Finish(string reason){
 FinishMotionContactSummary();
