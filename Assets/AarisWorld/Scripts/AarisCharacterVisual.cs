@@ -127,6 +127,8 @@ namespace Aaris.MapReview
         // Visual-only low-stance shoe anchors; release immediately for walking.
         private Vector3 leftLowPlantWorld, rightLowPlantWorld;
         private bool leftLowPlantLocked, rightLowPlantLocked;
+        // Upright and low contact are mutually exclusive for each boot.
+        private float leftPlantYaw, rightPlantYaw;
         private const float UprightPlantEnterGapMetres = 0.065f;
         private const float UprightPlantReleaseGapMetres = 0.115f;
         private const float UprightPlantBreakDistanceMetres = 0.18f;
@@ -1317,6 +1319,14 @@ namespace Aaris.MapReview
                 PlantLegToTarget(thigh, shin, foot, foot.position, kneeForward, 1f);
         }
 
+        // Fade the positional lock as the body turns away from the heading
+        // at touchdown. A slow pivot can accumulate twist below the rate gate.
+        private static float FootAnchorTurnWeight(float plantedYaw, float currentYaw)
+        {
+            float twist = Mathf.Abs(Mathf.DeltaAngle(plantedYaw, currentYaw));
+            return 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(12f, 32f, twist));
+        }
+
         // Calculate the eventual low-stance X/Z contact BEFORE sampling the
         // floor. Previously the support ray hit the planned shoe location,
         // then a world-locked shoe shifted up to 10 cm elsewhere; on stairs
@@ -1325,7 +1335,7 @@ namespace Aaris.MapReview
         private static Vector3 ResolveLowStanceFootContact(Vector3 goal,
             float planarSpeed, float turnDegreesPerSecond, float weight,
             bool transitioningStance,
-            ref bool contactLocked, ref Vector3 contactWorld)
+            float currentYaw, ref float plantedYaw, ref bool contactLocked, ref Vector3 contactWorld)
         {
             bool turningFast = Mathf.Abs(turnDegreesPerSecond) > 110f;
             // Changing hip positions must not inherit yesterday's world
@@ -1338,16 +1348,18 @@ namespace Aaris.MapReview
             else if (!contactLocked)
             {
                 contactWorld = goal;
+                plantedYaw = currentYaw;
                 contactLocked = true;
             }
             else
             {
                 Vector3 drift = new Vector3(contactWorld.x - goal.x,
                     0f, contactWorld.z - goal.z);
-                if (drift.sqrMagnitude > 0.20f * 0.20f)
+                float twistWeight = FootAnchorTurnWeight(plantedYaw, currentYaw);
+                if (drift.sqrMagnitude > 0.20f * 0.20f || twistWeight <= 0f)
                     contactLocked = false;
                 else
-                    goal += Vector3.ClampMagnitude(drift, 0.10f);
+                    goal += Vector3.ClampMagnitude(drift, 0.10f) * twistWeight;
             }
             return goal;
         }
@@ -1596,7 +1608,7 @@ namespace Aaris.MapReview
             Transform foot, float planarSpeed, float turnDegreesPerSecond,
             float uprightWeight, Vector3 kneeForward,
             AnkleSupportSample coarseSupport,
-            ref bool plantLocked, ref Vector3 plantWorld)
+            ref float plantedYaw, ref bool plantLocked, ref Vector3 plantWorld)
         {
             if (thigh == null || shin == null || foot == null ||
                 uprightWeight <= 0.001f)
@@ -1653,6 +1665,7 @@ namespace Aaris.MapReview
             {
                 plantWorld = foot.position;
                 plantWorld.y = supportY;
+                plantedYaw = lastFacingYaw;
                 plantLocked = true;
             }
 
@@ -1666,7 +1679,8 @@ namespace Aaris.MapReview
                 Vector3 horizontalError = Vector3.ProjectOnPlane(
                     plantWorld - foot.position, transform.up);
                 float errorDistance = horizontalError.magnitude;
-                if (errorDistance > UprightPlantBreakDistanceMetres)
+                float twistWeight = FootAnchorTurnWeight(plantedYaw, lastFacingYaw);
+                if (errorDistance > UprightPlantBreakDistanceMetres || twistWeight <= 0f)
                 {
                     plantLocked = false;
                 }
@@ -1676,7 +1690,7 @@ namespace Aaris.MapReview
                         2.8f, fullRunSpeed, planarSpeed);
                     float maxCorrection = Mathf.Lerp(0.105f, 0.072f, speed01);
                     targetFoot += Vector3.ClampMagnitude(
-                        horizontalError, maxCorrection);
+                        horizontalError, maxCorrection) * twistWeight;
                 }
             }
 
@@ -2264,9 +2278,11 @@ namespace Aaris.MapReview
                 // than on a different goal across a ramp or stair lip.
                 leftFootGoal = ResolveLowStanceFootContact(leftFootGoal,
                     planar, yawRate, ankleRigWeight, transitioningLowStance,
+                    currentYaw, ref leftPlantYaw,
                     ref leftLowPlantLocked, ref leftLowPlantWorld);
                 rightFootGoal = ResolveLowStanceFootContact(rightFootGoal,
                     planar, yawRate, ankleRigWeight, transitioningLowStance,
+                    currentYaw, ref rightPlantYaw,
                     ref rightLowPlantLocked, ref rightLowPlantWorld);
                 float leftAnkleY = SupportedAnkleY(leftFootBone,
                     ankleClearance, out Vector3 leftSupportNormal, leftFootGoal);
@@ -2314,10 +2330,10 @@ namespace Aaris.MapReview
                 Vector3 uprightKneeForward = AnatomicalKneeForward();
                 PlantUprightContact(leftThigh, leftShin, leftFootBone,
                     planar, yawRate, uprightContactWeight, uprightKneeForward,
-                    coarseSupport, ref leftUprightPlantLocked, ref leftUprightPlantWorld);
+                    coarseSupport, ref leftPlantYaw, ref leftUprightPlantLocked, ref leftUprightPlantWorld);
                 PlantUprightContact(rightThigh, rightShin, rightFootBone,
                     planar, yawRate, uprightContactWeight, uprightKneeForward,
-                    coarseSupport, ref rightUprightPlantLocked, ref rightUprightPlantWorld);
+                    coarseSupport, ref rightPlantYaw, ref rightUprightPlantLocked, ref rightUprightPlantWorld);
             }
             else
             {

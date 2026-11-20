@@ -216,6 +216,37 @@ namespace Aaris.MapReview
                 HasProneClearance(transform.position, forward);
         }
 
+        // Called after Move so each sample uses the capsule's resolved position.
+        // Limit how far the torso can turn in a low stance. When prone, keep
+        // the last clear heading along the arc, including on long frames.
+        public Quaternion LimitStanceTurn(Quaternion requested, float deltaTime)
+        {
+            if (stance == PlayerStance.Standing) return requested;
+            Quaternion current = transform.rotation;
+            if (stance == PlayerStance.Crouching)
+                return capsule.isGrounded
+                    ? Quaternion.RotateTowards(current, requested, 240f * deltaTime)
+                    : requested;
+
+            float delta = Mathf.DeltaAngle(current.eulerAngles.y, requested.eulerAngles.y);
+            float travel = Mathf.Min(Mathf.Abs(delta), 100f * deltaTime);
+            if (travel < 0.001f) return current;
+
+            // A 3-degree interval moves each 55 cm footprint endpoint by
+            // under 3 cm. At the motor's 150 ms cap this takes at most five
+            // existing non-allocating clearance checks in an unobstructed turn.
+            int samples = Mathf.CeilToInt(travel / 3f);
+            float step = Mathf.Sign(delta) * travel / samples;
+            Quaternion clear = current;
+            for (int i = 1; i <= samples; i++)
+            {
+                Quaternion sample = Quaternion.AngleAxis(i * step, Vector3.up) * current;
+                if (!CanFaceProne(sample * Vector3.forward)) break;
+                clear = sample;
+            }
+            return clear;
+        }
+
         public bool CanAdvanceProne(Vector3 worldPosition, Vector3 travelDirection)
         {
             if (stance != PlayerStance.Prone) return true;
