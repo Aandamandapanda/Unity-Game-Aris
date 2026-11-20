@@ -998,7 +998,7 @@ namespace Aaris.MapReview
             AnimationClip cc0CrouchForward = CalibratedSoldierLoaded
                 ? Resources.Load<AnimationClip>("AarisCharacters/CC0Locomotion/Crouch_Fwd_Loop") : null;
             AnimationClip cc0CrawlIdle = CalibratedSoldierLoaded
-                ? Resources.Load<AnimationClip>("AarisCharacters/CC0Locomotion/Crawl_Idle_Loop") : null;
+                ? Resources.Load<AnimationClip>("AarisCharacters/CC0Locomotion/Crawl_Idle_Symmetric") : null;
             AnimationClip cc0CrawlForward = CalibratedSoldierLoaded
                 ? Resources.Load<AnimationClip>("AarisCharacters/CC0Locomotion/Crawl_Fwd_Loop") : null;
             cc0CrouchLoaded = cc0CrouchIdle != null && cc0CrouchForward != null &&
@@ -2491,6 +2491,61 @@ namespace Aaris.MapReview
             {
                 leftUprightPlantLocked = false;
                 rightUprightPlantLocked = false;
+            }
+
+            // The CC0 Humanoid crawl keeps the spine flat. Its two authored
+            // legs have different reach, so a knee-only upward correction
+            // creates a high "hump" on the shorter side. Resolve both boots
+            // at the same proportion of their actual two-bone reach, behind
+            // the measured head-to-pelvis axis. No per-rig metre offsets.
+            // Ground probes use the FINAL proposed X/Z on each ankle.
+            if (cc0SettledProne && leftThigh != null && rightThigh != null &&
+                leftShin != null && rightShin != null &&
+                leftFootBone != null && rightFootBone != null &&
+                locomotionHipsBone != null && proneHeadBone != null)
+            {
+                Vector3 hipSide = Vector3.ProjectOnPlane(
+                    rightThigh.position - leftThigh.position, Vector3.up);
+                Vector3 bodyBack = Vector3.ProjectOnPlane(
+                    locomotionHipsBone.position - proneHeadBone.position,
+                    Vector3.up);
+                float hipWidth = hipSide.magnitude;
+                if (hipWidth > 0.01f && bodyBack.sqrMagnitude > 0.01f)
+                {
+                    hipSide /= hipWidth;
+                    bodyBack.Normalize();
+                    float leftReach = Vector3.Distance(leftThigh.position,
+                        leftShin.position) +
+                        Vector3.Distance(leftShin.position, leftFootBone.position);
+                    float rightReach = Vector3.Distance(rightThigh.position,
+                        rightShin.position) +
+                        Vector3.Distance(rightShin.position, rightFootBone.position);
+                    float commonExtension = Mathf.Min(leftReach, rightReach) * 0.91f;
+                    Vector3 leftGoal = leftThigh.position + bodyBack * commonExtension;
+                    Vector3 rightGoal = rightThigh.position + bodyBack * commonExtension;
+                    float leftGround = SupportedAnkleY(leftFootBone,
+                        ProneAnkleClearanceMetres, out Vector3 leftGroundNormal, leftGoal);
+                    float rightGround = SupportedAnkleY(rightFootBone,
+                        ProneAnkleClearanceMetres, out Vector3 rightGroundNormal, rightGoal);
+                    float safeKneeInset = hipWidth * 0.12f;
+                    float allowedSide = hipWidth * 0.48f;
+                    if (!float.IsNaN(leftGround))
+                    {
+                        leftGoal.y = leftGround;
+                        PlantLegToTarget(leftThigh, leftShin, leftFootBone,
+                            leftGoal, Vector3.up, 1f,
+                            leftGround + safeKneeInset, 1f,
+                            hipSide, allowedSide, 85f);
+                    }
+                    if (!float.IsNaN(rightGround))
+                    {
+                        rightGoal.y = rightGround;
+                        PlantLegToTarget(rightThigh, rightShin, rightFootBone,
+                            rightGoal, Vector3.up, 1f,
+                            rightGround + safeKneeInset, 1f,
+                            hipSide, allowedSide, 85f);
+                    }
+                }
             }
 
             // The authored crawling clip places the head higher than the
