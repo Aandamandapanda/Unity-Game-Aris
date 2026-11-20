@@ -1515,17 +1515,42 @@ namespace Aaris.MapReview
                 crouchKneeForward = Vector3.Cross(anatomicalRight,
                     Vector3.up).normalized;
             }
-            Vector3 crouchLeft = hipMid - anatomicalRight * 0.19f +
-                crouchKneeForward * 0.14f;
-            Vector3 crouchRight = hipMid + anatomicalRight * 0.19f +
-                crouchKneeForward * 0.22f;
-            // Give prone shoes nearly full available leg reach (the analytic solver
-            // still caps distance to real thigh+shin lengths). A shorter
-            // 0.94m goal left each knee flaring ~0.25m to the side.
-            Vector3 proneLeft = leftThigh.position - facing * 1.055f -
-                right * 0.035f;
-            Vector3 proneRight = rightThigh.position - facing * 1.055f +
-                right * 0.035f;
+            // Stance targets follow the measured humanoid proportions,
+            // not a fixed 38cm footprint and asymmetric imported-clip offsets.
+            // Like a TwoBoneIK target/hint rig, X/Z is planned first and the
+            // existing support sampler remains responsible for grounded Y.
+            float hipWidth = Mathf.Abs(Vector3.Dot(
+                rightThigh.position - leftThigh.position, anatomicalRight));
+            float crouchHalfWidth = Mathf.Clamp(
+                hipWidth * 0.55f, 0.15f, 0.23f);
+            float authoredStagger = Mathf.Clamp(
+                Vector3.Dot(rightGoal - leftGoal, crouchKneeForward),
+                -0.18f, 0.18f) * 0.35f;
+            Vector3 crouchCenter = hipMid +
+                crouchKneeForward * 0.17f;
+            Vector3 crouchLeft = crouchCenter -
+                anatomicalRight * crouchHalfWidth -
+                crouchKneeForward * authoredStagger;
+            Vector3 crouchRight = crouchCenter +
+                anatomicalRight * crouchHalfWidth +
+                crouchKneeForward * authoredStagger;
+            // Scale the prone extension to EACH leg's actual segment lengths.
+            // A hardcoded 1.055m target is unreachable on shorter retargeted
+            // avatars and can make a knee fold while the foot is ground-locked.
+            float leftLegReach = (leftShin.position -
+                leftThigh.position).magnitude +
+                (leftFootBone.position - leftShin.position).magnitude;
+            float rightLegReach = (rightShin.position -
+                rightThigh.position).magnitude +
+                (rightFootBone.position - rightShin.position).magnitude;
+            float leftExtension = Mathf.Clamp(
+                leftLegReach - 0.045f, 0.35f, 1.055f);
+            float rightExtension = Mathf.Clamp(
+                rightLegReach - 0.045f, 0.35f, 1.055f);
+            Vector3 proneLeft = leftThigh.position -
+                facing * leftExtension - right * 0.035f;
+            Vector3 proneRight = rightThigh.position -
+                facing * rightExtension + right * 0.035f;
             Vector3 requestedLeft = Vector3.Lerp(crouchLeft, proneLeft, prone);
             Vector3 requestedRight = Vector3.Lerp(crouchRight, proneRight, prone);
             // Never teleport boots: cap retargeting within one footstep and
@@ -2212,8 +2237,16 @@ namespace Aaris.MapReview
                 // symmetric foot-spread guard handles the real splay safely.
                 float pronePoleStrength = proneKneeShare * proneKneeSettle *
                     kneeStillness * kneeTurnStability;
-                Vector3 kneeForward = crouchKneeForward * crouchPoleStrength +
-                    Vector3.up * pronePoleStrength;
+                // The previous upward prone hint formed a raised triangle
+                // even when both shoes were grounded. Use the official
+                // TwoBoneIK target/hint principle: crouch bends anatomically
+                // forward; settled prone aims its knees toward the support
+                // plane. The existing analytic knee-circle floor constraint
+                // prevents penetration. Slerp avoids a zero-length hint
+                // across stance crossfades. Keep moving clips unmodified.
+                Vector3 kneeForward = Vector3.Slerp(
+                    crouchKneeForward, Vector3.down,
+                    pronePoleStrength).normalized;
                 float kneePoleStrength = Mathf.Clamp01(
                     crouchPoleStrength + pronePoleStrength);
                 // An early prone knee can flare sideways while its clip
