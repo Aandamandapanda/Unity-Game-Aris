@@ -108,6 +108,8 @@ namespace Aaris.MapReview
         private AnimationClip sprintClip, proneClip, crawlClip;
         // MIT VRCEasyLoco humanoid pose clips; existing FBX remains safe fallback.
         private bool communityStanceClipsLoaded;
+        // Quaternius CC0 Humanoid motion family: real crouch/crawl clips.
+        private bool cc0CrouchLoaded, cc0CrawlLoaded;
         public bool UsingCommunityStanceClips => communityStanceClipsLoaded;
         private int lastVisualAttackSequence;
         private float seenTakeoff = -10f, seenTouchdown = -10f;
@@ -989,6 +991,34 @@ namespace Aaris.MapReview
             }
             else if (CalibratedSoldierLoaded)
                 Debug.LogWarning("AARIS_MIT_STANCE_CLIPS_FALLBACK old clips");
+            // CC0 animation pack is imported once by Unity and its Humanoid
+            // clips are extracted to lightweight Resources assets.
+            AnimationClip cc0CrouchIdle = CalibratedSoldierLoaded
+                ? Resources.Load<AnimationClip>("AarisCharacters/CC0Locomotion/Crouch_Idle_Loop") : null;
+            AnimationClip cc0CrouchForward = CalibratedSoldierLoaded
+                ? Resources.Load<AnimationClip>("AarisCharacters/CC0Locomotion/Crouch_Fwd_Loop") : null;
+            AnimationClip cc0CrawlIdle = CalibratedSoldierLoaded
+                ? Resources.Load<AnimationClip>("AarisCharacters/CC0Locomotion/Crawl_Idle_Symmetric") : null;
+            AnimationClip cc0CrawlForward = CalibratedSoldierLoaded
+                ? Resources.Load<AnimationClip>("AarisCharacters/CC0Locomotion/Crawl_Fwd_Loop") : null;
+            cc0CrouchLoaded = cc0CrouchIdle != null && cc0CrouchForward != null &&
+                cc0CrouchIdle.humanMotion && cc0CrouchForward.humanMotion &&
+                !cc0CrouchIdle.legacy && !cc0CrouchForward.legacy;
+            cc0CrawlLoaded = cc0CrawlIdle != null && cc0CrawlForward != null &&
+                cc0CrawlIdle.humanMotion && cc0CrawlForward.humanMotion &&
+                !cc0CrawlIdle.legacy && !cc0CrawlForward.legacy;
+            if (cc0CrouchLoaded)
+            {
+                crouchClip = cc0CrouchIdle;
+                crouchWalkClip = cc0CrouchForward;
+                Debug.Log("AARIS_CC0_CROUCH_SOURCE_ACTIVE Quaternius");
+            }
+            if (cc0CrawlLoaded)
+            {
+                proneClip = cc0CrawlIdle;
+                crawlClip = cc0CrawlForward;
+                Debug.Log("AARIS_CC0_PRONE_SOURCE_ACTIVE Quaternius");
+            }
             punchClip = FindClip("punch", "punch");
             shootClip = FindClip("shoot", "shoot");
             if (punchClip == null) punchClip = idleClip;
@@ -2096,7 +2126,7 @@ namespace Aaris.MapReview
             // Imported Humanoid muscle poses still require THIS avatar's
             // established root-to-ground calibration. The VRChat clip has
             // no guaranteed soldier-specific foot/world origin.
-            float proneLowering = primaryLoaded &&
+            float proneLowering = primaryLoaded && !cc0CrawlLoaded &&
                 proneClip != null && crawlClip != null ?
                 (realisticSoldierLoaded ? RealisticSoldierProneRigLowering : ProneRigLowering) * effectiveProneBlend : 0f;
             // Preserve calibrated standing-ground offset through takeoff:
@@ -2109,6 +2139,11 @@ namespace Aaris.MapReview
                     proneLowering + standingShoeOffset, 0f);
             if (visualRoot.localPosition != desiredPosition)
                 visualRoot.localPosition = desiredPosition;
+            // The CC0 crawl supplies its own spine, knee and ankle motion.
+            // The old VRChat correction is excluded at settled idle.
+            bool cc0SettledProne = cc0CrawlLoaded && prone && graphReady &&
+                groundedNow && !visuallyAirborne && planar < 0.20f &&
+                effectiveProneBlend > 0.90f;
             AnkleSupportSample coarseSupport = default;
             if (uprightGroundedSoldier &&
                 leftFootBone != null && rightFootBone != null)
@@ -2147,8 +2182,8 @@ namespace Aaris.MapReview
             // capsule after any retargeting scale adjustment. Never move
             // collisions/camera; the skeleton and its IK are visual-only.
             float lowPose = Mathf.Clamp01(effectiveCrouchBlend + effectiveProneBlend);
-            if (!visuallyAirborne && graphReady && lowPose > 0.01f &&
-                proneHeadBone != null)
+            if (!cc0SettledProne && !visuallyAirborne && graphReady &&
+                lowPose > 0.01f && proneHeadBone != null)
             {
                 float capsuleTop = transform.TransformPoint(controller.center +
                     Vector3.up * controller.height * 0.5f).y;
@@ -2187,9 +2222,9 @@ namespace Aaris.MapReview
             // Use the authoritative capsule bottom as a conservative visual
             // support proxy. Limit lift by helmet headroom and replant shoes
             // using the existing low-stance IK; no extra physics queries.
-            if (!visuallyAirborne && graphReady && groundedNow &&
-                effectiveProneBlend > 0.02f && locomotionHipsBone != null &&
-                proneHeadBone != null)
+            if (!cc0SettledProne && !visuallyAirborne && graphReady &&
+                groundedNow && effectiveProneBlend > 0.02f &&
+                locomotionHipsBone != null && proneHeadBone != null)
             {
                 float capsuleFloor = transform.TransformPoint(controller.center -
                     Vector3.up * (controller.height * 0.5f)).y;
@@ -2254,6 +2289,8 @@ namespace Aaris.MapReview
             float totalRigWeight = crouchRigWeight + proneRigWeight;
             float ankleRigWeight = !visuallyAirborne && graphReady
                 ? Mathf.Clamp01(totalRigWeight) : 0f;
+            if (cc0SettledProne)
+                ankleRigWeight = 0f; // Do not override authored CC0 knee bends.
             // Each low-stance animation has a continuous human-scale blend.
             // Do not inherit world-space foot anchors across a changing
             // crouch/prone capsule pose (including interrupted transitions).
@@ -2456,13 +2493,68 @@ namespace Aaris.MapReview
                 rightUprightPlantLocked = false;
             }
 
+            // The CC0 Humanoid crawl keeps the spine flat. Its two authored
+            // legs have different reach, so a knee-only upward correction
+            // creates a high "hump" on the shorter side. Resolve both boots
+            // at the same proportion of their actual two-bone reach, behind
+            // the measured head-to-pelvis axis. No per-rig metre offsets.
+            // Ground probes use the FINAL proposed X/Z on each ankle.
+            if (cc0SettledProne && leftThigh != null && rightThigh != null &&
+                leftShin != null && rightShin != null &&
+                leftFootBone != null && rightFootBone != null &&
+                locomotionHipsBone != null && proneHeadBone != null)
+            {
+                Vector3 hipSide = Vector3.ProjectOnPlane(
+                    rightThigh.position - leftThigh.position, Vector3.up);
+                Vector3 bodyBack = Vector3.ProjectOnPlane(
+                    locomotionHipsBone.position - proneHeadBone.position,
+                    Vector3.up);
+                float hipWidth = hipSide.magnitude;
+                if (hipWidth > 0.01f && bodyBack.sqrMagnitude > 0.01f)
+                {
+                    hipSide /= hipWidth;
+                    bodyBack.Normalize();
+                    float leftReach = Vector3.Distance(leftThigh.position,
+                        leftShin.position) +
+                        Vector3.Distance(leftShin.position, leftFootBone.position);
+                    float rightReach = Vector3.Distance(rightThigh.position,
+                        rightShin.position) +
+                        Vector3.Distance(rightShin.position, rightFootBone.position);
+                    float commonExtension = Mathf.Min(leftReach, rightReach) * 0.985f;
+                    Vector3 leftGoal = leftThigh.position + bodyBack * commonExtension;
+                    Vector3 rightGoal = rightThigh.position + bodyBack * commonExtension;
+                    float leftGround = SupportedAnkleY(leftFootBone, UprightAnkleClearanceMetres,
+                        out Vector3 leftGroundNormal, leftGoal);
+                    float rightGround = SupportedAnkleY(rightFootBone, UprightAnkleClearanceMetres,
+                        out Vector3 rightGroundNormal, rightGoal);
+                    float safeKneeInset = hipWidth * 0.12f;
+                    float allowedSide = hipWidth * 0.48f;
+                    if (!float.IsNaN(leftGround))
+                    {
+                        leftGoal.y = leftGround;
+                        PlantLegToTarget(leftThigh, leftShin, leftFootBone,
+                            leftGoal, Vector3.up, 1f,
+                            leftGround + safeKneeInset, 1f,
+                            hipSide, allowedSide, 85f);
+                    }
+                    if (!float.IsNaN(rightGround))
+                    {
+                        rightGoal.y = rightGround;
+                        PlantLegToTarget(rightThigh, rightShin, rightFootBone,
+                            rightGoal, Vector3.up, 1f,
+                            rightGround + safeKneeInset, 1f,
+                            hipSide, allowedSide, 85f);
+                    }
+                }
+            }
+
             // The authored crawling clip places the head higher than the
             // 62cm prone capsule while its ankles already touch the terrain.
             // Pivot the chest gently forward instead of sinking the entire
             // humanoid rig and burying the shoes. Only animation transforms
             // change; this never adjusts collisions or camera authority.
-            if (!visuallyAirborne && graphReady && authoredProne &&
-                effectiveProneBlend > 0.01f &&
+            if (!cc0SettledProne && !visuallyAirborne && graphReady &&
+                authoredProne && effectiveProneBlend > 0.01f &&
                 proneChestBone != null && proneHeadBone != null)
             {
                 Vector3 headFromChest = proneHeadBone.position - proneChestBone.position;

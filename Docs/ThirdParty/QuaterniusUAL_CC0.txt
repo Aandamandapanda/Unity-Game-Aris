@@ -1,0 +1,13 @@
+Quaternius Universal Animation Library v1 — CC0 1.0 Universal
+Author: Quaternius
+Official preview: https://quaternius.com/animviewer.html
+Source mirror: https://github.com/tilakpatell/tilakverse-assets/tree/main/quaternius/universal-animation-library
+Source FBX Git blob: bb3fc2ab5e65d24329b6dc090cbbe604c405d1ff
+License: https://creativecommons.org/publicdomain/zero/1.0/
+Only selected Humanoid motion clips are distributed: Crouch_Idle_Loop,
+Crouch_Fwd_Loop, Crawl_Fwd_Loop and the derived Crawl_Idle_Symmetric
+(8 authored Human-muscle right-leg curves copied from matching left-leg
+channels). The source FBX and Unity Editor extraction code are not shipped.
+The game retains existing standing/running clips and fallback behavior.
+Unmerged candidate; native Unity pose screenshots and stance validation
+govern whether this branch is suitable for production.
