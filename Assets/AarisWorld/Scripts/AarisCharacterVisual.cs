@@ -1010,7 +1010,7 @@ namespace Aaris.MapReview
             // 100STYLE crouch is an actual crouched locomotion cycle, so its
             // cycle boundary is a valid feet-down hold instead of KayKit's
             // kneeling transition frame. Legacy clips keep their reviewed hold.
-            crouchPlayable.SetTime(naturalMocapLoaded
+            crouchPlayable.SetTime(naturalMocapLoaded || alsCrouchLoaded
                 ? 0d : crouchClip.length * (10d / 24d));
             // The 24-frame KayKit Crawling source uses frame 0 as its prone
             // hold. Do not freeze a mid-crawl pose as the player's prone idle.
@@ -2667,6 +2667,11 @@ namespace Aaris.MapReview
                 }
                 // Breathing/idle must keep animating at all frame rates.
                 LoopPlayable(idlePlayable, idleClip, Time.timeAsDouble / Math.Max(0.02, idleClip.length));
+                // ALS-Unity CrouchIdle is a genuine looping pose, unlike the
+                // old crouch-transition FBX. Advance only while visible.
+                if (alsCrouchLoaded && crouchWeight > 0.001f)
+                    LoopPlayable(crouchPlayable, crouchClip,
+                        Time.timeAsDouble / Math.Max(0.02, crouchClip.length));
                 // Distance-driven clips are frozen while stationary: their
                 // phases do not advance, so SetTime would be identical.
                 if (lastLocomotionPhase != locomotionPhase)
