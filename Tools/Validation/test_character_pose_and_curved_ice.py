@@ -323,11 +323,12 @@ assert 'if (target == PlayerStance.Prone && !capsule.isGrounded) return false;' 
 # Turning before Move checks prone clearance at the old position.
 # A wall-corner turn that is valid there can clip the horizontal head
 # after the CharacterController moves to its resolved destination.
-assert motor.count('battle.CanFaceProne(nextFacing * Vector3.forward)') == 1
+assert motor.count('battle.LimitStanceTurn(nextFacing, dt)') == 1
+assert 'if (!CanFaceProne(sample * Vector3.forward)) break;' in action
 assert 'bool turnAfterMove = false;' in motor
-assert 'if (turnAfterMove &&' in motor
+assert 'if (turnAfterMove)' in motor
 assert motor.index('CollisionFlags flags = controller.Move(') < motor.index('Vector3 velocity = controller.velocity;')
-assert motor.index('Vector3 velocity = controller.velocity;') < motor.index('if (turnAfterMove &&')
+assert motor.index('Vector3 velocity = controller.velocity;') < motor.index('if (turnAfterMove)')
 assert 'Quaternion.LookRotation(horizontalVelocity)' not in motor
 assert 'Quaternion.LookRotation(resolvedPlanarVelocity)' in motor
 assert 'new Vector3(velocity.x, 0f, velocity.z)' in motor

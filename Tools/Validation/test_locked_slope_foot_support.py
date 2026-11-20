@@ -20,7 +20,7 @@ plant_code = source[plant:plan]
 support_code = source[support:late]
 
 assert "return goal;" in resolve_code
-assert "goal += Vector3.ClampMagnitude(drift, 0.10f);" in resolve_code
+assert "goal += Vector3.ClampMagnitude(drift, 0.10f) * twistWeight;" in resolve_code
 assert "drift.sqrMagnitude > 0.20f * 0.20f" in resolve_code
 assert "turningFast || transitioningStance" in resolve_code
 assert "contactLocked = false;" in resolve_code

@@ -709,9 +709,11 @@ namespace Aaris.MapReview
             // Test prone clearance at the position the capsule actually reached
             // after sliding, collisions and landing—not the prior frame's origin.
             // Standing and crouched turns do not incur any extra physics query.
-            if (turnAfterMove &&
-                (battle == null || battle.CanFaceProne(nextFacing * Vector3.forward)))
+            if (turnAfterMove)
+            {
+                if (battle != null) nextFacing = battle.LimitStanceTurn(nextFacing, dt);
                 transform.rotation = nextFacing;
+            }
             travelSpeed = new Vector2(velocity.x, velocity.z).magnitude;
             AnimateWalk(dt);
 
