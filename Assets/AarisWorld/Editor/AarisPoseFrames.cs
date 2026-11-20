@@ -12,6 +12,9 @@ static readonly string[] Names={"01_Standing","02_Crouch","03_Prone","04_Walk","
 static readonly string[] MotionNames={"01_Standing","02_Walking","03_Running","04_Sprinting","05_Crouching","06_CrouchWalking","07_Prone","08_Crawling","09_GettingUp","10_Jumping"};
 static AarisPoseFrames(){EditorApplication.update+=Tick;}
 static double Now=>EditorApplication.timeSinceStartup;
+// Editor callbacks can tick more than once during one Play Mode game frame.
+// Each locomotion matrix sample must observe a distinct evaluated game frame.
+static int lastMotionCaptureFrame = -1;
 static void Log(string s){Directory.CreateDirectory(Dir);File.AppendAllText(Dir+"/report.txt",s+"\n");Debug.Log("AARIS_POSE_FRAME "+s);}
 static void Phase(string s){File.WriteAllText(Dir+"/phase.txt",s+"\n");}
 // Native batchmode capture must open the actual Unity scene before entering Play.
@@ -143,6 +146,7 @@ File.WriteAllText(Dir+"/report.txt","REAL_UNITY_CAMERA_TEST\n");
 SessionState.SetString("pose.state","start");SessionState.SetFloat("pose.time",(float)Now);
 SessionState.SetInt("pose.step",-1);SessionState.SetInt("pose.count",0);SessionState.SetInt("pose.warp",0);
 SessionState.SetFloat("pose.air",-1f);
+lastMotionCaptureFrame = -1;
 EditorApplication.isPlaying=true;
 }
 // Editor QA only: same open terrain coordinate on every run, not
@@ -681,6 +685,12 @@ Log("TRANSITION_LEGS stance="+b.Stance+" frame="+sampleIndex+
 " foreAftFootStagger="+footForwardStagger.ToString("F3")+
 " leftKneeSide="+lSide.ToString("F3")+
 " rightKneeSide="+rSide.ToString("F3"));
+// Only stationary grounded stance crossfades are subject to this limit;
+// jump motion remains authored. A passed image count is NOT a pose PASS
+// when a measured knee flares laterally more than 30 cm.
+if(transitioning && !p.IsInAir &&
+ Mathf.Max(Mathf.Abs(lSide),Mathf.Abs(rSide)) > 0.30f)
+ throw new InvalidOperationException("TRANSITION_KNEE_SIDEWAYS_OVER_30CM");
 }
 static void Finish(string reason){
 FinishMotionContactSummary();
@@ -840,7 +850,8 @@ double readyAge=portrait?(motionMatrix?(n==9?.18+count*.17:.42+count*.20):
  n==5?(count==0?.30:1.15):
  transitionFrames?.10+count*.18:
  orbitStance?.52+count*.22:.52):.25+count*.30;
-if(count<needed&&age>readyAge){
+if(count<needed&&age>readyAge&&
+ (!motionMatrix || Time.frameCount != lastMotionCaptureFrame)){
 try{
 Camera cam=Camera.main;if(cam==null)throw new InvalidOperationException("CAMERA_MISSING");
 int imageWidth=portrait?640:SessionState.GetBool("pose.diag",false)?640:960;
@@ -906,6 +917,7 @@ if(portraitGround!=null)UnityEngine.Object.DestroyImmediate(portraitGround);
 if(groundMaterial!=null)UnityEngine.Object.DestroyImmediate(groundMaterial);
 cam.targetTexture=old;RenderTexture.active=active;
 UnityEngine.Object.DestroyImmediate(image);RenderTexture.ReleaseTemporary(rt);}
+if(motionMatrix) lastMotionCaptureFrame = Time.frameCount;
 SessionState.SetInt("pose.count",count+1);
 Log("FRAME "+(motionMatrix?MotionNames[n]:Names[n])+" "+count+" stance="+b.Stance+
 " viewDegrees="+(orbitStance?90*count:transitionFrames?
@@ -916,7 +928,8 @@ if(transitionFrames)LogTransitionContact(p,b,count);
 // time instant. Include their real game-clock timestamps for bone audits.
 if(motionMatrix)
  Log("MOTION_TIMESTAMP stage="+MotionNames[n]+" frame="+count+
- " unscaledSeconds="+Time.unscaledTime.ToString("F3"));
+ " unscaledSeconds="+Time.unscaledTimeAsDouble.ToString("F6",
+  System.Globalization.CultureInfo.InvariantCulture));
 // Measure both the first pose and its final settled multi-angle frame.
 // Editor-only QA: zero work or allocations in Android players.
 if(motionMatrix || count==0 || (orbitStance && count==needed-1))
