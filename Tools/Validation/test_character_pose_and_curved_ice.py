@@ -65,7 +65,8 @@ assert '(naturalMocapLoaded ? naturalCrouch :' in visual
 assert 'crouchWalkClip = alsCrouchLoaded ? alsCrouchForward' in visual
 assert 'if (!naturalMocapLoaded && primaryLoaded && walkClip != runClip)' in visual
 assert 'crouchPlayable.SetTime(naturalMocapLoaded || alsCrouchLoaded' in visual
-assert 'float crouchLowering = naturalMocapLoaded || alsCrouchLoaded ? 0f :' in visual
+assert 'float crouchLowering = naturalMocapLoaded || alsCrouchLoaded ||' in visual
+assert 'communityStanceClipsLoaded ? 0f :' in visual
 assert 'UnityWebRequest' not in visual
 # Fresh Unity imports must auto-map each FBX from its own hierarchy. Never
 # serialize a HumanDescription copied from another soldier/rig: that made
@@ -394,7 +395,9 @@ for head, legs, slope, permitted in (
 # Stance visual timing stays frame-rate independent but human-scaled:
 # crouch is quicker than prone, and getting back up is deliberately slower.
 assert 'crouching ? 0.11f : 0.16f' in visual
+assert '1f - Mathf.Exp(-dt / crouchTau), 1f' in visual
 assert 'prone ? 0.17f : 0.24f' in visual
+assert '1f - Mathf.Exp(-dt / proneTau), 1f' in visual
 
 def exp_blend_after(seconds, fps, tau):
     value = 0.0
@@ -692,7 +695,8 @@ assert '? effectiveCrouchBlend * (1f - effectiveProneBlend)' in visual
 assert ': Mathf.Clamp01(effectiveCrouchBlend + effectiveProneBlend);' in visual
 # If true prone clips are missing, the fallback stance must still lower the
 # rig with a bounded crouch blend rather than leaving the player airborne.
-assert 'float proneLowering = primaryLoaded && proneClip != null &&' in visual
+assert 'float proneLowering = primaryLoaded &&' in visual
+assert 'proneClip != null && crawlClip != null ?' in visual
 # One two-bone solve per leg, irrespective of intermediate stance blends.
 assert visual.count('PlantCrouchLeg(') == 3  # definition + low-stance left/right
 assert visual.count('ResolveLowStanceFootContact(') == 3  # definition + both shoes
@@ -879,7 +883,8 @@ for import_scale in ((0.5, 0.5, 0.5), (2.0, 2.0, 2.0), (0.9, 1.2, 1.1)):
 assert 'private const float RealisticSoldierProneRigLowering = 0.64f;' in visual
 assert 'private const float RealisticSoldierCrouchRigLowering = 0.73f;' in visual
 assert 'realisticSoldierLoaded ? RealisticSoldierProneRigLowering : ProneRigLowering' in visual
-assert 'float crouchLowering = naturalMocapLoaded || alsCrouchLoaded ? 0f :' in visual
+assert 'float crouchLowering = naturalMocapLoaded || alsCrouchLoaded ||' in visual
+assert 'communityStanceClipsLoaded ? 0f :' in visual
 assert 'realisticSoldierLoaded ? RealisticSoldierCrouchRigLowering :' in visual
 assert 'CrouchRigLowering) * crouchRigWeight;' in visual
 assert 'public static void CapturePortrait()' in pose_probe
