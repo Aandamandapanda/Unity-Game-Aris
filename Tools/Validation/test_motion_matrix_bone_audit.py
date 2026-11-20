@@ -66,6 +66,13 @@ class MotionMatrixBoneAuditTests(unittest.TestCase):
             -0.38,
         )
 
+    def test_duplicate_game_timestamp_rejected(self):
+        duplicate = fixture().replace(
+            "unscaledSeconds=1.200", "unscaledSeconds=1.000", 1
+        )
+        with self.assertRaisesRegex(ValueError, "Missing/non-monotonic"):
+            evaluate(duplicate)
+
     def test_missing_middle_bone_timestamp_rejected(self):
         with self.assertRaisesRegex(ValueError, "Missing/non-monotonic"):
             evaluate(fixture(missing_time=("06_CrouchWalking", 1)))
@@ -74,11 +81,24 @@ class MotionMatrixBoneAuditTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "success marker"):
             evaluate(fixture().replace("SUCCESS_30_MOTION_MATRIX_FRAMES", ""))
 
+    def test_editor_transition_gate_fails_grounded_knee_flare(self):
+        editor = (ROOT / "Assets/AarisWorld/Editor/AarisPoseFrames.cs").read_text()
+        start = editor.index("static void LogTransitionContact(")
+        end = editor.index("static void Finish(string reason)", start)
+        transition = editor[start:end]
+        self.assertIn("TRANSITION_KNEE_SIDEWAYS_OVER_30CM", transition)
+        self.assertIn("transitioning && !p.IsInAir", transition)
+        self.assertIn("Mathf.Max(Mathf.Abs(lSide),Mathf.Abs(rSide)) > 0.30f", transition)
+
     def test_editor_contract_is_only_in_motion_matrix_mode(self):
         editor = (ROOT / "Assets/AarisWorld/Editor/AarisPoseFrames.cs").read_text()
         self.assertIn("if(motionMatrix)", editor)
         self.assertIn("MOTION_TIMESTAMP stage=", editor)
-        self.assertIn("Time.unscaledTime.ToString(\"F3\")", editor)
+        self.assertIn("static int lastMotionCaptureFrame = -1;", editor)
+        self.assertIn("lastMotionCaptureFrame = -1;", editor)
+        self.assertIn("Time.frameCount != lastMotionCaptureFrame", editor)
+        self.assertIn("lastMotionCaptureFrame = Time.frameCount;", editor)
+        self.assertIn("Time.unscaledTimeAsDouble.ToString(\"F6\"", editor)
         self.assertIn(
             "if(motionMatrix || count==0 || (orbitStance && count==needed-1))",
             editor,
