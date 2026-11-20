@@ -70,6 +70,6 @@ assert "dropsIncludeInactive=" in editor
 assert "rootMissingScripts=" in editor
 assert "VerifyNativeSceneBindings(scene);" in editor
 assert "MOTION_TIMESTAMP stage=" in editor
-assert 'Time.unscaledTime.ToString("F3")' in editor
+assert 'Time.unscaledTimeAsDouble.ToString("F6"' in editor
 print("PASS: scene Player GUID matches its source and QA fails fast on missing native bindings")
 print("NOT TESTED: Unity MonoScript.GetClass(), runtime actor spawn or 16/30 screenshots")
