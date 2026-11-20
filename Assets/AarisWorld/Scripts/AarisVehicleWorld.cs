@@ -1917,6 +1917,7 @@ namespace Aaris.MapReview
             if (unloaded > 0 && AarisMobileStreamingFrameGate.IsConstrainedDevice())
             {
                 AarisMobileStreamingFrameGate.ReservePhysicsStreamingFrame();
+                AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
                 return;
             }
 #endif
@@ -2049,6 +2050,10 @@ namespace Aaris.MapReview
                     parkedVictim.damage01 = retired.Damage01;
                     parkedVictim.nextProbe = now + 3.0f;
                     Destroy(retired.gameObject);
+#if UNITY_ANDROID && !UNITY_EDITOR
+                    // Keep optional native uploads off the retirement aftershock.
+                    AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
+#endif
                     parkedVictim.visible = null;
                     unloaded++;
                     active--;

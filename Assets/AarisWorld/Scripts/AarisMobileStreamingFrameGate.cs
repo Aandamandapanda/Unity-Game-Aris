@@ -12,6 +12,8 @@ namespace Aaris.MapReview
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
         private static int claimedFrame = -1;
+        // One frame of native retirement after a streamed hierarchy is destroyed.
+        private static int nativeTeardownSettleFrame = -1;
         private static bool devicePolicyReady, constrainedDevice;
         private static int importIntegrationFrame = -1;
         private static int pressureDecisionFrame = -1, consecutivePressureDeferrals;
@@ -234,6 +236,7 @@ namespace Aaris.MapReview
         private static void Reset()
         {
             claimedFrame = -1;
+            nativeTeardownSettleFrame = -1;
             devicePolicyReady = constrainedDevice = false;
             importIntegrationFrame = pressureDecisionFrame = -1;
             consecutivePressureDeferrals = 0;
@@ -297,6 +300,26 @@ namespace Aaris.MapReview
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (IsConstrainedDevice())
                 claimedFrame = Time.frameCount;
+#endif
+        }
+
+        /// <summary>Fence optional native imports on the Destroy frame and its
+        /// next render frame. Existing visuals and essential gameplay stay live.</summary>
+        internal static void ReserveNativeTeardownFrame()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (!IsConstrainedDevice()) return;
+            claimedFrame = Time.frameCount;
+            nativeTeardownSettleFrame = Time.frameCount + 1;
+#endif
+        }
+
+        private static bool IsNativeTeardownSettleFrame()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            return Time.frameCount == nativeTeardownSettleFrame;
+#else
+            return false;
 #endif
         }
 
@@ -369,6 +392,7 @@ namespace Aaris.MapReview
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (IsEssentialRigFrame() || IsAssetCleanupPending()) return false;
+            if (IsNativeTeardownSettleFrame()) return false;
             if (!IsConstrainedDevice()) return true;
             int frame = Time.frameCount;
             // An admitted hierarchy/import or an observed native completion
@@ -399,6 +423,8 @@ namespace Aaris.MapReview
                 RigReservedDeferredAttempts++;
                 return false;
             }
+            // Native retirement may still be consuming GPU/physics memory.
+            if (IsNativeTeardownSettleFrame()) return false;
             // Even a larger phone can report critical memory: keep all optional
             // native hierarchy construction off the unused-asset cleanup pass.
             if (IsAssetCleanupPending())

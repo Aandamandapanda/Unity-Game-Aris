@@ -305,6 +305,7 @@ namespace Aaris.MapReview
                 // in the very frame we just released native pooled rigs.
                 // The ordinary poll will retry; all visible bikes survive.
                 AarisMobileStreamingFrameGate.ReservePhysicsStreamingFrame();
+                AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
                 return;
 #endif
             }
@@ -427,6 +428,9 @@ namespace Aaris.MapReview
                     {
                         bikeVisuals.Remove(retired);
                         Destroy(retired);
+#if UNITY_ANDROID && !UNITY_EDITOR
+                        AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
+#endif
                     }
                     plan.visible = null;
                     unloaded++;
@@ -475,6 +479,7 @@ namespace Aaris.MapReview
                 AarisMobileStreamingFrameGate.IsConstrainedDevice())
             {
                 AarisMobileStreamingFrameGate.ReservePhysicsStreamingFrame();
+                AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
                 return;
             }
 #endif
