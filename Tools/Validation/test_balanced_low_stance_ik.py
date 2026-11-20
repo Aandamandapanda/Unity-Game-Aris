@@ -14,11 +14,12 @@ assert "leftThigh == null || rightThigh == null" in layout
 assert "proneHeadBone.position - locomotionHipsBone.position" in layout
 assert "rightThigh.position - leftThigh.position" in layout
 assert "float hipWidth = Mathf.Abs(Vector3.Dot(" in layout
-assert "float crouchHalfWidth = Mathf.Clamp(" in layout
-assert "Vector3 crouchCenter = hipMid +" in layout
-assert "Vector3 crouchLeft = crouchCenter -" in layout
-assert "Vector3 crouchRight = crouchCenter +" in layout
-assert "float authoredStagger = Mathf.Clamp(" in layout
+assert "float extraCrouchHalfWidth = Mathf.Clamp(" in layout
+assert "float crouchHalfWidth = 0.19f + extraCrouchHalfWidth;" in layout
+assert "Vector3 crouchLeft = hipMid -" in layout
+assert "Vector3 crouchRight = hipMid +" in layout
+assert "crouchKneeForward * 0.14f;" in layout
+assert "crouchKneeForward * 0.22f;" in layout
 assert "float leftLegReach = (leftShin.position -" in layout
 assert "float rightLegReach = (rightShin.position -" in layout
 assert "float leftExtension = Mathf.Clamp(" in layout
@@ -41,46 +42,44 @@ assert layout.index("Vector3 anatomicalRight = Vector3.ProjectOnPlane(") < layou
 assert "if (!validAnatomicalRight)" in layout
 assert "crouchKneeForward = Vector3.Cross(anatomicalRight," in layout
 assert "crouchKneeForward = Vector3.Cross(anatomicalRight," in layout
-assert "crouchKneeForward * 0.17f" in layout
-assert "crouchKneeForward * authoredStagger" in layout
+assert "crouchKneeForward * 0.14f;" in layout
+assert "crouchKneeForward * 0.22f;" in layout
 assert "out Vector3 crouchKneeForward" in layout
 # Comments are explanations, not C# allocation expressions. Check code only.
 layout_code = re.sub(r"//[^\n]*|/\*.*?\*/", "", layout, flags=re.S)
 assert "new " not in layout_code  # no allocations in this IK method
 assert "Physics.Raycast" not in layout
 
-# Rig-relative stance targets replace the fixed asymmetrical .19/.14/.22m
-# footprint. Regardless of torso yaw, crouch feet are symmetric while the
-# authored stride stagger is bounded and the two knees face anatomically.
+# Native baseline used 14/22cm fore-aft foot offsets and passed
+# the strict <=12cm inter-knee-height QA; keep this anatomical fallback
+# for normal hip sizes. Larger avatars gain a bounded width adjustment.
 def clamp(value, low, high):
     return max(low, min(high, value))
 
-def stance_targets(hip_width, authored_step, left_leg, right_leg):
-    half_width = clamp(hip_width * .55, .15, .23)
-    stagger = clamp(authored_step, -.18, .18) * .35
+def stance_targets(hip_width, left_leg, right_leg):
+    extra = clamp((hip_width - .38) * .33, .0, .035)
+    half_width = .19 + extra
     left_extension = clamp(left_leg - .045, .35, 1.055)
     right_extension = clamp(right_leg - .045, .35, 1.055)
-    return half_width, stagger, left_extension, right_extension
+    return half_width, left_extension, right_extension
 
-for width in (.22, .28, .40, .50):
-    for stride in (-.50, -.18, 0., .13, .40):
-        half, stagger, left_reach, right_reach = stance_targets(
-            width, stride, .96, 1.06)
-        assert .15 <= half <= .23
-        assert abs(stagger) <= .063000001
-        assert .35 <= left_reach <= 1.055
-        assert .35 <= right_reach <= 1.055
-        assert abs(left_reach - .915) < 1e-8
-        assert abs(right_reach - 1.015) < 1e-8
-        # Static footprint is symmetrical and never requires a 1m step.
-        crouch_left = (-half, .17 - stagger)
-        crouch_right = (half, .17 + stagger)
-        assert .30 <= crouch_right[0] - crouch_left[0] <= .46
-        assert abs(crouch_right[1] - crouch_left[1]) <= .126000001
+for width in (.22, .28, .38, .40, .50):
+    half, left_reach, right_reach = stance_targets(width, .96, 1.06)
+    assert .19 <= half <= .225
+    assert abs(left_reach - .915) < 1e-8
+    assert abs(right_reach - 1.015) < 1e-8
+    # No crouch regression on this normal-width soldier: preserve
+    # the original trusted forward offsets and compact 38cm footprint.
+    crouch_left = (-half, .14)
+    crouch_right = (half, .22)
+    assert .38 <= crouch_right[0] - crouch_left[0] <= .45
+    assert abs(crouch_right[1] - crouch_left[1] - .08) < 1e-9
+    if width <= .38:
+        assert abs(half - .19) < 1e-8
 
 # The new prone extension cannot demand an unreachable two-bone target.
 for bone_span in (.42, .60, .78, .97, 1.055, 1.25):
-    _, _, reach, _ = stance_targets(.30, 0., bone_span, bone_span)
+    _, reach, _ = stance_targets(.30, bone_span, bone_span)
     assert reach <= max(.35, bone_span - .045) + 1e-9
     assert reach <= 1.055
 
