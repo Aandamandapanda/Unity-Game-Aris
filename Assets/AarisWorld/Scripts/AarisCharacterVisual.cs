@@ -1003,7 +1003,8 @@ namespace Aaris.MapReview
                 ? Resources.Load<AnimationClip>("AarisCharacters/CC0Locomotion/Crawl_Fwd_Loop") : null;
             cc0CrouchLoaded = cc0CrouchIdle != null && cc0CrouchForward != null &&
                 cc0CrouchIdle.humanMotion && cc0CrouchForward.humanMotion &&
-                !cc0CrouchIdle.legacy && !cc0CrouchForward.legacy;
+                !cc0CrouchIdle.legacy && !cc0CrouchForward.legacy &&
+                !alsCrouchLoaded;
             cc0CrawlLoaded = cc0CrawlIdle != null && cc0CrawlForward != null &&
                 cc0CrawlIdle.humanMotion && cc0CrawlForward.humanMotion &&
                 !cc0CrawlIdle.legacy && !cc0CrawlForward.legacy;
@@ -1070,8 +1071,8 @@ namespace Aaris.MapReview
             // 100STYLE crouch is an actual crouched locomotion cycle, so its
             // cycle boundary is a valid feet-down hold instead of KayKit's
             // kneeling transition frame. Legacy clips keep their reviewed hold.
-            crouchPlayable.SetTime(naturalMocapLoaded || alsCrouchLoaded ||
-                communityStanceClipsLoaded
+            crouchPlayable.SetTime(cc0CrouchLoaded || naturalMocapLoaded ||
+                alsCrouchLoaded || communityStanceClipsLoaded
                 ? 0d : crouchClip.length * (10d / 24d));
             // The 24-frame KayKit Crawling source uses frame 0 as its prone
             // hold. Do not freeze a mid-crawl pose as the player's prone idle.
@@ -2118,8 +2119,8 @@ namespace Aaris.MapReview
             // retargeted crouch stayed too tall. The natural mocap is already
             // physically crouched; applying that legacy drop would bury the
             // hips. Capsule headroom + real foot support remain authoritative.
-            float crouchLowering = naturalMocapLoaded || alsCrouchLoaded ||
-                communityStanceClipsLoaded ? 0f :
+            float crouchLowering = cc0CrouchLoaded || naturalMocapLoaded ||
+                alsCrouchLoaded || communityStanceClipsLoaded ? 0f :
                 (realisticSoldierLoaded ? RealisticSoldierCrouchRigLowering :
                     CrouchRigLowering) * crouchRigWeight;
             // Source crawling hips/ankles float above the floor by about 22 cm.
@@ -2334,6 +2335,42 @@ namespace Aaris.MapReview
                         Mathf.Max(crouchRigWeight, proneRigWeight), planar,
                         out leftFootGoal, out rightFootGoal,
                         out crouchKneeForward);
+
+                    // The Quaternius crouch pair has an authored boot
+                    // footprint. During settled crouch, retain that X/Z
+                    // instead of forcing the legacy FBX's knee/foot stagger
+                    // onto a different Humanoid clip. Ease in so interrupted
+                    // stance transitions do not teleport either shoe.
+                    // The existing ground sampling and two-bone IK below
+                    // remain authoritative for boot height and knee reach.
+                    if (cc0CrouchLoaded && crouching && !visuallyAirborne &&
+                        leftFootBone != null && rightFootBone != null &&
+                        leftThigh != null && rightThigh != null)
+                    {
+                        float clipContact = Mathf.SmoothStep(0f, 1f,
+                            Mathf.InverseLerp(0.82f, 0.99f, effectiveCrouchBlend));
+                        float proneFade = 1f - Mathf.SmoothStep(0f, 1f,
+                            Mathf.InverseLerp(0.02f, 0.18f, proneShare));
+                        float authoredFootShare = clipContact * proneFade;
+                        // Keep authored crouch foot detail, but never allow
+                        // a retargeted CC0 clip to pull a boot beyond the
+                        // pelvis-scaled reach of the vetted stance footprint.
+                        // The terrain ray and two-bone solver below still
+                        // own final contact and knee bend.
+                        Vector3 pelvisRight = Vector3.ProjectOnPlane(
+                            rightThigh.position - leftThigh.position,
+                            Vector3.up);
+                        float footAllowance = Mathf.Clamp(
+                            pelvisRight.magnitude * 0.28f, 0.035f, 0.11f);
+                        Vector3 authoredLeftDelta = Vector3.ProjectOnPlane(
+                            leftFootBone.position - leftFootGoal, Vector3.up);
+                        Vector3 authoredRightDelta = Vector3.ProjectOnPlane(
+                            rightFootBone.position - rightFootGoal, Vector3.up);
+                        leftFootGoal += Vector3.ClampMagnitude(
+                            authoredLeftDelta, footAllowance) * authoredFootShare;
+                        rightFootGoal += Vector3.ClampMagnitude(
+                            authoredRightDelta, footAllowance) * authoredFootShare;
+                    }
                 }
                 // The old <0.5 binary knee pole snapped from forward to none
                 // during crouch->prone. Fade the crouch hint away, then

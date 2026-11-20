@@ -69,11 +69,69 @@ SessionState.SetFloat("pose.transitionYawDegrees",180f);
 SessionState.SetBool("pose.transitions",true);
 CapturePortrait();
 }
+// Fail with an actionable Editor import error before waiting 15 seconds for
+// runtime actors that cannot exist. This is QA-only, not gameplay self-repair.
+static void VerifyNativeSceneBindings(Scene scene)
+{
+    GameObject player = null;
+    foreach (var root in scene.GetRootGameObjects())
+        if (root.name == "AarisPlayer") { player = root; break; }
+
+    var monoScript = AssetDatabase.LoadAssetAtPath<MonoScript>(
+        "Assets/AarisWorld/Scripts/AarisThirdPersonPlayer.cs");
+    var scriptType = monoScript != null ? monoScript.GetClass() : null;
+    var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+        "Assets/AarisWorld/Player/AarisPlayer.prefab");
+    int missing = player != null
+        ? GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(player) : -1;
+    bool bound = player != null &&
+        player.GetComponent<AarisThirdPersonPlayer>() != null;
+    bool prefabBound = prefab != null &&
+        prefab.GetComponent<AarisThirdPersonPlayer>() != null;
+
+    string fbxFile = Path.Combine(Application.dataPath,
+        "Resources/AarisCharacters/Primary/Player.fbx");
+    // FileInfo.Length can describe the link itself when the hydrated LFS
+    // binary is accessed through a symlink. Read the target stream instead,
+    // and reject raw Git LFS pointer text or an unreadable/corrupt FBX.
+    bool hydrated = false;
+    long fbxBytes = 0;
+    string fbxProbe = "unreadable";
+    try
+    {
+        using (var stream = File.OpenRead(fbxFile))
+        {
+            fbxBytes = stream.Length;
+            byte[] header = new byte[18];
+            int read = stream.Read(header, 0, header.Length);
+            hydrated = fbxBytes > 1000 && read == header.Length &&
+                System.Text.Encoding.ASCII.GetString(header) ==
+                "Kaydara FBX Binary";
+            fbxProbe = "stream-opened";
+        }
+    }
+    catch (IOException) { fbxProbe = "io-error"; }
+    catch (UnauthorizedAccessException) { fbxProbe = "access-denied"; }
+    Debug.Log("AARIS_POSE_QA_PREFLIGHT scene=" + scene.path +
+        " playerRoot=" + (player != null) +
+        " rootActive=" + (player != null && player.activeInHierarchy) +
+        " playerScriptClass=" + (scriptType != null ? scriptType.FullName : "null") +
+        " playerBound=" + bound + " prefabBound=" + prefabBound +
+        " missingRootScripts=" + missing +
+        " hydratedFBX=" + hydrated +
+        " fbxBytes=" + fbxBytes + " fbxProbe=" + fbxProbe +
+        " fbxPath=" + fbxFile);
+    if (!hydrated)
+        throw new InvalidOperationException("QA_PLAYER_FBX_NOT_MATERIALIZED");
+    if (scriptType != typeof(AarisThirdPersonPlayer) || !bound || !prefabBound)
+        throw new InvalidOperationException("QA_PLAYER_SCRIPT_BINDING_MISSING");
+}
 public static void CaptureBatch(){
 if(!Application.isBatchMode)throw new InvalidOperationException("BATCHMODE_REQUIRED");
 try{
 var scene=EditorSceneManager.OpenScene(AarisExplorerBuild.ScenePath,OpenSceneMode.Single);
 if(!scene.IsValid()||!scene.isLoaded)throw new InvalidOperationException("SCENE_LOAD_FAILED");
+VerifyNativeSceneBindings(scene);
 SessionState.SetBool("pose.batch",true);
 Start();
 }catch(Exception ex){Debug.LogError("AARIS_POSE_BATCH_START_FAILED "+ex.GetType().Name);EditorApplication.Exit(2);}
@@ -658,11 +716,39 @@ if(status=="start"){
 SessionState.SetString("pose.state","run");SessionState.SetFloat("pose.time",(float)Now);
 Phase("00_Drop");Log("ENTER_PLAYMODE");return;
 }
-var p=UnityEngine.Object.FindFirstObjectByType<AarisThirdPersonPlayer>();
+// The flight system legitimately disables the foot motor while the actor
+// rides the aircraft. Resolve both QA components from the SAME live player
+// object before falling back to a scene-wide motor search. GetComponent
+// still works for a disabled Behaviour; the runtime controller is unchanged.
 var d=UnityEngine.Object.FindFirstObjectByType<AarisOfflineDrop>();
+var p=d!=null?d.GetComponent<AarisThirdPersonPlayer>():null;
+if(p==null)p=UnityEngine.Object.FindFirstObjectByType<AarisThirdPersonPlayer>();
 if(p==null||d==null){
-if(Now-SessionState.GetFloat("pose.time",(float)Now)>15)
+if(Now-SessionState.GetFloat("pose.time",(float)Now)>15){
+// Distinguish a missing imported script, inactive saved component and
+// normal aircraft-disabled motor before changing ANY production logic.
+var roots = SceneManager.GetActiveScene().GetRootGameObjects();
+GameObject savedPlayer = null;
+foreach (var root in roots)
+    if (root.name == "AarisPlayer") { savedPlayer = root; break; }
+var motors = UnityEngine.Object.FindObjectsByType<AarisThirdPersonPlayer>(
+    FindObjectsInactive.Include, FindObjectsSortMode.None);
+var drops = UnityEngine.Object.FindObjectsByType<AarisOfflineDrop>(
+    FindObjectsInactive.Include, FindObjectsSortMode.None);
+Log("QA_BOOTSTRAP_DETAIL roots="+roots.Length+
+    " rootFound="+(savedPlayer!=null)+
+    " rootActive="+(savedPlayer!=null&&savedPlayer.activeInHierarchy)+
+    " rootMotor="+(savedPlayer!=null&&
+        savedPlayer.GetComponent<AarisThirdPersonPlayer>()!=null)+
+    " rootMissingScripts="+(savedPlayer!=null?
+        GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(savedPlayer):-1)+
+    " motorsIncludeInactive="+motors.Length+
+    " dropsIncludeInactive="+drops.Length+
+    " mainCamera="+(Camera.main!=null));
+Log("QA_BOOTSTRAP_LOOKUP player="+(p!=null)+" drop="+(d!=null)+
+" scene="+SceneManager.GetActiveScene().path);
 Finish("NO_PLAYER_OR_DROP");
+}
 return;
 }
 var b=p.GetComponent<AarisBattleActions>();
@@ -826,6 +912,11 @@ Log("FRAME "+(motionMatrix?MotionNames[n]:Names[n])+" "+count+" stance="+b.Stanc
 SessionState.GetFloat("pose.transitionYawDegrees",90f):0)+
 " air="+p.IsInAir+" pos="+p.transform.position.ToString("F2"));
 if(transitionFrames)LogTransitionContact(p,b,count);
+// A 30-frame capture contains sequential camera samples, not the same
+// time instant. Include their real game-clock timestamps for bone audits.
+if(motionMatrix)
+ Log("MOTION_TIMESTAMP stage="+MotionNames[n]+" frame="+count+
+ " unscaledSeconds="+Time.unscaledTime.ToString("F3"));
 // Measure both the first pose and its final settled multi-angle frame.
 // Editor-only QA: zero work or allocations in Android players.
 if(motionMatrix || count==0 || (orbitStance && count==needed-1))
