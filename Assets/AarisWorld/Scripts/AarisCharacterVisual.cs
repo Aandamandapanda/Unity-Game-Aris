@@ -28,6 +28,12 @@ namespace Aaris.MapReview
         private const string KenneyClips = "AarisCharacters/Kenney/";
         private const string PrimaryClips = "AarisCharacters/Primary/Animations/";
         private const string MocapLocomotion = "AarisMocap/mocap_locomotion";
+        // CC0 Quaternius crouch clips extracted from MIT ALS-Unity's UAL1
+        // source: compact standalone Humanoid motion, no extra character mesh.
+        private const string AlsCrouchIdlePath =
+            "AarisCharacters/Primary/ALS/als_crouch_idle";
+        private const string AlsCrouchForwardPath =
+            "AarisCharacters/Primary/ALS/als_crouch_forward";
         private const float TargetHeightMetres = 1.78f;
 #if UNITY_ANDROID && !UNITY_EDITOR
         // One imported FBX clip group per frame, never all 14 on the same
@@ -150,6 +156,9 @@ namespace Aaris.MapReview
         private Vector3 restingLocalPosition;
         private Quaternion restingLocalRotation;
         private float crouchBlend, proneBlend;
+        // ALS-Unity uses independent crouch-idle and moving states with a
+        // 0.25s stance crossfade and smooth direction weights.
+        private float alsCrouchMovingWeight;
         private float smoothedStrafeBank;
         // Small, presentation-only anticipation for starts, stops and direction pivots.
         // No physics probes, animation allocations or root-motion ownership changes.
@@ -179,6 +188,7 @@ namespace Aaris.MapReview
         private bool tacticalSoldierLoaded;
         private bool realisticSoldierLoaded;
         private bool naturalMocapLoaded;
+        private bool alsCrouchLoaded;
         internal bool UsingNaturalMocap => naturalMocapLoaded;
         private bool CalibratedSoldierLoaded =>
             tacticalSoldierLoaded || realisticSoldierLoaded;
@@ -907,6 +917,17 @@ namespace Aaris.MapReview
             AnimationClip naturalCrouch = FindMocapClip(naturalClips, "mocap_crouch");
             naturalMocapLoaded = naturalWalk != null && naturalJog != null &&
                 naturalRun != null && naturalCrouch != null;
+            // Use the ready-made CC0 ALS crouch set as a pair: never blend
+            // a new static stance against an unrelated old moving-crouch rig.
+            // Their humanoid clips retarget through the existing Animator.
+            AnimationClip alsCrouchIdle = CalibratedSoldierLoaded
+                ? Resources.Load<AnimationClip>(AlsCrouchIdlePath) : null;
+            AnimationClip alsCrouchForward = CalibratedSoldierLoaded
+                ? Resources.Load<AnimationClip>(AlsCrouchForwardPath) : null;
+            alsCrouchLoaded = alsCrouchIdle != null && alsCrouchForward != null &&
+                !alsCrouchIdle.legacy && !alsCrouchForward.legacy &&
+                alsCrouchIdle.humanMotion && alsCrouchForward.humanMotion;
+            alsCrouchMovingWeight = 0f;
 
             runPhaseOffset = sprintPhaseOffset = 0f;
             runClip = naturalMocapLoaded ? naturalJog : FindClip("run", "run");
@@ -932,10 +953,12 @@ namespace Aaris.MapReview
             AnimationClip jumpStart = FindClip("jump_start", "jump") ?? jump;
             AnimationClip jumpLand = FindClip("jump_land", "jump") ?? jump;
             AnimationClip fall = FindClip("fall", "fall");
-            crouchClip = naturalMocapLoaded ? naturalCrouch :
-                (FindClip("crouch", "crouch") ?? idleClip);
-            crouchWalkClip = naturalMocapLoaded ? naturalCrouch :
-                (FindClip("crouch_walk", "crouch") ?? crouchClip);
+            crouchClip = alsCrouchLoaded ? alsCrouchIdle :
+                (naturalMocapLoaded ? naturalCrouch :
+                (FindClip("crouch", "crouch") ?? idleClip));
+            crouchWalkClip = alsCrouchLoaded ? alsCrouchForward :
+                (naturalMocapLoaded ? naturalCrouch :
+                (FindClip("crouch_walk", "crouch") ?? crouchClip));
             punchClip = FindClip("punch", "punch");
             shootClip = FindClip("shoot", "shoot");
             if (punchClip == null) punchClip = idleClip;
@@ -987,7 +1010,7 @@ namespace Aaris.MapReview
             // 100STYLE crouch is an actual crouched locomotion cycle, so its
             // cycle boundary is a valid feet-down hold instead of KayKit's
             // kneeling transition frame. Legacy clips keep their reviewed hold.
-            crouchPlayable.SetTime(naturalMocapLoaded
+            crouchPlayable.SetTime(naturalMocapLoaded || alsCrouchLoaded
                 ? 0d : crouchClip.length * (10d / 24d));
             // The 24-frame KayKit Crawling source uses frame 0 as its prone
             // hold. Do not freeze a mid-crawl pose as the player's prone idle.
@@ -1515,17 +1538,40 @@ namespace Aaris.MapReview
                 crouchKneeForward = Vector3.Cross(anatomicalRight,
                     Vector3.up).normalized;
             }
-            Vector3 crouchLeft = hipMid - anatomicalRight * 0.19f +
+            // Preserve the native-validated crouch foot stagger on this
+            // humanoid; the fully symmetric candidate caused a 25.5 cm
+            // left/right knee-height difference in real Unity Play Mode.
+            // Derive a small width-only extension on unusually broad rigs.
+            // For this soldier's normal hip width the goals remain exactly
+            // the reviewed crouch baseline, not a new knee-pole guess.
+            float hipWidth = Mathf.Abs(Vector3.Dot(
+                rightThigh.position - leftThigh.position, anatomicalRight));
+            float extraCrouchHalfWidth = Mathf.Clamp(
+                (hipWidth - 0.38f) * 0.33f, 0f, 0.035f);
+            float crouchHalfWidth = 0.19f + extraCrouchHalfWidth;
+            Vector3 crouchLeft = hipMid -
+                anatomicalRight * crouchHalfWidth +
                 crouchKneeForward * 0.14f;
-            Vector3 crouchRight = hipMid + anatomicalRight * 0.19f +
+            Vector3 crouchRight = hipMid +
+                anatomicalRight * crouchHalfWidth +
                 crouchKneeForward * 0.22f;
-            // Give prone shoes nearly full available leg reach (the analytic solver
-            // still caps distance to real thigh+shin lengths). A shorter
-            // 0.94m goal left each knee flaring ~0.25m to the side.
-            Vector3 proneLeft = leftThigh.position - facing * 1.055f -
-                right * 0.035f;
-            Vector3 proneRight = rightThigh.position - facing * 1.055f +
-                right * 0.035f;
+            // Scale the prone extension to EACH leg's actual segment lengths.
+            // A hardcoded 1.055m target is unreachable on shorter retargeted
+            // avatars and can make a knee fold while the foot is ground-locked.
+            float leftLegReach = (leftShin.position -
+                leftThigh.position).magnitude +
+                (leftFootBone.position - leftShin.position).magnitude;
+            float rightLegReach = (rightShin.position -
+                rightThigh.position).magnitude +
+                (rightFootBone.position - rightShin.position).magnitude;
+            float leftExtension = Mathf.Clamp(
+                leftLegReach - 0.045f, 0.35f, 1.055f);
+            float rightExtension = Mathf.Clamp(
+                rightLegReach - 0.045f, 0.35f, 1.055f);
+            Vector3 proneLeft = leftThigh.position -
+                facing * leftExtension - right * 0.035f;
+            Vector3 proneRight = rightThigh.position -
+                facing * rightExtension + right * 0.035f;
             Vector3 requestedLeft = Vector3.Lerp(crouchLeft, proneLeft, prone);
             Vector3 requestedRight = Vector3.Lerp(crouchRight, proneRight, prone);
             // Never teleport boots: cap retargeting within one footstep and
@@ -2001,7 +2047,7 @@ namespace Aaris.MapReview
             // retargeted crouch stayed too tall. The natural mocap is already
             // physically crouched; applying that legacy drop would bury the
             // hips. Capsule headroom + real foot support remain authoritative.
-            float crouchLowering = naturalMocapLoaded ? 0f :
+            float crouchLowering = naturalMocapLoaded || alsCrouchLoaded ? 0f :
                 (realisticSoldierLoaded ? RealisticSoldierCrouchRigLowering :
                     CrouchRigLowering) * crouchRigWeight;
             // Source crawling hips/ankles float above the floor by about 22 cm.
@@ -2212,8 +2258,16 @@ namespace Aaris.MapReview
                 // symmetric foot-spread guard handles the real splay safely.
                 float pronePoleStrength = proneKneeShare * proneKneeSettle *
                     kneeStillness * kneeTurnStability;
-                Vector3 kneeForward = crouchKneeForward * crouchPoleStrength +
-                    Vector3.up * pronePoleStrength;
+                // The previous upward prone hint formed a raised triangle
+                // even when both shoes were grounded. Use the official
+                // TwoBoneIK target/hint principle: crouch bends anatomically
+                // forward; settled prone aims its knees toward the support
+                // plane. The existing analytic knee-circle floor constraint
+                // prevents penetration. Slerp avoids a zero-length hint
+                // across stance crossfades. Keep moving clips unmodified.
+                Vector3 kneeForward = Vector3.Slerp(
+                    crouchKneeForward, Vector3.down,
+                    pronePoleStrength).normalized;
                 float kneePoleStrength = Mathf.Clamp01(
                     crouchPoleStrength + pronePoleStrength);
                 // An early prone knee can flare sideways while its clip
@@ -2432,7 +2486,14 @@ namespace Aaris.MapReview
                 float stanceScale = stanceTotal > 1f ? pose / stanceTotal : 1f;
                 float crouchWeight = authoredProne ? effectiveCrouchBlend * stanceScale : pose;
                 float proneWeight = authoredProne ? effectiveProneBlend * stanceScale : 0f;
-                float crouchMoving = Mathf.InverseLerp(0.06f, 0.85f, horizontal);
+                // ALS-Unity CrouchIdle / CrouchMove: interpolate the
+                // movement-state share instead of snapping between source
+                // stances. The CC0 moving clip is authored at about 0.72m/s.
+                float crouchMoving = alsCrouchLoaded
+                    ? (alsCrouchMovingWeight =
+                        AarisAlsCrouchBlend.MovingWeight(
+                            alsCrouchMovingWeight, horizontal, dt))
+                    : Mathf.InverseLerp(0.06f, 0.85f, horizontal);
                 float crawlMoving = Mathf.InverseLerp(0.05f, 0.55f, horizontal);
                 float grounded = (1f - airborneBlend) * (1f - pose);
                 // The old binary velocity cut snapped between the frozen
@@ -2606,6 +2667,11 @@ namespace Aaris.MapReview
                 }
                 // Breathing/idle must keep animating at all frame rates.
                 LoopPlayable(idlePlayable, idleClip, Time.timeAsDouble / Math.Max(0.02, idleClip.length));
+                // ALS-Unity CrouchIdle is a genuine looping pose, unlike the
+                // old crouch-transition FBX. Advance only while visible.
+                if (alsCrouchLoaded && crouchWeight > 0.001f)
+                    LoopPlayable(crouchPlayable, crouchClip,
+                        Time.timeAsDouble / Math.Max(0.02, crouchClip.length));
                 // Distance-driven clips are frozen while stationary: their
                 // phases do not advance, so SetTime would be identical.
                 if (lastLocomotionPhase != locomotionPhase)
