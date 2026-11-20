@@ -391,8 +391,8 @@ namespace Aaris.MapReview
         internal static bool TryClaimNonessentialDiagnosticFrame()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
-            if (IsEssentialRigFrame() || IsAssetCleanupPending() ||
-                IsNativeTeardownSettleFrame()) return false;
+            if (IsEssentialRigFrame() || IsAssetCleanupPending()) return false;
+            if (IsNativeTeardownSettleFrame()) return false;
             if (!IsConstrainedDevice()) return true;
             int frame = Time.frameCount;
             // An admitted hierarchy/import or an observed native completion
