@@ -89,8 +89,8 @@ class RivalNonAllocOverflow(unittest.TestCase):
         self.assertFalse(min(selected, key=lambda h: h["distance"])["target"])
 
     def test_existing_live_frame_budget_and_native_collision_are_untouched(self):
-        for token in ("FarSimulationDistance = 90f;", "FarSimulationInterval = 0.10f;",
-                      "nextSpawn = Time.time + 0.5f;", "owner.WouldCrossInactiveCover(",
+        for token in ("FarSimulationDistance = 90f;", "FarSimulationInterval = 0.35f;",
+                      "nextSpawn = Time.time + 0.17f;", "owner.WouldCrossInactiveCover(",
                       "capsule.Move(displacement +"):
             self.assertIn(token, SRC)
         self.assertNotIn("RaycastCommand.ScheduleBatch", SRC)
