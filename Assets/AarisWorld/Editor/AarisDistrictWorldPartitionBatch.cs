@@ -104,10 +104,18 @@ namespace Aaris.MapReview.Editor
                     var lod = child.GetComponent<LODGroup>();
                     if (collider == null && lod == null)
                     {
-                        // Airfield runways and ground markings stay persistent.
-                        Check(name == "SouthernAirfield" &&
+                        // Never migrate water surfaces, airfield runway or
+                        // ground markings: they must remain visible even far
+                        // outside a settlement's optional full-detail cell.
+                        bool persistWater = name == "CanalMarket" &&
+                            child.name == "CanalWater_VisualOnly";
+                        bool persistRunway = name == "SouthernAirfield" &&
+                            (child.name == "Airfield_240m_Runway" ||
+                             child.name.StartsWith("RunwayCentre_", StringComparison.Ordinal));
+                        Check((persistWater || persistRunway) &&
                               child.GetComponentsInChildren<Collider>(true).Length == 0 &&
-                              child.GetComponentsInChildren<LODGroup>(true).Length == 0,
+                              child.GetComponentsInChildren<LODGroup>(true).Length == 0 &&
+                              child.GetComponentsInChildren<Renderer>(true).Length == 1,
                               "unsupported-unpartitioned-geometry-" + child.name);
                         continue;
                     }
