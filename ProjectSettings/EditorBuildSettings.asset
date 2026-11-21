@@ -11,5 +11,41 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/AarisWorld/Scenes/Chunks/Aaris_ForestLookout_Detail.unity
     guid: afbb452a5ed2cbf729b4ecb43ed5b331
+  - enabled: 1
+    path: Assets/AarisWorld/Scenes/Chunks/Aaris_District_CanalMarket_Detail.unity
+    guid: 471f0a8a35bca2a1387feb53e92535c5
+  - enabled: 1
+    path: Assets/AarisWorld/Scenes/Chunks/Aaris_District_ClockTowerTown_Detail.unity
+    guid: 55244eed9a47324e6a0e42c47111b95e
+  - enabled: 1
+    path: Assets/AarisWorld/Scenes/Chunks/Aaris_District_CoastalHamlet_Detail.unity
+    guid: 5a381318b8bdba515a61965ceba637c7
+  - enabled: 1
+    path: Assets/AarisWorld/Scenes/Chunks/Aaris_District_EasternPort_Detail.unity
+    guid: f18c117994a28aaa6936a2fbf541dfbc
+  - enabled: 1
+    path: Assets/AarisWorld/Scenes/Chunks/Aaris_District_FreightDistrict_Detail.unity
+    guid: 2219d7fdc4eb4878db3af40aec1a6cbc
+  - enabled: 1
+    path: Assets/AarisWorld/Scenes/Chunks/Aaris_District_HighlandObservatory_Detail.unity
+    guid: 953189433357c0deba17f01e25aae646
+  - enabled: 1
+    path: Assets/AarisWorld/Scenes/Chunks/Aaris_District_LakesideHamlet_Detail.unity
+    guid: 43740c64e0b67968b8b705caeafd4278
+  - enabled: 1
+    path: Assets/AarisWorld/Scenes/Chunks/Aaris_District_NorthernRidgeTown_Detail.unity
+    guid: 604935ea52a6d3bca92b4434d0d65c11
+  - enabled: 1
+    path: Assets/AarisWorld/Scenes/Chunks/Aaris_District_OldVillage_Detail.unity
+    guid: c0b9a81c4a4c67f4bbbf101f1b4d9dc8
+  - enabled: 1
+    path: Assets/AarisWorld/Scenes/Chunks/Aaris_District_SoutheastLighthouse_Detail.unity
+    guid: 1bae1779101a8861280b0dd65063bb69
+  - enabled: 1
+    path: Assets/AarisWorld/Scenes/Chunks/Aaris_District_SouthernAirfield_Detail.unity
+    guid: 4243f9e9b7cc2c23792c6c87e2aea8da
+  - enabled: 1
+    path: Assets/AarisWorld/Scenes/Chunks/Aaris_District_ValleySettlement_Detail.unity
+    guid: 7b7b5de71313d00c4946f70dee7897ce
   m_configObjects: {}
   m_UseUCBPForAssetBundles: 0
