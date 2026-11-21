@@ -44,6 +44,14 @@ namespace UnityEngine
 
 namespace Aaris.MapReview
 {
+    // Production governor polls Android on a coroutine. This fixture exposes
+    // only its cached decisions to compile/test the actual admission gate.
+    internal static class AarisAndroidThermalGovernor
+    {
+        internal static bool SuspendSpeculativePrefetch;
+        internal static bool ModerateThermalPressure;
+    }
+
     public static class AarisMobileRuntime
     {
         /* GPU_POLICY */
@@ -71,6 +79,8 @@ internal static class StreamingAdmissionTests
         };
         Screen.reads = 0;
         SystemInfo.memoryReads = SystemInfo.gpuReads = Resources.requests = 0;
+        AarisAndroidThermalGovernor.SuspendSpeculativePrefetch = false;
+        AarisAndroidThermalGovernor.ModerateThermalPressure = false;
         Frame(1);
     }
     private static ResourceRequest Load(string path = "optional-model")
