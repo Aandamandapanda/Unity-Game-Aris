@@ -50,20 +50,46 @@ def check(require_native=False):
     building_names={b['name'] for b in layout['buildings']}
     names={i:d['m_Name'] for c,i,n,d in objects if n=='GameObject'}
     lods=[d for c,i,n,d in objects if n=='LODGroup' and names[d['m_GameObject']['fileID']] in building_names]
-    # One existing ForestLookout tower can be moved to a build-included
-    # additive scene; the total authored building LODs must stay at 59.
-    detail_path=ROOT/'Assets/AarisWorld/Scenes/Chunks/Aaris_ForestLookout_Detail.unity'
-    if detail_path.exists():
-        detail=documents(detail_path)
+    # All authored LOD building visuals now span native built additive
+    # scenes. The persistent bootstrap must keep every physical collider and
+    # a faithful far-LOD silhouette; counting only bootstrap LODGroups would
+    # incorrectly declare 93 real buildings missing.
+    detail_folder=ROOT/'Assets/AarisWorld/Scenes/Chunks'
+    detail_path=detail_folder/'Aaris_ForestLookout_Detail.unity'
+    district_cells=sorted(detail_folder.glob('Aaris_District_*_Detail.unity'))
+    if district_cells:assert len(district_cells)==12,'Incomplete native 12-district manifest'
+    scene_paths=([detail_path] if detail_path.exists() else [])+district_cells
+    forest_lods=0
+    all_detail_names=set()
+    for cell_path in scene_paths:
+        detail=documents(cell_path)
+        cell_ids={i for c,i,n,d in detail}
+        assert len(cell_ids)==len(detail),'Duplicate saved chunk object ID'
+        for c,i,n,d in detail:
+            for r in refs(d):
+                if r['fileID'] and not r.get('guid'):
+                    assert r['fileID'] in cell_ids,(cell_path,n,i,'Missing chunk local reference')
         detail_names={i:d['m_Name'] for c,i,n,d in detail if n=='GameObject'}
-        detail_lods=[d for c,i,n,d in detail if n=='LODGroup' and detail_names[d['m_GameObject']['fileID']] in building_names]
-        assert len(lods)==58 and len(detail_lods)==1
-        assert detail_names[detail_lods[0]['m_GameObject']['fileID']]=='ForestLookout_watchtower_01'
-        assert sum(c==64 for c,i,n,d in detail)==0,'Additive detail must not duplicate persistent physics'
-        build=documents(ROOT/'ProjectSettings/EditorBuildSettings.asset')[0][3]
-        enabled=[item['path'] for item in build['m_Scenes'] if item['enabled']]
-        assert detail_path.relative_to(ROOT).as_posix() in enabled
+        names_here=set(detail_names.values())
+        assert all_detail_names.isdisjoint(names_here),'Duplicate full detail across chunk scenes'
+        all_detail_names.update(names_here)
+        detail_lods=[d for c,i,n,d in detail
+                     if n=='LODGroup' and
+                     detail_names[d['m_GameObject']['fileID']] in building_names]
+        assert sum(c==64 for c,i,n,d in detail)==0,\
+            'Additive detail must not duplicate persistent physics'
+        if cell_path==detail_path:
+            assert len(detail_lods)==1
+            assert detail_names[detail_lods[0]['m_GameObject']['fileID']]=='ForestLookout_watchtower_01'
+            forest_lods=1
         lods+=detail_lods
+    if detail_path.exists():assert forest_lods==1
+    build=documents(ROOT/'ProjectSettings/EditorBuildSettings.asset')[0][3]
+    enabled=[item['path'] for item in build['m_Scenes'] if item['enabled']]
+    assert enabled[0]=='Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity'
+    assert len(enabled)==1+len(scene_paths)
+    assert len(set(enabled))==len(enabled)
+    assert set(enabled[1:])=={p.relative_to(ROOT).as_posix() for p in scene_paths}
     assert len(lods)==59 and all(len(d['m_LODs'])==3 for d in lods)
     assert all([l['screenRelativeHeight'] for l in d['m_LODs']]==[.22,.07,.0025] for d in lods)
     sky=next(d for c,i,n,d in documents(ROOT/'Assets/TerrainDemoScene_URP/Prefabs/Skybox/Materials/Sky.mat') if n=='Material')
