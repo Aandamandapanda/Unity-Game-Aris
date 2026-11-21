@@ -1142,6 +1142,49 @@ namespace Aaris.MapReview
             return true;
         }
 
+        // Bot pickup uses the exact same floor weapon record as player pickup.
+        // It never clones a gun, invents ammunition or desynchronizes the
+        // candidate-consumed registry. Bot callers are already time-sliced.
+        internal bool TryTakeForRival(Vector3 position, out AarisWeaponSpec acquired)
+        {
+            acquired = null;
+            if (!isActiveAndEnabled || !HasLandingAuthority || Time.timeScale <= 0f)
+                return false;
+            for (int i = active.Count - 1; i >= 0; i--)
+            {
+                AarisWeaponPickup pickup = active[i];
+                if (pickup == null || pickup.IsConsumed || pickup.State == null ||
+                    !pickup.gameObject.activeInHierarchy || IsBlockedDrop(pickup))
+                    continue;
+                if ((pickup.transform.position - position).sqrMagnitude >
+                    PickupDistance * PickupDistance) continue;
+                if (!pickup.TryReserve()) continue;
+                int id = pickup.CandidateIndex;
+                if (id >= 0)
+                {
+                    if (consumed == null || id >= consumed.Length)
+                    {
+                        pickup.ReleaseReservation();
+                        continue;
+                    }
+                    consumed[id] = true;
+                }
+                else DeleteDrop(id);
+                acquired = pickup.Spec;
+                pickup.CommitConsumed();
+                active.RemoveAt(i);
+#if UNITY_ANDROID && !UNITY_EDITOR
+                AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
+#endif
+                Destroy(pickup.gameObject);
+                if (Debug.isDebugBuild)
+                    Debug.Log("AARIS_BOT_GROUND_LOOT id=" + id +
+                        " gun=" + acquired.id);
+                return true;
+            }
+            return false;
+        }
+
         private void Update()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR

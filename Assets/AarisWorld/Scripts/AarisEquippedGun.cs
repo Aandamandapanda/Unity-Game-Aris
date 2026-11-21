@@ -90,7 +90,7 @@ namespace Aaris.MapReview
         public int Reserve { get { RefreshReload(); return reserve; } }
         public bool Reloading { get { RefreshReload(); return reloading; } }
         public string DisplayName => spec != null ? spec.displayName : "Unarmed";
-        public float ScopeFov => spec != null ? spec.adsFov : 60f;
+        public float ScopeFov => spec != null && spec.scopePower > 0 ? spec.adsFov : 60f;
         public string ModelResource => spec != null ? spec.modelResource : null;
         public AarisWeaponSpec Spec => spec;
 
@@ -622,6 +622,14 @@ namespace Aaris.MapReview
                 owner.transform, out RaycastHit closeCover);
             AarisAudioDirector.GunShot(spec.category, spec.id, muzzle);
 
+            // Bounded sight-assist is shared with the red HUD reticle; never
+            // aim through cover. Actual bullets still use the muzzle obstruction ray.
+            Vector3 shotForward = camera.transform.forward;
+            float assistCone = spec.scopePower == 4 ? 1.4f :
+                spec.scopePower == 2 ? 2.3f : 3.7f;
+            if (AarisOfflineBRDirector.TryAcquireAimTarget(camera, owner.transform,
+                spec.rangeMetres, assistCone, out Vector3 assisted))
+                shotForward = Vector3.Slerp(shotForward, assisted, .82f).normalized;
             bool impactSoundEmitted = false;
             for (int pellet = 0; pellet < spec.pellets; pellet++)
             {
@@ -629,7 +637,7 @@ namespace Aaris.MapReview
                     AarisWeaponRandom.Next01(ref spreadSeed) * 2f - 1f);
                 spread = Vector2.ClampMagnitude(spread, 1f) * spec.spreadDegrees;
                 Vector3 look = Quaternion.AngleAxis(spread.x, camera.transform.up) *
-                    Quaternion.AngleAxis(-spread.y, camera.transform.right) * camera.transform.forward;
+                    Quaternion.AngleAxis(-spread.y, camera.transform.right) * shotForward;
                 Ray aim = new Ray(camera.transform.position, look);
                 RaycastHit target = closeCover;
                 bool targetFound = muzzleBlocked || FirstExternalHit(aim, spec.rangeMetres,
@@ -677,7 +685,7 @@ namespace Aaris.MapReview
                         TriggerImpactParticles(impactPoint, impactNormal);
                         impactSoundEmitted = true;
                     }
-                    ApplyDamage(target.collider, spec.damage, owner);
+                    ApplyDamage(target.collider, spec.damage, owner, target.point);
                 }
             }
             if (cachedMotor != null) cachedMotor.ApplyWeaponRecoil(spec.recoilPitchDegrees,
@@ -688,6 +696,12 @@ namespace Aaris.MapReview
         }
 
         internal static void ApplyDamage(Collider collider, float amount, GameObject attacker)
+        {
+            ApplyDamage(collider, amount, attacker, null);
+        }
+
+        internal static void ApplyDamage(Collider collider, float amount, GameObject attacker,
+            Vector3? hitPosition)
         {
             if (collider == null) return;
             for (Transform node = collider.transform; node != null; node = node.parent)
@@ -703,7 +717,24 @@ namespace Aaris.MapReview
                     // No marker for an already defeated actor or a self-hit.
                     bool canRegister = !(damageable is AarisOfflineHealth health) ||
                         !health.IsDead;
-                    damageable.ApplyDamage(amount, attacker);
+                    bool headshot = false;
+                    float damage = amount;
+                    if (damageable is AarisOfflineHealth victim && hitPosition.HasValue)
+                    {
+                        Bounds bounds = collider.bounds;
+                        // Respect the current collision stance (standing, crouching,
+                        // prone), rather than assuming a standing 1.8m capsule.
+                        headshot = bounds.size.y > .28f && hitPosition.Value.y >=
+                            bounds.min.y + bounds.size.y * .79f;
+                        if (headshot) damage *= 1.75f;
+                        float before = victim.CurrentHealth;
+                        victim.ApplyHitDamage(damage, attacker, headshot);
+                        float actualLoss = Mathf.Max(0f, before - victim.CurrentHealth);
+                        if (actualLoss > 0f && attacker != null &&
+                            !node.IsChildOf(attacker.transform))
+                            AarisCombatFeedbackHUD.NotifyOutgoingDamage(attacker, actualLoss, headshot);
+                    }
+                    else damageable.ApplyDamage(damage, attacker);
                     if (canRegister && attacker != null &&
                         !node.IsChildOf(attacker.transform))
                         AarisWeaponHUD.NotifyHit(attacker);

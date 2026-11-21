@@ -17,13 +17,17 @@ namespace Aaris.MapReview
     [DisallowMultipleComponent, DefaultExecutionOrder(280)]
     public sealed class AarisOfflineBRDirector : MonoBehaviour
     {
-        private const int RivalCount = 6;
+        private const int RivalCount = 100;
         private const float OceanCutoff = -37.35f;
         private static readonly float[] ZoneRadii = { 1080f, 660f, 360f, 175f, 65f };
         private static readonly float[] CloseStarts = { 45f, 165f, 285f, 400f };
         private static readonly float[] CloseEnds = { 140f, 245f, 360f, 465f };
         private readonly Vector2[] centers = new Vector2[5];
         private readonly AarisOfflineRival[] rivals = new AarisOfflineRival[RivalCount];
+        private static AarisOfflineBRDirector activeDirector;
+        private static RaycastHit[] assistHits = new RaycastHit[32];
+        private AarisOfflineRival attackerOne, attackerTwo;
+        private float nextAttackerSelection;
         // Successfully populated slots stay claimed even if their rival
         // loses later: retry waves must never resurrect defeated opponents.
         private readonly bool[] populatedSlots = new bool[RivalCount];
@@ -42,6 +46,8 @@ namespace Aaris.MapReview
         private float nextDropComponentRefresh;
         private AarisOfflineMatchEnd matchEnd;
         private AarisNearbyColliders nearbyColliders;
+        private AarisWeaponLootWorld rivalLootWorld;
+        private float nextLootWorldLookup;
         private Terrain[] terrains;
         private int attemptedSlots, activeRivals, spawnedRivals;
         private float startedAt, nextSpawn, nextZoneTick, nextDamageTick, nextRingDraw;
@@ -248,6 +254,8 @@ namespace Aaris.MapReview
             director.player = actor.transform;
         }
 
+        private void Awake() { activeDirector = this; }
+
         private void Start()
         {
             if (player == null) { enabled = false; return; }
@@ -291,7 +299,7 @@ namespace Aaris.MapReview
                 // Avoid a burst of costly Humanoid imports on 2GB phones.
                 int slot = attemptedSlots++;
                 if (!populatedSlots[slot]) TrySpawnSlot(slot);
-                nextSpawn = Time.time + 0.5f;
+                nextSpawn = Time.time + 0.17f;
                 if (attemptedSlots >= RivalCount)
                 {
                     if (spawnedRivals < RivalCount &&
@@ -397,13 +405,13 @@ namespace Aaris.MapReview
         private void TrySpawnSlot(int index)
         {
             if (index < 0 || index >= RivalCount || populatedSlots[index]) return;
-            float sectorAngle = Mathf.PI * 2f * (index + 0.5f) / RivalCount;
+            // Spread actors over the full 2 km terrain; no cluster by spawn.
             for (int attempt = 0; attempt < 9; attempt++)
             {
-                float angle = sectorAngle + (float)(random.NextDouble() - .5) * .85f;
-                float distance = 72f + (float)random.NextDouble() * 80f;
-                float x = player.position.x + Mathf.Cos(angle) * distance;
-                float z = player.position.z + Mathf.Sin(angle) * distance;
+                float x = -910f + (float)random.NextDouble() * 1820f;
+                float z = -910f + (float)random.NextDouble() * 1820f;
+                float dx = x - player.position.x, dz = z - player.position.z;
+                if (dx * dx + dz * dz < 45f * 45f) continue;
                 if (!TryGetGround(x, z, out float ground)) continue;
                 Vector3 point = new Vector3(x, ground + 0.08f, z);
                 if (!SpawnClear(point)) continue;
@@ -564,8 +572,107 @@ namespace Aaris.MapReview
                 matchEnd.WinMatch();
         }
 
-        internal bool CanEngage => started && !playerHealth.IsDead &&
-            matchEnd != null && !matchEnd.IsFinished;
+        internal bool CanEngage => started && playerHealth != null &&
+            !playerHealth.IsDead && matchEnd != null && !matchEnd.IsFinished;
+
+        private void RefreshPlayerAttackers()
+        {
+            if (Time.time < nextAttackerSelection) return;
+            nextAttackerSelection = Time.time + .3f;
+            attackerOne = attackerTwo = null;
+            float first = 42f * 42f, second = first;
+            for (int i = 0; i < rivals.Length; i++)
+            {
+                AarisOfflineRival bot = rivals[i];
+                if (bot == null || !bot.IsAlive) continue;
+                float distance = (bot.transform.position - player.position).sqrMagnitude;
+                if (distance < first)
+                {
+                    attackerTwo = attackerOne; second = first;
+                    attackerOne = bot; first = distance;
+                }
+                else if (distance < second)
+                {
+                    attackerTwo = bot; second = distance;
+                }
+            }
+        }
+
+        internal bool MayAttackPlayer(AarisOfflineRival bot)
+        {
+            if (!CanEngage || bot == null) return false;
+            RefreshPlayerAttackers();
+            return bot == attackerOne || bot == attackerTwo;
+        }
+
+        internal bool TryLootForRival(Vector3 position, out AarisWeaponSpec weapon)
+        {
+            weapon = null;
+            if (rivalLootWorld == null && Time.time >= nextLootWorldLookup)
+            {
+                nextLootWorldLookup = Time.time + 5f;
+                rivalLootWorld = FindFirstObjectByType<AarisWeaponLootWorld>();
+            }
+            return rivalLootWorld != null &&
+                rivalLootWorld.TryTakeForRival(position, out weapon);
+        }
+
+        internal bool FindRivalOpponent(AarisOfflineRival self,
+            out Transform victim, out AarisOfflineHealth victimHealth)
+        {
+            victim = null; victimHealth = null;
+            float nearest = 44f * 44f;
+            for (int i = 0; i < rivals.Length; i++)
+            {
+                AarisOfflineRival bot = rivals[i];
+                if (bot == null || bot == self || !bot.IsAlive) continue;
+                float d = (bot.transform.position - self.transform.position).sqrMagnitude;
+                if (d >= nearest) continue;
+                nearest = d; victim = bot.transform; victimHealth = bot.Health;
+            }
+            return victim != null;
+        }
+
+        internal static bool TryAcquireAimTarget(Camera camera, Transform shooter,
+            float range, float coneDegrees, out Vector3 aimedDirection)
+        {
+            aimedDirection = Vector3.zero;
+            if (camera == null || shooter == null || activeDirector == null) return false;
+            Vector3 origin = camera.transform.position;
+            float threshold = Mathf.Cos(coneDegrees * Mathf.Deg2Rad);
+            AarisOfflineRival candidate = null;
+            Vector3 direction = Vector3.zero;
+            float distance = 0f;
+            for (int i = 0; i < activeDirector.rivals.Length; i++)
+            {
+                AarisOfflineRival bot = activeDirector.rivals[i];
+                if (bot == null || !bot.IsAlive) continue;
+                Vector3 delta = bot.transform.position + Vector3.up * 1.12f - origin;
+                float d = delta.magnitude;
+                if (d < 1f || d > range) continue;
+                Vector3 normalized = delta / d;
+                float alignment = Vector3.Dot(camera.transform.forward, normalized);
+                if (alignment <= threshold) continue;
+                candidate = bot; direction = normalized; distance = d;
+                threshold = alignment;
+            }
+            if (candidate == null) return false;
+            int count = AarisPhysicsHitBuffer.Raycast(new Ray(origin, direction),
+                distance + .5f, Physics.DefaultRaycastLayers, ref assistHits, 256,
+                out RaycastHit[] hits);
+            float nearest = float.PositiveInfinity;
+            Collider closest = null;
+            for (int i = 0; i < count; i++)
+            {
+                Collider collider = hits[i].collider;
+                if (collider == null || collider.transform.IsChildOf(shooter)) continue;
+                if (hits[i].distance < nearest) { nearest = hits[i].distance; closest = collider; }
+            }
+            if (closest == null || !closest.transform.IsChildOf(candidate.transform))
+                return false;
+            aimedDirection = direction;
+            return true;
+        }
 
         private void RefreshStatus(float elapsed)
         {
@@ -744,10 +851,23 @@ namespace Aaris.MapReview
         // without RaycastAll allocations when >20 cover hits overlap.
         private readonly RaycastHit[] crowdedSightHits = new RaycastHit[128];
         private float nextThink, nextAttack, verticalSpeed, turnOffset, visualBlend;
+        private Transform playerTarget;
+        private AarisOfflineHealth playerTargetHealth;
+        private GameObject visualRoot;
+        private bool visualBuilt;
+        private float nextVisualCheck, staggeredVisualDelay;
+        private int medkits = 1;
+        private float nextLootAt;
+        private AarisWeaponSpec carriedGun;
+        private int carriedMagazine;
+        private readonly Collider[] coverCandidates = new Collider[24];
+        private Vector3 coverDestination;
+        private float coverUntil, nextCoverQuery;
+        internal AarisOfflineHealth Health => health;
         // Outside the combat range, save mobile CPU by updating far capsules
         // at 10 Hz. Keep near opponents at full gameplay frame rate.
         private const float FarSimulationDistance = 90f;
-        private const float FarSimulationInterval = 0.10f;
+        private const float FarSimulationInterval = 0.35f;
         // Sparse far ticks can span two frames on a 15 FPS phone; do not
         // truncate ordinary 133 ms travel, but cap extreme app-resume hitches.
         private float nextFarSimulation, lastSimulationTime;
@@ -767,10 +887,13 @@ namespace Aaris.MapReview
         {
             owner = director;
             health = self;
-            target = victim;
-            targetHealth = victimHealth;
+            target = null;
+            targetHealth = null;
+            playerTarget = victim;
+            playerTargetHealth = victimHealth;
             capsule = GetComponent<CharacterController>();
             health.Died += OnDied;
+            health.Damaged += OnDamaged;
             turnOffset = UnityEngine.Random.Range(-12f, 12f);
             avoidanceHandedness = UnityEngine.Random.value < 0.5f ? 1f : -1f;
             lastSimulationTime = Time.time;
@@ -778,16 +901,20 @@ namespace Aaris.MapReview
 #if UNITY_ANDROID && !UNITY_EDITOR
             // Six authored rival slots at distinct phases of the same 100ms cycle.
             // No additional physics ticks, bots, timers or per-frame allocations.
-            farSimulationPhase = encounterSlot * (FarSimulationInterval / 6f);
+            farSimulationPhase = encounterSlot * (FarSimulationInterval / 100f);
 #endif
-            BuildVisual();
+            staggeredVisualDelay = Time.time + encounterSlot * 0.015f;
+            nextLootAt = Time.time + encounterSlot * 0.035f + 1f;
+            if ((transform.position - victim.position).sqrMagnitude < 100f * 100f)
+                BuildVisual();
         }
 
         private void BuildVisual()
         {
             // The bundled CC0 humanoid is shared by all rivals. Avoid six
             // full hero-quality tactical rigs on entry-level 2GB devices.
-            if (owner == null) return;
+            if (owner == null || visualBuilt) return;
+            visualBuilt = true;
             owner.ResolveRivalAssets(out GameObject prefab, out Avatar cachedAvatar,
                 out AnimationClip idle, out AnimationClip run);
             if (prefab == null)
@@ -803,6 +930,7 @@ namespace Aaris.MapReview
                 return;
             }
             visual.name = "Rival humanoid visual";
+            visualRoot = visual;
             foreach (var c in visual.GetComponentsInChildren<Collider>(true))
             { c.enabled = false; Destroy(c); }
             foreach (var body in visual.GetComponentsInChildren<Rigidbody>(true))
@@ -875,6 +1003,7 @@ namespace Aaris.MapReview
             // bundled realistic models. It adds no secondary physics collider.
             var fallback = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             fallback.name = "Rival fallback silhouette";
+            visualRoot = fallback;
             fallback.transform.SetParent(transform, false);
             fallback.transform.localPosition = Vector3.up * .90f;
             fallback.transform.localScale = new Vector3(.62f, .9f, .62f);
@@ -906,36 +1035,83 @@ namespace Aaris.MapReview
         private void Update()
         {
             if (owner == null || !owner.CanEngage || !IsAlive ||
-                target == null || targetHealth == null || targetHealth.IsDead) return;
-            Vector3 diff = target.position - transform.position;
-            diff.y = 0f;
-            float distance = diff.magnitude;
-            // Distant rivals cannot see (42m) or attack (38m) the player.
-            // Keep collision, cover avoidance and zone retreat simulated,
-            // without paying for every far-away physics query each frame.
-            bool farSimulation = distance >= FarSimulationDistance;
-            if (farSimulation && Time.time < nextFarSimulation) return;
-            // Preserve the native-frame near response, including low-FPS pacing.
+                playerTarget == null || playerTargetHealth == null || playerTargetHealth.IsDead)
+                return;
+            float now = Time.time;
+            float playerDistance = Vector3.Distance(playerTarget.position, transform.position);
+            bool farSimulation = playerDistance >= FarSimulationDistance;
+            if (farSimulation && now < nextFarSimulation) return;
+            if (playerDistance < 76f && now >= nextLootAt)
+            {
+                nextLootAt = now + 3.5f;
+                if (owner.TryLootForRival(transform.position, out AarisWeaponSpec found))
+                {
+                    carriedGun = found;
+                    carriedMagazine = found.magazineSize;
+                }
+            }
             float dt = Mathf.Min(Time.deltaTime, 0.12f);
             if (farSimulation)
-                dt = Mathf.Clamp(Time.time - lastSimulationTime, 0f, 0.22f);
-            lastSimulationTime = Time.time;
+                dt = Mathf.Clamp(now - lastSimulationTime, 0f, 0.46f);
+            lastSimulationTime = now;
             if (farSimulation)
             {
 #if UNITY_ANDROID && !UNITY_EDITOR
-                // Anchor to stable phase slots; scheduling relative to each
-                // observed tick allows bots to converge onto the same frame.
-                float nextTick = (Mathf.Floor((Time.time - farSimulationPhase) /
+                float nextTick = (Mathf.Floor((now - farSimulationPhase) /
                     FarSimulationInterval) + 1f) * FarSimulationInterval + farSimulationPhase;
-                // Float rounding at exact boundaries must not run a bot twice
-                // in consecutive frames and create a mini catch-up burst.
-                if (nextTick <= Time.time + 0.0001f)
-                    nextTick += FarSimulationInterval;
+                if (nextTick <= now + 0.0001f) nextTick += FarSimulationInterval;
                 nextFarSimulation = nextTick;
 #else
-                nextFarSimulation = Time.time + FarSimulationInterval;
+                nextFarSimulation = now + FarSimulationInterval;
 #endif
             }
+            // Only instantiate expensive humanoids for local encounters.
+            // Keep remote logical fighters alive and avoid imported visual spikes.
+            if (now >= nextVisualCheck && now >= staggeredVisualDelay)
+            {
+                nextVisualCheck = now + .55f;
+                if (!visualBuilt && playerDistance < 105f)
+                {
+                    bool permitted = true;
+#if UNITY_ANDROID && !UNITY_EDITOR
+                    permitted = AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild();
+#endif
+                    if (permitted) BuildVisual();
+                }
+                if (visualRoot != null)
+                {
+                    bool visible = playerDistance < 155f;
+                    if (visualRoot.activeSelf != visible)
+                        visualRoot.SetActive(visible);
+                }
+            }
+            if (now >= nextThink)
+            {
+                nextThink = now + .35f + UnityEngine.Random.Range(0f, .14f);
+                if (owner.MayAttackPlayer(this))
+                {
+                    target = playerTarget;
+                    targetHealth = playerTargetHealth;
+                }
+                else if (!owner.FindRivalOpponent(this, out target, out targetHealth))
+                {
+                    target = null;
+                    targetHealth = null;
+                }
+                canSee = target != null && targetHealth != null && !targetHealth.IsDead &&
+                    (target.position - transform.position).sqrMagnitude < 42f * 42f && HasSight();
+                if (!canSee) turnOffset += UnityEngine.Random.Range(-35f, 35f);
+                if (medkits > 0 && !canSee && health.CurrentHealth < 90f)
+                {
+                    medkits--;
+                    health.RestoreHealth(45f);
+                }
+            }
+            bool hasTarget = target != null && targetHealth != null && !targetHealth.IsDead;
+            Vector3 diff = hasTarget ? target.position - transform.position :
+                Quaternion.Euler(0f, turnOffset, 0f) * transform.forward * 25f;
+            diff.y = 0f;
+            float distance = diff.magnitude;
             Vector3 toward = distance > .01f ? diff / distance : transform.forward;
             if (Time.time >= nextThink)
             {
@@ -948,12 +1124,17 @@ namespace Aaris.MapReview
             // Nearby player contact retains combat priority; distant bots
             // should not ignore a closing circle just to chase the player.
             bool retreat = outsideSafeArea && (distance > 23f || !canSee);
-            Vector3 travelDirection = retreat ? retreatDirection : toward;
-            float moveSpeed = retreat ? 3.2f :
+            bool seekingCover = !retreat && now < coverUntil &&
+                (coverDestination - transform.position).sqrMagnitude > 1f;
+            Vector3 coverHeading = coverDestination - transform.position;
+            coverHeading.y = 0f;
+            Vector3 travelDirection = seekingCover ? coverHeading.normalized :
+                retreat ? retreatDirection : toward;
+            float moveSpeed = seekingCover ? 3.45f : retreat ? 3.2f :
                 distance > 12f ? 2.85f : distance < 7f ? -1.15f : 0f;
             Vector3 desired = Quaternion.Euler(0f, turnOffset, 0f) *
                 travelDirection * moveSpeed;
-            if (canSee && !retreat) desired *= .23f; // Hold to fire without skating.
+            if (canSee && !retreat && !seekingCover) desired *= .23f; // Hold to fire without skating.
             Vector3 displacement = desired * dt;
             if (displacement.sqrMagnitude > 0.000001f &&
                 owner.WouldCrossInactiveCover(transform.position, displacement))
@@ -1000,14 +1181,31 @@ namespace Aaris.MapReview
                 float wanted = Mathf.Clamp01(groundSpeed / 2.9f);
                 UpdateAnimationBlend(wanted, dt);
             }
-            if (canSee && distance <= 38f &&
+            if (hasTarget && canSee && distance <= 38f &&
+                (target != playerTarget || owner.MayAttackPlayer(this)) &&
                 Vector3.Dot(transform.forward, toward) > .84f &&
                 Time.time >= nextAttack && HasSight())
             {
-                // Offline damage contract, not real-world ballistics.
-                nextAttack = Time.time + UnityEngine.Random.Range(1.15f, 1.65f);
-                AarisAudioDirector.GunShot("SMG", "Rival", transform.position + Vector3.up);
-                targetHealth.ApplyDamage(6f, gameObject);
+                // Physical loot changes the bot's magazine, fire interval,
+                // damage and gunshot sound; no runtime gun model clone required.
+                if (carriedGun != null && carriedMagazine == 0)
+                {
+                    carriedMagazine = carriedGun.magazineSize;
+                    nextAttack = Time.time + carriedGun.reloadSeconds;
+                    return;
+                }
+                float fireInterval = carriedGun != null
+                    ? Mathf.Clamp(carriedGun.ShotInterval * 3f, .35f, 2.4f)
+                    : 1.15f;
+                nextAttack = Time.time + fireInterval +
+                    UnityEngine.Random.Range(.1f, .35f);
+                if (carriedGun != null) carriedMagazine--;
+                AarisAudioDirector.GunShot(carriedGun != null ? carriedGun.category : "SMG",
+                    carriedGun != null ? carriedGun.id : "Rival",
+                    transform.position + Vector3.up);
+                float damage = carriedGun != null
+                    ? Mathf.Clamp(carriedGun.damage * .23f, 4f, 26f) : 6f;
+                targetHealth.ApplyDamage(damage, gameObject);
             }
         }
 
@@ -1061,6 +1259,43 @@ namespace Aaris.MapReview
             return closest != null && closest.transform.IsChildOf(target);
         }
 
+        private void OnDamaged(AarisOfflineHealth victim, float loss, GameObject attacker)
+        {
+            if (attacker == null || attacker == gameObject) return;
+            turnOffset += avoidanceHandedness * 65f;
+            nextThink = 0f;
+            // Scan cover once per damage burst, not every pellet. Distant
+            // house collision checks still constrain the actual movement.
+            if (Time.time < nextCoverQuery) return;
+            nextCoverQuery = Time.time + 1.5f;
+            Vector3 away = transform.position - attacker.transform.position;
+            away.y = 0f;
+            if (away.sqrMagnitude < .01f) return;
+            away.Normalize();
+            int count = Physics.OverlapSphereNonAlloc(transform.position + Vector3.up,
+                11f, coverCandidates, Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.Ignore);
+            float best = float.PositiveInfinity;
+            for (int i = 0; i < count; i++)
+            {
+                Collider obstacle = coverCandidates[i];
+                if (obstacle == null || obstacle is TerrainCollider ||
+                    obstacle is CharacterController ||
+                    obstacle.transform.IsChildOf(transform)) continue;
+                Bounds bounds = obstacle.bounds;
+                if (bounds.size.y < .9f || bounds.size.y > 18f) continue;
+                Vector3 candidate = bounds.center + away *
+                    (Mathf.Max(bounds.extents.x, bounds.extents.z) + 1.1f);
+                candidate.y = transform.position.y;
+                float cost = (candidate - transform.position).sqrMagnitude;
+                if (cost < 2f || cost > 160f || cost >= best) continue;
+                best = cost;
+                coverDestination = candidate;
+            }
+            if (best < float.PositiveInfinity)
+                coverUntil = Time.time + 2f;
+        }
+
         internal void TakeZoneDamage(float amount)
         {
             if (health != null && !health.IsDead) health.ApplyDamage(amount, null);
@@ -1075,7 +1310,11 @@ namespace Aaris.MapReview
 
         private void OnDestroy()
         {
-            if (health != null) health.Died -= OnDied;
+            if (health != null)
+            {
+                health.Died -= OnDied;
+                health.Damaged -= OnDamaged;
+            }
             if (graph.IsValid()) graph.Destroy();
         }
     }

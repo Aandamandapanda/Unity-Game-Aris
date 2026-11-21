@@ -38,7 +38,9 @@ class RivalVisualPrewarm(unittest.TestCase):
                         update.index("Begin();"))
 
     def test_character_quality_and_gameplay_rules_unchanged(self):
-        self.assertIn("private const int RivalCount = 6;", SOURCE)
+        self.assertIn("private const int RivalCount = 100;", SOURCE)
+        self.assertIn("if (!visualBuilt && playerDistance < 105f)", SOURCE)
+        self.assertIn("AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild()", SOURCE)
         self.assertIn("private const int MaximumSpawnPasses = 4;", SOURCE)
         self.assertIn("Resources.LoadAll<Avatar>(path)", SOURCE)
         self.assertIn("HasRenderableRivalPrefab(candidate)", SOURCE)

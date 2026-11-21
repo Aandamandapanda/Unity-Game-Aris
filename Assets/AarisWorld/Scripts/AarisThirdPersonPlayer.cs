@@ -265,6 +265,7 @@ namespace Aaris.MapReview
             if (!enabled) return;
             AarisBattleHUD.EnsureForPlayer(this);
             AarisWeaponHUD.EnsureForPlayer(this);
+            AarisCombatFeedbackHUD.EnsureForPlayer(this);
             AarisWeaponLootWorld.EnsureForPlayer(this);
             AarisVehicleWorld.EnsureForPlayer(this);
             AarisCharacterVisual.EnsureForPlayer(this);

@@ -189,7 +189,10 @@ def run():
     assert catalog["weapons"][4]["pellets"] > 1
     dmr = catalog["weapons"][5]
     assert dmr["category"] == "DMR" and dmr["automatic"] is False
-    assert dmr["magazineSize"] == 20 and dmr["adsFov"] == 26
+    assert dmr["magazineSize"] == 20 and dmr["adsFov"] == 15
+    assert dmr["scopePower"] == 4
+    assert catalog["weapons"][1]["scopePower"] == 2
+    assert catalog["weapons"][0]["scopePower"] == 1
     assert dmr["modelResource"] == catalog["weapons"][2]["modelResource"]
     loot = json.loads((ROOT / "Assets/Resources/AarisWeapons/loot_candidates.json").read_text())
     assert loot["schema"] == 1 and loot["sizeMetres"] == 2000
