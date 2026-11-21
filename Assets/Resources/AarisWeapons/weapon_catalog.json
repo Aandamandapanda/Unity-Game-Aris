@@ -47,7 +47,7 @@
       "spreadDegrees": 0.8,
       "recoilPitchDegrees": 1.05,
       "reloadSeconds": 2.5,
-      "adsFov": 40,
+      "adsFov": 30,
       "weight": 27,
       "handOffset": {
         "x": 0,
@@ -79,7 +79,7 @@
       "spreadDegrees": 1.1,
       "recoilPitchDegrees": 1.8,
       "reloadSeconds": 2.75,
-      "adsFov": 38,
+      "adsFov": 30,
       "weight": 15,
       "handOffset": {
         "x": 0,
@@ -111,7 +111,7 @@
       "spreadDegrees": 0.1,
       "recoilPitchDegrees": 4.5,
       "reloadSeconds": 3.1,
-      "adsFov": 14,
+      "adsFov": 15,
       "weight": 8,
       "handOffset": {
         "x": 0,
@@ -175,7 +175,7 @@
       "spreadDegrees": 0.34,
       "recoilPitchDegrees": 1.75,
       "reloadSeconds": 2.85,
-      "adsFov": 26,
+      "adsFov": 15,
       "weight": 7,
       "handOffset": {
         "x": 0,
