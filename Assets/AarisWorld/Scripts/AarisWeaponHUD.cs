@@ -18,6 +18,8 @@ namespace Aaris.MapReview
         private readonly List<Text> captions = new List<Text>(6);
         private AarisWeaponInventory inventory;
         private Text nearbyGunHint;
+        private RectTransform hitMarker;
+        private float hitMarkerUntil;
         private Transform nearbyGunOwner;
         private float nextNearbyGunHintAt;
         private Canvas canvas;
@@ -76,6 +78,7 @@ namespace Aaris.MapReview
             Add("SWAP", new Vector2(-141f, -137f), () => inventory.SwapWeapons());
             Add("FIST", new Vector2(-57f, -137f), () => inventory.ToggleFists());
             AddNearbyGunHint();
+            CreateHitMarker(go.transform);
             AarisHudGlyphs.ApplyCanvasShader(go.transform);
             UpdateArea(true);
         }
@@ -111,6 +114,44 @@ namespace Aaris.MapReview
             hitRects.Add(rect);
             buttons.Add(button);
             captions.Add(text);
+        }
+
+        // Prebuilt overlay: no object creation, raycast or GC during firing.
+        private void CreateHitMarker(Transform parent)
+        {
+            var root = new GameObject("Confirmed damage marker", typeof(RectTransform));
+            root.transform.SetParent(parent, false);
+            hitMarker = root.GetComponent<RectTransform>();
+            hitMarker.anchorMin = hitMarker.anchorMax = new Vector2(.5f, .5f);
+            hitMarker.pivot = new Vector2(.5f, .5f);
+            hitMarker.anchoredPosition = Vector2.zero;
+            hitMarker.sizeDelta = new Vector2(26f, 26f);
+            for (int i = 0; i < 2; i++)
+            {
+                var stroke = new GameObject("Hit stroke", typeof(RectTransform), typeof(Image));
+                stroke.transform.SetParent(hitMarker, false);
+                var rect = stroke.GetComponent<RectTransform>();
+                rect.anchorMin = rect.anchorMax = new Vector2(.5f, .5f);
+                rect.anchoredPosition = Vector2.zero;
+                rect.sizeDelta = new Vector2(19f, 3f);
+                rect.localRotation = Quaternion.Euler(0f, 0f, i == 0 ? 45f : -45f);
+                var graphic = stroke.GetComponent<Image>();
+                graphic.color = new Color(1f, .86f, .45f, .95f);
+                graphic.raycastTarget = false;
+            }
+            root.SetActive(false);
+        }
+
+        public static void NotifyHit(GameObject attacker)
+        {
+            if (instance == null || attacker == null ||
+                instance.inventory == null ||
+                attacker != instance.inventory.gameObject ||
+                instance.hitMarker == null ||
+                !instance.isActiveAndEnabled || Time.timeScale <= 0f) return;
+            instance.hitMarkerUntil = Time.unscaledTime + 0.13f;
+            if (!instance.hitMarker.gameObject.activeSelf)
+                instance.hitMarker.gameObject.SetActive(true);
         }
 
         private void AddNearbyGunHint()
@@ -195,6 +236,9 @@ namespace Aaris.MapReview
         {
             if (canvas == null || !canvas.isActiveAndEnabled) return;
             UpdateArea(false);
+            if (hitMarker != null && hitMarker.gameObject.activeSelf &&
+                Time.unscaledTime >= hitMarkerUntil)
+                hitMarker.gameObject.SetActive(false);
             // Script/domain reload can leave this HUD partially rebuilt for one frame.
             // Never index a caption until all six authored controls exist.
             if (captions.Count < 6) return;
@@ -269,6 +313,7 @@ namespace Aaris.MapReview
 
         private void OnDisable()
         {
+            if (hitMarker != null) hitMarker.gameObject.SetActive(false);
             if (instance == this) instance = null;
         }
     }

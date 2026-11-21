@@ -63,6 +63,7 @@ namespace Aaris.MapReview
         private Transform muzzleFlashTransform;
         private float muzzleFlashUntil;
         private static Material sharedMuzzleFlashMaterial;
+        private static Mesh sharedMuzzleFlameMesh;
         // One recycled shell visual per weapon. This deliberately avoids
         // Rigidbody/collider shell storms at 780 RPM on 2 GB Android phones.
         private Renderer casingRenderer;
@@ -129,7 +130,8 @@ namespace Aaris.MapReview
         private static Material MuzzleFlashMaterial()
         {
             if (sharedMuzzleFlashMaterial != null) return sharedMuzzleFlashMaterial;
-            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
             if (shader == null) shader = Shader.Find("Unlit/Color");
             if (shader == null) return null;
             var material = new Material(shader)
@@ -137,7 +139,7 @@ namespace Aaris.MapReview
                 name = "Aaris Shared Muzzle Flash",
                 enableInstancing = true
             };
-            Color flash = new Color(4.2f, 1.45f, 0.22f, 0.88f);
+            Color flash = new Color(2.6f, 1.24f, 0.24f, 1f);
             if (material.HasProperty("_BaseColor"))
                 material.SetColor("_BaseColor", flash);
             if (material.HasProperty("_Color"))
@@ -159,25 +161,67 @@ namespace Aaris.MapReview
             return material;
         }
 
+        // Shared ten-vertex geometry replaces an opaque-looking yellow quad.
+        // Built once; no mesh, texture, particle or object allocation per shot.
+        private static Mesh MuzzleFlameMesh()
+        {
+            if (sharedMuzzleFlameMesh != null) return sharedMuzzleFlameMesh;
+            const int spokes = 8;
+            var vertices = new Vector3[spokes + 2];
+            var colors = new Color32[spokes + 2];
+            var triangles = new int[spokes * 6];
+            vertices[0] = Vector3.zero; // bright barrel core
+            vertices[1] = new Vector3(0f, 0f, 1.7f); // transparent flame tip
+            colors[0] = new Color32(255, 248, 182, 220);
+            colors[1] = new Color32(255, 72, 12, 0);
+            for (int i = 0; i < spokes; i++)
+            {
+                float angle = i * Mathf.PI * 2f / spokes;
+                float radius = (i & 1) == 0 ? .54f : .29f;
+                vertices[i + 2] = new Vector3(
+                    Mathf.Cos(angle) * radius,
+                    Mathf.Sin(angle) * radius,
+                    .31f + (i % 3) * .05f);
+                colors[i + 2] = (i & 1) == 0
+                    ? new Color32(255, 155, 33, 160)
+                    : new Color32(255, 224, 105, 205);
+                int next = 2 + (i + 1) % spokes;
+                int t = i * 6;
+                triangles[t] = 0;
+                triangles[t + 1] = i + 2;
+                triangles[t + 2] = next;
+                triangles[t + 3] = 1;
+                triangles[t + 4] = next;
+                triangles[t + 5] = i + 2;
+            }
+            var mesh = new Mesh { name = "Aaris Shared Tapered Muzzle Flame" };
+            mesh.vertices = vertices;
+            mesh.colors32 = colors;
+            mesh.triangles = triangles;
+            mesh.RecalculateBounds();
+            mesh.RecalculateNormals();
+            sharedMuzzleFlameMesh = mesh;
+            return mesh;
+        }
+
         private void EnsureMuzzleFlash()
         {
             if (muzzleFlashRenderer != null || spec == null) return;
             Material material = MuzzleFlashMaterial();
             if (material == null) return;
-            GameObject flash = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            GameObject flash = new GameObject("Aaris Pooled Muzzle Flash",
+                typeof(MeshFilter), typeof(MeshRenderer));
+            flash.GetComponent<MeshFilter>().sharedMesh = MuzzleFlameMesh();
             flash.layer = gameObject.layer;
             flash.name = "Aaris Pooled Muzzle Flash";
             flash.transform.SetParent(transform, false);
             flash.transform.localPosition =
                 new Vector3(0f, 0f, spec.presentationLengthMetres * 0.62f);
             flash.transform.localRotation = Quaternion.identity;
-            Collider flashCollider = flash.GetComponent<Collider>();
-            if (flashCollider != null)
-            {
-                flashCollider.enabled = false;
-                Destroy(flashCollider);
-            }
-            muzzleFlashRenderer = flash.GetComponent<Renderer>();
+            // A disabled visual is also included in bounds QA and culling.
+            // Never leave a 1.7-unit mesh at the default unit scale.
+            flash.transform.localScale = Vector3.one * 0.115f;
+            muzzleFlashRenderer = flash.GetComponent<MeshRenderer>();
             muzzleFlashTransform = flash.transform;
             muzzleFlashRenderer.sharedMaterial = material;
             muzzleFlashRenderer.shadowCastingMode =
@@ -197,7 +241,7 @@ namespace Aaris.MapReview
             // Unity's scalar RNG only; no temporary meshes or particles.
             float stretch = UnityEngine.Random.Range(0.80f, 1.22f);
             muzzleFlashTransform.localScale =
-                new Vector3(size * stretch, size, 1f);
+                new Vector3(size * stretch, size * stretch, size * stretch);
             muzzleFlashTransform.localRotation =
                 Quaternion.Euler(0f, 0f, UnityEngine.Random.Range(0f, 360f));
             muzzleFlashUntil = Time.time +
@@ -656,7 +700,13 @@ namespace Aaris.MapReview
                 {
                     if (!(damageScratch[i] is IAarisDamageable damageable)) continue;
                     damageScratch.Clear();
+                    // No marker for an already defeated actor or a self-hit.
+                    bool canRegister = !(damageable is AarisOfflineHealth health) ||
+                        !health.IsDead;
                     damageable.ApplyDamage(amount, attacker);
+                    if (canRegister && attacker != null &&
+                        !node.IsChildOf(attacker.transform))
+                        AarisWeaponHUD.NotifyHit(attacker);
                     return;
                 }
             }

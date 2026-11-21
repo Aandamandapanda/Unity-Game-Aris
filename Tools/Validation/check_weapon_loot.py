@@ -262,7 +262,11 @@ def run():
     # configuration/equip time, never inside the automatic-fire hot path.
     assert "private Renderer muzzleFlashRenderer;" in gun_cs
     assert "private static Material sharedMuzzleFlashMaterial;" in gun_cs
-    assert "GameObject.CreatePrimitive(PrimitiveType.Quad)" in gun_cs
+    # Native Play Mode confirmed that the old quad looked like an opaque yellow rectangle.
+    # The replacement uses one pooled tapered mesh, constructed outside the fire hot path.
+    assert "MuzzleFlameMesh()" in gun_cs
+    assert 'typeof(MeshFilter), typeof(MeshRenderer)' in gun_cs
+    assert "GameObject.CreatePrimitive(PrimitiveType.Quad)" not in gun_cs
     assert "muzzleFlashRenderer.enabled = false;" in gun_cs
     assert "muzzleFlashUntil = Time.time +" in gun_cs
     assert "TriggerMuzzleFlash();" in gun_cs
