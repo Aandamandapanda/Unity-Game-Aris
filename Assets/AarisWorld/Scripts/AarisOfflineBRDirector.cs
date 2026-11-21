@@ -17,13 +17,17 @@ namespace Aaris.MapReview
     [DisallowMultipleComponent, DefaultExecutionOrder(280)]
     public sealed class AarisOfflineBRDirector : MonoBehaviour
     {
-        private const int RivalCount = 6;
+        private const int RivalCount = 100;
         private const float OceanCutoff = -37.35f;
         private static readonly float[] ZoneRadii = { 1080f, 660f, 360f, 175f, 65f };
         private static readonly float[] CloseStarts = { 45f, 165f, 285f, 400f };
         private static readonly float[] CloseEnds = { 140f, 245f, 360f, 465f };
         private readonly Vector2[] centers = new Vector2[5];
         private readonly AarisOfflineRival[] rivals = new AarisOfflineRival[RivalCount];
+        private static AarisOfflineBRDirector activeDirector;
+        private static RaycastHit[] assistHits = new RaycastHit[32];
+        private AarisOfflineRival attackerOne, attackerTwo;
+        private float nextAttackerSelection;
         // Successfully populated slots stay claimed even if their rival
         // loses later: retry waves must never resurrect defeated opponents.
         private readonly bool[] populatedSlots = new bool[RivalCount];
@@ -248,6 +252,8 @@ namespace Aaris.MapReview
             director.player = actor.transform;
         }
 
+        private void Awake() { activeDirector = this; }
+
         private void Start()
         {
             if (player == null) { enabled = false; return; }
@@ -291,7 +297,7 @@ namespace Aaris.MapReview
                 // Avoid a burst of costly Humanoid imports on 2GB phones.
                 int slot = attemptedSlots++;
                 if (!populatedSlots[slot]) TrySpawnSlot(slot);
-                nextSpawn = Time.time + 0.5f;
+                nextSpawn = Time.time + 0.17f;
                 if (attemptedSlots >= RivalCount)
                 {
                     if (spawnedRivals < RivalCount &&
@@ -397,13 +403,13 @@ namespace Aaris.MapReview
         private void TrySpawnSlot(int index)
         {
             if (index < 0 || index >= RivalCount || populatedSlots[index]) return;
-            float sectorAngle = Mathf.PI * 2f * (index + 0.5f) / RivalCount;
+            // Spread actors over the full 2 km terrain; no cluster by spawn.
             for (int attempt = 0; attempt < 9; attempt++)
             {
-                float angle = sectorAngle + (float)(random.NextDouble() - .5) * .85f;
-                float distance = 72f + (float)random.NextDouble() * 80f;
-                float x = player.position.x + Mathf.Cos(angle) * distance;
-                float z = player.position.z + Mathf.Sin(angle) * distance;
+                float x = -910f + (float)random.NextDouble() * 1820f;
+                float z = -910f + (float)random.NextDouble() * 1820f;
+                float dx = x - player.position.x, dz = z - player.position.z;
+                if (dx * dx + dz * dz < 45f * 45f) continue;
                 if (!TryGetGround(x, z, out float ground)) continue;
                 Vector3 point = new Vector3(x, ground + 0.08f, z);
                 if (!SpawnClear(point)) continue;
@@ -564,8 +570,95 @@ namespace Aaris.MapReview
                 matchEnd.WinMatch();
         }
 
-        internal bool CanEngage => started && !playerHealth.IsDead &&
-            matchEnd != null && !matchEnd.IsFinished;
+        internal bool CanEngage => started && playerHealth != null &&
+            !playerHealth.IsDead && matchEnd != null && !matchEnd.IsFinished;
+
+        private void RefreshPlayerAttackers()
+        {
+            if (Time.time < nextAttackerSelection) return;
+            nextAttackerSelection = Time.time + .3f;
+            attackerOne = attackerTwo = null;
+            float first = 42f * 42f, second = first;
+            for (int i = 0; i < rivals.Length; i++)
+            {
+                AarisOfflineRival bot = rivals[i];
+                if (bot == null || !bot.IsAlive) continue;
+                float distance = (bot.transform.position - player.position).sqrMagnitude;
+                if (distance < first)
+                {
+                    attackerTwo = attackerOne; second = first;
+                    attackerOne = bot; first = distance;
+                }
+                else if (distance < second)
+                {
+                    attackerTwo = bot; second = distance;
+                }
+            }
+        }
+
+        internal bool MayAttackPlayer(AarisOfflineRival bot)
+        {
+            if (!CanEngage || bot == null) return false;
+            RefreshPlayerAttackers();
+            return bot == attackerOne || bot == attackerTwo;
+        }
+
+        internal bool FindRivalOpponent(AarisOfflineRival self,
+            out Transform victim, out AarisOfflineHealth victimHealth)
+        {
+            victim = null; victimHealth = null;
+            float nearest = 44f * 44f;
+            for (int i = 0; i < rivals.Length; i++)
+            {
+                AarisOfflineRival bot = rivals[i];
+                if (bot == null || bot == self || !bot.IsAlive) continue;
+                float d = (bot.transform.position - self.transform.position).sqrMagnitude;
+                if (d >= nearest) continue;
+                nearest = d; victim = bot.transform; victimHealth = bot.Health;
+            }
+            return victim != null;
+        }
+
+        internal static bool TryAcquireAimTarget(Camera camera, Transform shooter,
+            float range, float coneDegrees, out Vector3 aimedDirection)
+        {
+            aimedDirection = Vector3.zero;
+            if (camera == null || shooter == null || activeDirector == null) return false;
+            Vector3 origin = camera.transform.position;
+            float threshold = Mathf.Cos(coneDegrees * Mathf.Deg2Rad);
+            AarisOfflineRival candidate = null;
+            Vector3 direction = Vector3.zero;
+            float distance = 0f;
+            for (int i = 0; i < activeDirector.rivals.Length; i++)
+            {
+                AarisOfflineRival bot = activeDirector.rivals[i];
+                if (bot == null || !bot.IsAlive) continue;
+                Vector3 delta = bot.transform.position + Vector3.up * 1.12f - origin;
+                float d = delta.magnitude;
+                if (d < 1f || d > range) continue;
+                Vector3 normalized = delta / d;
+                float alignment = Vector3.Dot(camera.transform.forward, normalized);
+                if (alignment <= threshold) continue;
+                candidate = bot; direction = normalized; distance = d;
+                threshold = alignment;
+            }
+            if (candidate == null) return false;
+            int count = AarisPhysicsHitBuffer.Raycast(new Ray(origin, direction),
+                distance + .5f, Physics.DefaultRaycastLayers, ref assistHits, 256,
+                out RaycastHit[] hits);
+            float nearest = float.PositiveInfinity;
+            Collider closest = null;
+            for (int i = 0; i < count; i++)
+            {
+                Collider collider = hits[i].collider;
+                if (collider == null || collider.transform.IsChildOf(shooter)) continue;
+                if (hits[i].distance < nearest) { nearest = hits[i].distance; closest = collider; }
+            }
+            if (closest == null || !closest.transform.IsChildOf(candidate.transform))
+                return false;
+            aimedDirection = direction;
+            return true;
+        }
 
         private void RefreshStatus(float elapsed)
         {
