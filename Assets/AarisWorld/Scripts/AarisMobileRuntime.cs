@@ -1167,6 +1167,7 @@ namespace Aaris.MapReview
             // -1 means Android Thermal API unavailable / not sampled yet.
             // 0..6 maps to Android PowerManager thermal status.
             public int androidThermalStatus = -1;
+            public float androidForecastThermalHeadroom = -1f;
             public bool speculativePrefetchSuspended, moderateThermalPressure;
             public int optionalStreamImportSettleDeferrals, optionalStreamPressureDeferredFrames;
             // Render-thread native upload budget, not asset quality or an FPS claim.
@@ -1331,6 +1332,7 @@ namespace Aaris.MapReview
                 AarisMobileStreamingFrameGate.ImportDeferredAttempts;
             s.optionalStreamConstrained = AarisMobileStreamingFrameGate.IsConstrainedDevice();
             s.androidThermalStatus = AarisAndroidThermalGovernor.ThermalStatus;
+            s.androidForecastThermalHeadroom = AarisAndroidThermalGovernor.ForecastThermalHeadroom;
             s.speculativePrefetchSuspended = AarisAndroidThermalGovernor.SuspendSpeculativePrefetch;
             s.moderateThermalPressure = AarisAndroidThermalGovernor.ModerateThermalPressure;
             s.optionalStreamImportSettleDeferrals =
