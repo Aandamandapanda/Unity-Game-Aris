@@ -843,6 +843,9 @@ namespace Aaris.MapReview
         private bool visualBuilt;
         private float nextVisualCheck, staggeredVisualDelay;
         private int medkits = 1;
+        private readonly Collider[] coverCandidates = new Collider[24];
+        private Vector3 coverDestination;
+        private float coverUntil, nextCoverQuery;
         internal AarisOfflineHealth Health => health;
         // Outside the combat range, save mobile CPU by updating far capsules
         // at 10 Hz. Keep near opponents at full gameplay frame rate.
@@ -1094,12 +1097,17 @@ namespace Aaris.MapReview
             // Nearby player contact retains combat priority; distant bots
             // should not ignore a closing circle just to chase the player.
             bool retreat = outsideSafeArea && (distance > 23f || !canSee);
-            Vector3 travelDirection = retreat ? retreatDirection : toward;
-            float moveSpeed = retreat ? 3.2f :
+            bool seekingCover = !retreat && now < coverUntil &&
+                (coverDestination - transform.position).sqrMagnitude > 1f;
+            Vector3 coverHeading = coverDestination - transform.position;
+            coverHeading.y = 0f;
+            Vector3 travelDirection = seekingCover ? coverHeading.normalized :
+                retreat ? retreatDirection : toward;
+            float moveSpeed = seekingCover ? 3.45f : retreat ? 3.2f :
                 distance > 12f ? 2.85f : distance < 7f ? -1.15f : 0f;
             Vector3 desired = Quaternion.Euler(0f, turnOffset, 0f) *
                 travelDirection * moveSpeed;
-            if (canSee && !retreat) desired *= .23f; // Hold to fire without skating.
+            if (canSee && !retreat && !seekingCover) desired *= .23f; // Hold to fire without skating.
             Vector3 displacement = desired * dt;
             if (displacement.sqrMagnitude > 0.000001f &&
                 owner.WouldCrossInactiveCover(transform.position, displacement))
@@ -1213,6 +1221,36 @@ namespace Aaris.MapReview
             if (attacker == null || attacker == gameObject) return;
             turnOffset += avoidanceHandedness * 65f;
             nextThink = 0f;
+            // Scan cover once per damage burst, not every pellet. Distant
+            // house collision checks still constrain the actual movement.
+            if (Time.time < nextCoverQuery) return;
+            nextCoverQuery = Time.time + 1.5f;
+            Vector3 away = transform.position - attacker.transform.position;
+            away.y = 0f;
+            if (away.sqrMagnitude < .01f) return;
+            away.Normalize();
+            int count = Physics.OverlapSphereNonAlloc(transform.position + Vector3.up,
+                11f, coverCandidates, Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.Ignore);
+            float best = float.PositiveInfinity;
+            for (int i = 0; i < count; i++)
+            {
+                Collider obstacle = coverCandidates[i];
+                if (obstacle == null || obstacle is TerrainCollider ||
+                    obstacle is CharacterController ||
+                    obstacle.transform.IsChildOf(transform)) continue;
+                Bounds bounds = obstacle.bounds;
+                if (bounds.size.y < .9f || bounds.size.y > 18f) continue;
+                Vector3 candidate = bounds.center + away *
+                    (Mathf.Max(bounds.extents.x, bounds.extents.z) + 1.1f);
+                candidate.y = transform.position.y;
+                float cost = (candidate - transform.position).sqrMagnitude;
+                if (cost < 2f || cost > 160f || cost >= best) continue;
+                best = cost;
+                coverDestination = candidate;
+            }
+            if (best < float.PositiveInfinity)
+                coverUntil = Time.time + 2f;
         }
 
         internal void TakeZoneDamage(float amount)
