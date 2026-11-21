@@ -1170,6 +1170,7 @@ namespace Aaris.MapReview
             public float androidForecastThermalHeadroom = -1f;
             public bool speculativePrefetchSuspended, moderateThermalPressure;
             public int optionalStreamImportSettleDeferrals, optionalStreamPressureDeferredFrames;
+            public int optionalStreamThermalSpacingDeferrals;
             // Render-thread native upload budget, not asset quality or an FPS claim.
             public int asyncUploadTimeSliceMs;
             public int assetUnloadStartedCount, assetUnloadCompletedCount, assetUnloadSuppressedCount;
@@ -1339,6 +1340,8 @@ namespace Aaris.MapReview
                 AarisMobileStreamingFrameGate.ImportSettleDeferredAttempts;
             s.optionalStreamPressureDeferredFrames =
                 AarisMobileStreamingFrameGate.PressureDeferredFrames;
+            s.optionalStreamThermalSpacingDeferrals =
+                AarisMobileStreamingFrameGate.ThermalSpacingDeferredAttempts;
             if (GraphicsSettings.currentRenderPipeline is UniversalRenderPipelineAsset pipeline)
             {
                 s.renderScale = pipeline.renderScale;
