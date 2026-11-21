@@ -42,6 +42,27 @@ class AndroidAudioBootTest(unittest.TestCase):
         self.assertEqual(body.count("Resources.LoadAsync<AudioClip>"), 1)
         self.assertNotIn("Shader.WarmupAllShaders", body)
 
+    def test_essential_audio_native_import_fence(self):
+        essential = SOURCE.split("private IEnumerator LoadAndroidAudioAcrossFrames()", 1)[1].split(
+            "// Only one optional audio request integrates per frame", 1
+        )[0]
+        self.assertIn("AarisMobileStreamingFrameGate.TrackEssentialAudioLoad(request);", essential)
+        self.assertLess(
+            essential.index("Resources.LoadAsync<AudioClip>"),
+            essential.index("TrackEssentialAudioLoad(request);")
+        )
+        gate = (ROOT / "Assets/AarisWorld/Scripts/AarisMobileStreamingFrameGate.cs").read_text()
+        self.assertIn("internal static void TrackEssentialAudioLoad(ResourceRequest request)", gate)
+        self.assertIn("private static bool IsEssentialAudioImportBusy()", gate)
+        self.assertIn("if (!essentialAudioLoadInFlight.isDone)", gate)
+        self.assertIn("essentialAudioCompletionFrame = Time.frameCount;", gate)
+        self.assertEqual(gate.count("if (IsEssentialAudioImportBusy()) return false;"), 2)
+        self.assertIn("essentialAudioLoadInFlight = null;", gate)
+        self.assertIn("essentialAudioCompletionFrame = -1;", gate)
+        harness = (ROOT / "Tools/Validation/StreamingAdmissionTests.cs").read_text()
+        self.assertIn("private static void EssentialAudioFence()", harness)
+        self.assertIn("ImportFence(); EssentialAudioFence(); AdditiveSceneFence();", harness)
+
     def test_optional_loads_are_staggered_after_base(self):
         body = SOURCE.split("private IEnumerator LoadOptionalFoleyAcrossFrames()", 1)[1].split("#endif", 1)[0]
         self.assertEqual(body.count("yield return LoadOptionalFoleyAsset("), 5)

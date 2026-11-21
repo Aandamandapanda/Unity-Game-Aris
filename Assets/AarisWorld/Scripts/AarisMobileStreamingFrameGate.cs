@@ -59,6 +59,11 @@ namespace Aaris.MapReview
         // One shared native import slot across optional model prewarmers.
         // Completed requests release the slot even when a coroutine stops.
         private static ResourceRequest optionalLoadInFlight;
+        // Essential audio loads are direct and cannot wait for cosmetics.
+        // One base sound request at a time, shared with optional native work.
+        private static ResourceRequest essentialAudioLoadInFlight;
+        private static int essentialAudioCompletionFrame = -1;
+        internal static int EssentialAudioDeferredAttempts { get; private set; }
         // Additive scene activation may consume native main-thread time after
         // asynchronous IO. Never pause allowSceneActivation (Unity's queue).
         // This persistent list allocates once and preserves overlapping streamers.
@@ -176,6 +181,41 @@ namespace Aaris.MapReview
             return true;
         }
 
+        // Audio retains its direct native load path. Optional model builders
+        // respect the ongoing essential sound import and its observed native
+        // completion frame, without lowering image or audio quality.
+        internal static void TrackEssentialAudioLoad(ResourceRequest request)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (request == null || !IsConstrainedDevice()) return;
+            essentialAudioLoadInFlight = request;
+            claimedFrame = Time.frameCount;
+#endif
+        }
+
+        private static bool IsEssentialAudioImportBusy()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (!IsConstrainedDevice()) return false;
+            if (essentialAudioLoadInFlight != null)
+            {
+                if (!essentialAudioLoadInFlight.isDone)
+                {
+                    EssentialAudioDeferredAttempts++;
+                    return true;
+                }
+                essentialAudioLoadInFlight = null;
+                essentialAudioCompletionFrame = Time.frameCount;
+            }
+            if (essentialAudioCompletionFrame == Time.frameCount)
+            {
+                EssentialAudioDeferredAttempts++;
+                return true;
+            }
+#endif
+            return false;
+        }
+
         // Unity's Android frame pacing uses integer divisors of display refresh.
         // A 60-FPS request on 90 Hz is effectively 45 FPS, not 60 FPS.
         // Sample display timing only every 120 frames or on a target-FPS change;
@@ -280,6 +320,9 @@ namespace Aaris.MapReview
             essentialAircraftFrame = -1;
             RigReservedDeferredAttempts = 0;
             optionalLoadInFlight = null;
+            essentialAudioLoadInFlight = null;
+            essentialAudioCompletionFrame = -1;
+            EssentialAudioDeferredAttempts = 0;
             additiveLoads.Clear();
             additiveIntegrationFrame = -1;
             AdditiveSceneDeferredAttempts = 0;
@@ -435,6 +478,7 @@ namespace Aaris.MapReview
             if (IsEssentialRigFrame() || IsAssetCleanupPending()) return false;
             if (IsNativeTeardownSettleFrame()) return false;
             if (IsAdditiveSceneLoadBusy()) return false;
+            if (IsEssentialAudioImportBusy()) return false;
             if (!IsConstrainedDevice()) return true;
             int frame = Time.frameCount;
             // An admitted hierarchy/import or an observed native completion
@@ -479,6 +523,7 @@ namespace Aaris.MapReview
                 AdditiveSceneDeferredAttempts++;
                 return false;
             }
+            if (IsEssentialAudioImportBusy()) return false;
             if (IsConstrainedDevice())
             {
                 // Background IO can still finalize native objects on the
