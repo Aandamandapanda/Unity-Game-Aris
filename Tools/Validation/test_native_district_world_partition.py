@@ -96,7 +96,13 @@ class NativeDistrictPartitionTests(unittest.TestCase):
                 for root in children:
                     types = scene.component_types[root]
                     if 64 not in types and 205 not in types:
-                        self.assertEqual(name, "SouthernAirfield")
+                        self.assertIn(name, ("SouthernAirfield", "CanalMarket"))
+                        child_name = scene.names[root]
+                        self.assertTrue(
+                            (name == "CanalMarket" and child_name == "CanalWater_VisualOnly") or
+                            (name == "SouthernAirfield" and (
+                                child_name == "Airfield_240m_Runway" or
+                                child_name.startswith("RunwayCentre_"))))
                         continue
                     self.assertIn(64, types)
                     self.assertIn(205, types)
