@@ -134,6 +134,19 @@ class ForestLookoutPilotSourceTests(unittest.TestCase):
         self.assertLess(s.index('obstacleSlot.objectReferenceValue = equivalent;'),
                         s.index('UnityEngine.Object.DestroyImmediate(c.originalCollider);'))
 
+    def test_latest_main_thermal_scheduler_does_not_block_urgent_chunk(self):
+        # The OS thermal governor landed after this native pilot was authored.
+        # A visible, player-near detail cell must retain native urgency.
+        gate = (ROOT / "Assets/AarisWorld/Scripts/AarisMobileStreamingFrameGate.cs").read_text()
+        streamer = (ROOT / "Assets/AarisWorld/Scripts/AarisAdditiveChunkStreamer.cs").read_text()
+        self.assertIn("internal static bool TryClaimUrgentSceneLoad()", gate)
+        self.assertIn("return TryClaimOptionalModelBuild(true);", gate)
+        self.assertIn("if (!urgentScene && thermalGap > 0", gate)
+        self.assertIn("loadIsUrgent = distance <= entrySquared;", streamer)
+        self.assertIn("if (!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad()) return;", streamer)
+        self.assertIn("AarisAndroidThermalGovernor.SuspendSpeculativePrefetch", streamer)
+        self.assertIn("AarisAndroidThermalGovernor.ModerateThermalPressure", streamer)
+
     def test_last_lod_is_restored_with_no_render_quality_tuning(self):
         s = EDITOR.read_text()
         p = RUNTIME.read_text()
