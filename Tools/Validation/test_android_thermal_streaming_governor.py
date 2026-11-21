@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Android ADPF thermal streaming regression. Source contracts, not handset FPS."""
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+SRC = ROOT / "Assets/AarisWorld/Scripts"
+THERMAL = (SRC / "AarisAndroidThermalGovernor.cs").read_text()
+RUNTIME = (SRC / "AarisMobileRuntime.cs").read_text()
+WORLD = (SRC / "AarisAdditiveChunkStreamer.cs").read_text()
+CARS = (SRC / "AarisVehicleWorld.cs").read_text()
+META = (SRC / "AarisAndroidThermalGovernor.cs.meta").read_text()
+
+
+def thermal_policy(statuses):
+    # Exact small decision-state mirror of ObserveStatus in production.
+    cooldown = 0
+    suspend = False
+    results = []
+    for status in statuses:
+        if status < 0 or status > 6:
+            results.append(suspend)
+            continue
+        if status >= 3:
+            suspend = True
+            cooldown = 0
+        elif status >= 2:
+            cooldown = 0
+        elif suspend:
+            cooldown += 1
+            if cooldown >= 3:
+                suspend = False
+                cooldown = 0
+        results.append(suspend)
+    return results
+
+
+class AndroidThermalStreamingTests(unittest.TestCase):
+    def test_thermal_api_is_android_only_and_rate_limited(self):
+        self.assertIn("#if UNITY_ANDROID && !UNITY_EDITOR", THERMAL)
+        self.assertIn('new AndroidJavaClass("android.os.Build$VERSION")', THERMAL)
+        self.assertIn('version.GetStatic<int>("SDK_INT") < 29', THERMAL)
+        self.assertIn('new AndroidJavaClass("com.unity3d.player.UnityPlayer")', THERMAL)
+        self.assertIn('activity.Call<AndroidJavaObject>("getSystemService", "power")', THERMAL)
+        self.assertIn('powerManager.Call<int>("getCurrentThermalStatus")', THERMAL)
+        self.assertIn("private const float SampleIntervalSeconds = 5f;", THERMAL)
+        self.assertIn("yield return delay;", THERMAL)
+        for forbidden in ("void Update(", "void FixedUpdate(", "InvokeRepeating(", "AndroidJavaProxy"):
+            self.assertNotIn(forbidden, THERMAL)
+
+    def test_cold_start_and_lifecycle_are_safe(self):
+        start = RUNTIME.split("private IEnumerator Start()", 1)[1]
+        self.assertLess(start.index("yield return null;"), start.index(
+            "gameObject.AddComponent<AarisAndroidThermalGovernor>();"))
+        self.assertIn("if (GetComponent<AarisAndroidThermalGovernor>() == null)", start)
+        self.assertIn("[DisallowMultipleComponent]", THERMAL)
+        self.assertIn("if (active != null && active != this)", THERMAL)
+        self.assertIn("private void OnDestroy()", THERMAL)
+        self.assertIn("powerManager.Dispose();", THERMAL)
+        self.assertIn("if (active == this)", THERMAL)
+        self.assertIn("RuntimeInitializeLoadType.SubsystemRegistration", THERMAL)
+        self.assertIn("ThermalStatus = -1;", THERMAL)
+        self.assertIn("SuspendSpeculativePrefetch = false;", THERMAL)
+        self.assertRegex(META, r"(?m)^guid: [0-9a-f]{32}$")
+
+    def test_thermal_pressure_has_hysteresis_and_recovers(self):
+        self.assertIn("private const int SevereStatus = 3;", THERMAL)
+        self.assertIn("private const int CoolRecoverySamples = 3;", THERMAL)
+        self.assertIn("if (status < 0 || status > 6) return;", THERMAL)
+        self.assertIn("if (status >= SevereStatus)", THERMAL)
+        self.assertIn("if (status >= 2)", THERMAL)
+        self.assertIn("++coolSamples >= CoolRecoverySamples", THERMAL)
+        self.assertEqual(thermal_policy([0, 2, 3, 2, 1, 0, 1, 3, 0, 0, 0]),
+                         [False, False, True, True, True, True, False, True, True, True, False])
+        self.assertEqual(thermal_policy([6, -1, 7, 2, 0, 0, 0]),
+                         [True, True, True, True, True, True, False])
+
+    def test_unavailable_thermal_api_fails_open_without_crash_loop(self):
+        self.assertIn("if (!InitializePowerManager()) yield break;", THERMAL)
+        self.assertIn("if (!SampleThermalStatus()) yield break;", THERMAL)
+        self.assertIn("DisableUnsupported(ex);", THERMAL)
+        self.assertIn("enabled = false;", THERMAL)
+        self.assertIn('Debug.LogWarning("AARIS_THERMAL_UNAVAILABLE: "', THERMAL)
+        self.assertNotIn("while (true)", THERMAL)
+
+    def test_native_chunk_prefetch_only_near_geometry_unchanged(self):
+        android_block = WORLD.split("if (unloadCell >= 0", 1)[1].split("#endif", 1)[0]
+        self.assertIn("if (!loadIsUrgent &&", android_block)
+        self.assertIn("AarisAndroidThermalGovernor.SuspendSpeculativePrefetch", android_block)
+        self.assertIn("AarisAndroidThermalGovernor.ModerateThermalPressure", android_block)
+        self.assertIn("speculativeResidentCount >= 1", android_block)
+        self.assertIn("speculativeResidentCount >= maxSpeculativeResidentCells", android_block)
+        self.assertIn("if (!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild()) return;", android_block)
+        # Original actual-position policy always overrides optional thermal prefetch.
+        self.assertIn("loadIsUrgent = distance <= entrySquared;", WORLD)
+        self.assertIn("if (unloadCell >= 0 && (loadCell < 0 || !loadIsUrgent))", WORLD)
+        self.assertIn("SceneManager.LoadSceneAsync(path, LoadSceneMode.Additive)", WORLD)
+        self.assertIn("SceneManager.UnloadSceneAsync(path)", WORLD)
+
+    def test_predicted_car_import_is_the_only_vehicle_path_modified(self):
+        self.assertIn("if (closestType < 0 && predictedPrewarmPosition != playerPosition &&\n"
+                      "                !AarisAndroidThermalGovernor.SuspendSpeculativePrefetch)", CARS)
+        self.assertIn("if (closestType >= 0) StartAuthoredBodyPrewarm(closestType);", CARS)
+        self.assertIn("if (!Build(record, pos))", CARS)
+        self.assertIn("TryResolvePlanned(record, out Vector3 pos)", CARS)
+        self.assertIn("FarthestReplaceableParkedCar(", CARS)
+
+    def test_diagnostics_report_real_status_not_inferred_temperature(self):
+        self.assertIn("public int androidThermalStatus = -1;", RUNTIME)
+        self.assertIn("public bool speculativePrefetchSuspended, moderateThermalPressure;", RUNTIME)
+        self.assertIn("s.androidThermalStatus = AarisAndroidThermalGovernor.ThermalStatus;", RUNTIME)
+        self.assertIn("s.speculativePrefetchSuspended = AarisAndroidThermalGovernor.SuspendSpeculativePrefetch;", RUNTIME)
+        self.assertIn("s.moderateThermalPressure = AarisAndroidThermalGovernor.ModerateThermalPressure;", RUNTIME)
+
+    def test_no_visual_quality_or_terrain_mutations(self):
+        for token in ("renderScale", "shadowDistance =", "treeDistance =",
+                      "detailObjectDistance =", "msaaSampleCount =", "SetResolution(",
+                      "TerrainData.", "qualityLevel", "Destroy(",
+                      "Resources.UnloadUnusedAssets"):
+            self.assertNotIn(token, THERMAL)
+        self.assertNotIn("PlayerSettings.", THERMAL)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
