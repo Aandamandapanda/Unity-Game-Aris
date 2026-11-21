@@ -91,10 +91,31 @@ class WorldPartitionReadiness(unittest.TestCase):
         native_pilot = (
             ROOT / "Assets/AarisWorld/Scenes/Chunks/Aaris_ForestLookout_Detail.unity"
         ).is_file()
-        # Exactly one authored 3-object LOD tower relocates to a detail cell,
-        # leaving a 2-object persistent collision+far-silhouette replacement.
-        self.assertEqual(report["game_objects"], 877 if native_pilot else 878)
-        self.assertEqual(report["lod_groups"], 127 if native_pilot else 128)
+        # Scene count is not a gameplay object budget after native authoring.
+        # The complete Unity world is now spread over the persistent bootstrap
+        # and 12 real additive district scene assets. Verify their combined
+        # authored hierarchy instead of pretending that the missing 93
+        # buildings were deleted or silently accepting a smaller world.
+        folder = ROOT / "Assets/AarisWorld/Scenes/Chunks"
+        district_scenes = sorted(folder.glob("Aaris_District_*_Detail.unity"))
+        if district_scenes:
+            self.assertTrue(native_pilot)
+            self.assertEqual(len(district_scenes), 12)
+            cells = [mod.WorldScene(path.read_text()) for path in district_scenes]
+            self.assertEqual(sum(len(cell.names) for cell in cells), 279)
+            self.assertEqual(sum(sum(block.kind == 205 for block in cell.blocks.values())
+                                 for cell in cells), 93)
+            self.assertEqual(sum(sum(block.kind == 64 for block in cell.blocks.values())
+                                 for cell in cells), 0)
+            self.assertEqual(report["game_objects"], 784)
+            self.assertEqual(report["game_objects"] +
+                             sum(len(cell.names) for cell in cells), 1063)
+            self.assertEqual(report["lod_groups"], 34)
+        else:
+            # Before migrating the district visuals, the one ForestLookout
+            # native pilot is the only authored additive detail scene.
+            self.assertEqual(report["game_objects"], 877 if native_pilot else 878)
+            self.assertEqual(report["lod_groups"], 127 if native_pilot else 128)
         self.assertEqual(report["mesh_colliders"], 95)
         self.assertEqual(report["box_colliders"], 200)
         self.assertEqual(len(report["districts"]), 13)
@@ -102,9 +123,13 @@ class WorldPartitionReadiness(unittest.TestCase):
         self.assertTrue(all(not d["direct_move_safe"] for d in report["districts"]))
         self.assertTrue(all(d["mesh_colliders"] > 0
                             for d in report["districts"]))
-        self.assertTrue(all(d["lod_groups"] > 0
-                            for d in report["districts"]
-                            if not (native_pilot and d["name"] == "ForestLookout")))
+        if district_scenes:
+            self.assertTrue(all(d["lod_groups"] == 0
+                                for d in report["districts"]))
+        else:
+            self.assertTrue(all(d["lod_groups"] > 0
+                                for d in report["districts"]
+                                if not (native_pilot and d["name"] == "ForestLookout")))
         if native_pilot:
             lookout = next(d for d in report["districts"]
                            if d["name"] == "ForestLookout")
