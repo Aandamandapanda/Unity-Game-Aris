@@ -37,11 +37,18 @@ namespace Aaris.MapReview
 
         private void Awake() => current = maximumHealth;
 
+        // Generic explosions, zone damage and body hits do not consume helmets.
         public void ApplyDamage(float amount, GameObject attacker)
+        {
+            ApplyHitDamage(amount, attacker, false);
+        }
+
+        public void ApplyHitDamage(float amount, GameObject attacker, bool headshot)
         {
             if (dead || float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0f) return;
             float previous = current;
-            float absorbed = Mathf.Min(helmetDurability, amount * helmetProtection);
+            float absorbed = headshot
+                ? Mathf.Min(helmetDurability, amount * helmetProtection) : 0f;
             helmetDurability = Mathf.Max(0f, helmetDurability - absorbed);
             current = Mathf.Max(0f, current - (amount - absorbed));
             // Publish fatality before notifying HUD/AI health observers:
