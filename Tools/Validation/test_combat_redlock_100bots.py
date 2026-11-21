@@ -101,7 +101,7 @@ class CombatEndToEndContract(unittest.TestCase):
         self.assertIn("private const float RivalHuntRadius = 110f;", BOTS)
         self.assertIn("float nearest = RivalHuntRadius * RivalHuntRadius;", BOTS)
         self.assertIn("(target.position - transform.position).sqrMagnitude < 42f * 42f && HasSight()", BOTS)
-        self.assertIn("distance <= 38f", BOTS)
+        self.assertIn("distance <= (carriedGun == null ? 2.25f : 38f)", BOTS)
         # Far and near/visual gates use squared distances, no per-frame sqrt.
         self.assertIn("float playerDistanceSqr =", BOTS)
         self.assertIn("playerDistanceSqr < 76f * 76f", BOTS)
@@ -139,6 +139,20 @@ class CombatEndToEndContract(unittest.TestCase):
         self.assertIn("bot == rejectedFirst || bot == rejectedSecond", BOTS)
         self.assertIn("if (attempt == 0) rejectedFirst = candidate;", BOTS)
         self.assertIn("closest.transform.IsChildOf(candidate.transform)", BOTS)
+
+    def test_unarmed_bots_use_contact_melee_without_phantom_gunfire(self):
+        attack = BOTS.split("if (hasTarget && canSee &&", 1)[1].split(
+            "private void UpdateAnimationBlend", 1)[0]
+        self.assertIn("distance <= (carriedGun == null ? 2.25f : 38f)", attack)
+        self.assertIn("AarisAudioDirector.Punch(transform.position + Vector3.up)", attack)
+        self.assertIn("AarisAudioDirector.GunShot(carriedGun.category, carriedGun.id,", attack)
+        self.assertNotIn('carriedGun.id : "Rival"', attack)
+        self.assertNotIn('carriedGun.category : "SMG"', attack)
+        self.assertIn("carriedGun == null ? (distance > 1.7f ? 2.85f : 0f)", BOTS)
+        self.assertIn("&& carriedGun != null)", BOTS)
+        self.assertIn("(target != playerTarget || owner.MayAttackPlayer(this))", attack)
+        self.assertLess(2.25, 38.0)
+        self.assertLess(1.7, 2.25)
 
     def test_real_loot_ownership_and_ammo(self):
         self.assertIn("internal bool TryTakeForRival", LOOT)
