@@ -564,14 +564,20 @@ PYREPORT
   exit 30
 fi
 python3 - "$BASE" <<'PY'
-import json,pathlib,sys,hashlib,zipfile
+import json,pathlib,sys,hashlib,zipfile,re
 root=pathlib.Path(sys.argv[1])
 p=root/"Build/AarisGame.apk"
 j=root/"build-report.json"
 try:
     d=json.loads(j.read_text())
     assert d["status"]=="passed" and d["terrainTiles"]==4
-    assert d["buildTarget"]=="Android" and d["sceneCount"]==1
+    build_scenes=pathlib.Path("ProjectSettings/EditorBuildSettings.asset").read_text()
+    included=re.findall(r"(?m)^\s*- enabled: 1\s*\n\s+path: (Assets/[^\n]+\.unity)\s*$",build_scenes)
+    assert len(included)>=2
+    assert included[0]=="Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity"
+    assert included[1]=="Assets/AarisWorld/Scenes/Chunks/Aaris_ForestLookout_Detail.unity"
+    assert all(pathlib.Path(path).is_file() for path in included)
+    assert d["buildTarget"]=="Android" and d["sceneCount"]==len(included)
     assert p.is_file() and 100000<p.stat().st_size<2_000_000_000
     with zipfile.ZipFile(p) as z:
         names=set(z.namelist())
