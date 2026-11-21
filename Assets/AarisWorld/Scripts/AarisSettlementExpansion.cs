@@ -340,6 +340,11 @@ namespace Aaris.MapReview
                     }
 
 #if UNITY_ANDROID && !UNITY_EDITOR
+                    // Terrain, tree and overlap probes ran during site validation.
+                    // Put the ensuing native prefab creation on another rendered
+                    // frame, without gating essential world/tree clearance work.
+                    // Keep every authored landmark and its original visual LODs.
+                    yield return null;
                     // Site validation never consumes an optional build slot.
                     // Only a fully valid house/watchtower admission competes
                     // with cars, ground loot, motorcycles and medical visuals.
