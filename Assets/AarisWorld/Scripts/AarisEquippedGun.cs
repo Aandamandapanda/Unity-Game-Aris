@@ -656,7 +656,13 @@ namespace Aaris.MapReview
                 {
                     if (!(damageScratch[i] is IAarisDamageable damageable)) continue;
                     damageScratch.Clear();
+                    // No marker for an already defeated actor or a self-hit.
+                    bool canRegister = !(damageable is AarisOfflineHealth health) ||
+                        !health.IsDead;
                     damageable.ApplyDamage(amount, attacker);
+                    if (canRegister && attacker != null &&
+                        !node.IsChildOf(attacker.transform))
+                        AarisWeaponHUD.NotifyHit(attacker);
                     return;
                 }
             }

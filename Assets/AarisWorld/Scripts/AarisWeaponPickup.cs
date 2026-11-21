@@ -210,9 +210,12 @@ namespace Aaris.MapReview
                 beacon.endColor = new Color(0.35f, 0.9f, 1f, 0.04f);
                 beacon.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 beacon.receiveShadows = false;
+                beacon.alignment = LineAlignment.View;
+                beacon.enabled = false; // camera/range validation first
             }
-            // Share the main camera reference; never search the scene every frame.
             beaconObserver = FindBeaconCamera();
+            nextBeaconVisibilityCheck = Time.unscaledTime +
+                Mathf.Abs(index % 9) * 0.05f;
             activePickups.Add(this);
             return true;
         }
@@ -233,8 +236,8 @@ namespace Aaris.MapReview
                 {
                     float rangeSq = (beaconObserver.transform.position -
                         transform.position).sqrMagnitude;
-                    bool show = beacon.enabled ? rangeSq < 36f * 36f :
-                        rangeSq < 31f * 31f;
+                    bool show = beacon.enabled ? rangeSq < 42f * 42f :
+                        rangeSq < 36f * 36f;
                     if (beacon.enabled != show) beacon.enabled = show;
                 }
                 else if (beacon.enabled)
@@ -291,6 +294,7 @@ namespace Aaris.MapReview
         private void OnDisable()
         {
             activePickups.Remove(this);
+            if (beacon != null) beacon.enabled = false;
             // Beacon material is shared and owned by the global cache.
         }
     }
@@ -363,12 +367,24 @@ namespace Aaris.MapReview
             // later re-streamed weapons. Preserve original URP/Unlit preference
             // and Sprites fallback when the current pipeline is unavailable.
             if (shared != null) return shared;
-            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
             if (shader == null) shader = Shader.Find("Sprites/Default");
+            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
             if (shader == null) return null;
             shared = new Material(shader) { name = "Aaris Loot Beacon Shared" };
+            if (shared.HasProperty("_Surface")) shared.SetFloat("_Surface", 1f);
+            if (shared.HasProperty("_Blend")) shared.SetFloat("_Blend", 0f);
+            if (shared.HasProperty("_SrcBlend")) shared.SetFloat("_SrcBlend",
+                (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (shared.HasProperty("_DstBlend")) shared.SetFloat("_DstBlend",
+                (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (shared.HasProperty("_ZWrite")) shared.SetFloat("_ZWrite", 0f);
+            shared.SetOverrideTag("RenderType", "Transparent");
+            shared.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            shared.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
             if (shared.HasProperty("_BaseColor"))
                 shared.SetColor("_BaseColor", Color.white);
+            if (shared.HasProperty("_Color")) shared.SetColor("_Color", Color.white);
             return shared;
         }
     }
