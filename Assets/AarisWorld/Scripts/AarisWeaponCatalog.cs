@@ -19,6 +19,10 @@ namespace Aaris.MapReview
         // Keep physical presentation inertia separate so changing gun feel never
         // silently changes spawn distribution.
         public float reloadSeconds, adsFov, weight;
+        // Authored optical tiers: 0 = iron/hip, 1 = normal, 2 = 2x, 4 = 4x.
+        public int scopePower;
+        public string ScopeLabel => scopePower == 4 ? "4X" : scopePower == 2 ? "2X" :
+            scopePower == 1 ? "NORMAL" : "NO SCOPE";
         public float handlingMassKg = 3.6f;
         public Vector3 handOffset = new Vector3(0.02f, 0f, 0.02f);
         public Vector3 handRotation = new Vector3(0f, 90f, 0f);
@@ -38,6 +42,7 @@ namespace Aaris.MapReview
             recoilPitchDegrees >= 0f && recoilPitchDegrees <= 20f &&
             pellets >= 1 && pellets <= 16 && reloadSeconds >= 0.1f &&
             reloadSeconds <= 12f && adsFov >= 8f && adsFov <= 65f &&
+            (scopePower == 0 || scopePower == 1 || scopePower == 2 || scopePower == 4) &&
             weight > 0f && handlingMassKg >= 2.0f && handlingMassKg <= 8.0f &&
             handScale > 0f && handScale <= 12f &&
             presentationLengthMetres >= 0.48f && presentationLengthMetres <= 1.4f;
