@@ -71,6 +71,32 @@ class SharedStreamingAdmission(unittest.TestCase):
         self.assertEqual(body.count("if (!" + CLAIM + ") return true;"), 2)
         self.assertIn("if (buildAttempts >= modelBuildBudget)", body)
 
+    def test_retired_ground_loot_uses_native_teardown_admission(self):
+        # Six far visual releases retain their original budget, with one
+        # reservation per refresh before the first native Destroy.
+        refresh = LOOT.split("private bool RefreshPickups(", 1)[1].split(
+            "private bool StreamNearby(", 1)[0]
+        self.assertIn("if (unloaded >= MaximumUnloadsPerRefresh) continue;", refresh)
+        self.assertIn("if (unloaded == 0)", refresh)
+        self.assertEqual(refresh.count("ReserveNativeTeardownFrame();"), 1)
+        self.assertLess(refresh.index("ReserveNativeTeardownFrame();"),
+                        refresh.index("Destroy(pickup.gameObject);"))
+        self.assertIn("#if UNITY_ANDROID && !UNITY_EDITOR", refresh)
+
+        pickup = LOOT.split("private bool TryTake(", 1)[1].split(
+            "private void Update()", 1)[0]
+        self.assertIn("pickup.CommitConsumed();", pickup)
+        self.assertLess(pickup.index("pickup.CommitConsumed();"),
+                        pickup.index("ReserveNativeTeardownFrame();"))
+        self.assertLess(pickup.index("ReserveNativeTeardownFrame();"),
+                        pickup.index("Destroy(pickup.gameObject);"))
+        self.assertIn("inventory.TryPickup(pickup.State", pickup)
+        self.assertIn("#if UNITY_ANDROID && !UNITY_EDITOR", pickup)
+        fixture = (ROOT / "Tools/Validation/StreamingAdmissionTests.cs").read_text()
+        self.assertIn("private static void LootTeardownFence()", fixture)
+        self.assertIn("CleanupRigAndReset(); LootTeardownFence();", fixture)
+        self.assertIn('Configure(8192, "Adreno 730");', fixture)
+
     def test_starter_loot_not_delayed_by_optional_slot(self):
         starter = LOOT.split("private void EnsureStarterLoot(", 1)[1]
         self.assertNotIn(CLAIM, starter.split("private ", 1)[0])

@@ -46,8 +46,18 @@ class OptionalAssetAdmission(unittest.TestCase):
     def test_completed_vehicle_request_is_not_lost_on_busy_frame(self):
         chunk = CARS.split("private void PumpAuthoredBodyLoads()", 1)[1].split(
             "private bool StartAuthoredBodyPrewarm(", 1)[0]
-        self.assertLess(chunk.index("if (!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild())"),
-                        chunk.index("authoredBodyRequests[i] = null;"))
+        # The first bodyRequests[i]=null is the already admitted wheel
+        # branch, not the pending body-import branch. Scope them separately.
+        wheel = chunk.split("if (authoredBodiesAwaitingWheels[i] != null)", 1)[1].split(
+            "#endif", 1)[0]
+        self.assertLess(wheel.index("!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild()"),
+                        wheel.index("CommitAuthoredBody(i, authoredBodiesAwaitingWheels[i],"))
+        self.assertLess(wheel.index("CommitAuthoredBody(i, authoredBodiesAwaitingWheels[i],"),
+                        wheel.index("authoredBodyRequests[i] = null;"))
+        body = chunk.split("var request = authoredBodyRequests[i];", 1)[1].split(
+            "var item = vehicleTypes[i];", 1)[0]
+        self.assertLess(body.index("if (!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild())"),
+                        body.index("authoredBodyRequests[i] = null;"))
         self.assertLess(chunk.index("if (fallback == null) continue;"),
                         chunk.index("authoredBodyRequests[i] = fallback;"))
         self.assertIn("else\n                {\n                    authoredBodyRequests[i] = null;", chunk)
