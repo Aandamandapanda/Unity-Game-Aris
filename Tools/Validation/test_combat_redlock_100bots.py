@@ -17,6 +17,19 @@ CAT = json.loads((ROOT / "Assets/Resources/AarisWeapons/weapon_catalog.json").re
 
 
 class CombatEndToEndContract(unittest.TestCase):
+    def test_red_lock_uses_physical_muzzle_path(self):
+        self.assertIn("MuzzlePathOpenTo(shooter, candidate.transform, closestPoint)", BOTS)
+        self.assertIn("new Ray(anchor, shooter.forward), 0.24f", BOTS)
+        self.assertIn("new Ray(muzzle, to / distance)", BOTS)
+        self.assertIn("first.transform.IsChildOf(victim)", BOTS)
+        self.assertIn("ref muzzleAssistHits, 256", BOTS)
+        self.assertIn("collider.transform.IsChildOf(shooter)", BOTS)
+        # Camera peeks over 1.4m wall, but the 1m barrel hits it.
+        camera = 2.0 + (1.2 - 2.0) * (5.0 + 2.0) / (20.0 + 2.0)
+        barrel = 1.0 + (1.2 - 1.0) * (5.0 - 0.0) / (20.0 - 0.0)
+        self.assertGreater(camera, 1.4)
+        self.assertLess(barrel, 1.4)
+
     def test_optic_tiers_and_camera_fov(self):
         by_id = {x["id"]: x for x in CAT["weapons"]}
         for weapon in CAT["weapons"]:
@@ -28,7 +41,7 @@ class CombatEndToEndContract(unittest.TestCase):
         self.assertEqual(by_id["Shotgun"]["scopePower"], 0)
         self.assertIn("AarisOfflineBRDirector.TryAcquireAimTarget", GUN)
         self.assertIn("TryAcquireAimTarget(aimCamera, transform", HUD)
-        self.assertIn("if (closest != null && closest.transform.IsChildOf(candidate.transform))", BOTS)
+        self.assertIn("if (closest != null && closest.transform.IsChildOf(candidate.transform) &&", BOTS)
         self.assertIn("shotForward = assisted;", GUN)
         self.assertNotIn("Vector3.Slerp(shotForward, assisted, .82f)", GUN)
         # Old 82% angular correction leaves a 0.252-degree error at the
