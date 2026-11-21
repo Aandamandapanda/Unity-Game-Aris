@@ -56,39 +56,68 @@ class ForestLookoutPilotSourceTests(unittest.TestCase):
         self.assertIn('SceneManager.MoveGameObjectToScene(c.tower, newCell);', s)
         self.assertNotIn('DestroyImmediate(c.tower)', s)
 
-    def test_original_scene_has_one_safe_extractable_source_hierarchy(self):
-        """Prevent a stale pilot from silently moving a changed landmark."""
-        source = (ROOT / "Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity")
+    def test_authored_world_has_exact_single_landmark_collider_authority(self):
+        """Accept either the untouched source or the natively migrated pilot."""
+        source = ROOT / "Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity"
+        chunk = ROOT / "Assets/AarisWorld/Scenes/Chunks/Aaris_ForestLookout_Detail.unity"
         scene = WorldScene(source.read_text())
         district = scene.find_unique("ForestLookout")
-        tower = scene.find_unique("ForestLookout_watchtower_01")
-        self.assertEqual(scene.children[district], [tower])
-        self.assertEqual(len(scene.children[tower]), 2)
-        self.assertEqual(len(scene.descendants(district)), 4)
-        self.assertEqual(
-            scene.component_types[tower], {33, 23, 64, 205}
-        )
-        self.assertTrue(all(scene.component_types[child] == {33, 23}
-                            for child in scene.children[tower]))
+        if chunk.is_file():
+            self.assertEqual(len(scene.descendants(district)), 3)
+            proxy = scene.find_unique("__AarisForestLookout_PersistentCover")
+            far = scene.find_unique("__AarisForestLookout_FarSilhouette")
+            self.assertEqual(scene.children[district], [proxy])
+            self.assertEqual(scene.children[proxy], [far])
+            self.assertEqual(scene.component_types[proxy], {64, 114})
+            self.assertEqual(scene.component_types[far], {33, 23})
+            detail = WorldScene(chunk.read_text())
+            tower = detail.find_unique("ForestLookout_watchtower_01")
+            self.assertEqual(len(detail.descendants(tower)), 3)
+            self.assertEqual(detail.component_types[tower], {33, 23, 205})
+            self.assertTrue(all(detail.component_types[c] == {33, 23}
+                                for c in detail.children[tower]))
+            source_for_lod = detail
+            collider_owner = proxy
+            meta = (chunk.parent / (chunk.name + ".meta")).read_text()
+            build_settings = (ROOT / "ProjectSettings/EditorBuildSettings.asset").read_text()
+            import re
+            guid = re.search(r"(?m)^guid: ([0-9a-f]{32})$", meta)
+            self.assertIsNotNone(guid)
+            self.assertIn(guid.group(1), build_settings)
+            self.assertEqual(build_settings.count(str(chunk.relative_to(ROOT))), 1)
+        else:
+            tower = scene.find_unique("ForestLookout_watchtower_01")
+            self.assertEqual(scene.children[district], [tower])
+            self.assertEqual(len(scene.children[tower]), 2)
+            self.assertEqual(len(scene.descendants(district)), 4)
+            self.assertEqual(scene.component_types[tower], {33, 23, 64, 205})
+            self.assertTrue(all(scene.component_types[c] == {33, 23}
+                                for c in scene.children[tower]))
+            source_for_lod = scene
+            collider_owner = tower
+
         outgoing, incoming = scene.semantic_cross_refs(scene.descendants(district))
         self.assertEqual(outgoing, set())
         self.assertEqual(len(incoming), 1)
         source_component, destination_component = next(iter(incoming))
-        self.assertEqual(
-            scene.names[scene.owner[source_component]], "MobileRuntime"
-        )
+        self.assertEqual(scene.names[scene.owner[source_component]], "MobileRuntime")
         self.assertEqual(scene.blocks[source_component].kind, 114)
         self.assertEqual(scene.blocks[destination_component].kind, 64)
+        self.assertEqual(scene.owner[destination_component], collider_owner)
         collider_yaml = scene.blocks[destination_component].body
-        self.assertIn("m_Mesh: {fileID: 4300000, "
-                      "guid: 6d0fe0e15b4c57e9ba9d921e437cc280", collider_yaml)
+        self.assertIn(
+            "m_Mesh: {fileID: 4300000, "
+            "guid: 6d0fe0e15b4c57e9ba9d921e437cc280",
+            collider_yaml,
+        )
         lod_components = [
-            uid for uid, block in scene.blocks.items()
-            if block.kind == 205 and scene.owner.get(uid) == tower
+            uid for uid, block in source_for_lod.blocks.items()
+            if block.kind == 205 and source_for_lod.owner.get(uid) == tower
         ]
         self.assertEqual(len(lod_components), 1)
         self.assertEqual(
-            scene.blocks[lod_components[0]].body.count("screenRelativeHeight:"), 3
+            source_for_lod.blocks[lod_components[0]].body.count("screenRelativeHeight:"),
+            3,
         )
 
     def test_physics_bounds_are_never_discarded_or_approximated(self):
