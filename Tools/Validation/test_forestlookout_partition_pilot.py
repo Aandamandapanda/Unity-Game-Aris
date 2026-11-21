@@ -28,6 +28,15 @@ class ForestLookoutPilotSourceTests(unittest.TestCase):
         self.assertIn('sourceGuid == OriginalColliderGuid', s)
         self.assertIn('sourceLocalId == OriginalColliderLocalId', s)
         self.assertIn('authored-collision-mesh-changed-before-migration', s)
+        self.assertIn('private static string BackupBeforeAssetMutation()', s)
+        self.assertIn('Path.GetTempPath()', s)
+        self.assertIn('File.Copy(MainPath, originalCopy);', s)
+        self.assertIn('File.Copy(buildSettings, settingsCopy);', s)
+        self.assertIn('string recoveryFolder = BackupBeforeAssetMutation();', s)
+        self.assertLess(
+            s.index('string recoveryFolder = BackupBeforeAssetMutation();'),
+            s.index('GameObject physical = new GameObject(')
+        )
         self.assertIn('colliderGuid == OriginalColliderGuid', s)
         self.assertIn('colliderLocalId == OriginalColliderLocalId', s)
         self.assertNotIn('originalMesh.sharedMesh == proxy.sharedMesh', s)
