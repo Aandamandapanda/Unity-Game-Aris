@@ -127,6 +127,7 @@ class CombatEndToEndContract(unittest.TestCase):
                          "pickup.CommitConsumed();", "active.RemoveAt(i);",
                          "Destroy(pickup.gameObject);"):
             self.assertIn(fragment, body)
+        self.assertIn("if (carriedGun == null && playerDistanceSqr < 76f * 76f && now >= nextLootAt)", BOTS)
         self.assertIn("owner.TryLootForRival(transform.position, out AarisWeaponSpec found)", BOTS)
         self.assertIn("carriedMagazine = found.magazineSize", BOTS)
         self.assertIn("carriedGun.reloadSeconds", BOTS)

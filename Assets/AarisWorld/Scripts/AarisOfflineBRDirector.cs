@@ -1082,7 +1082,10 @@ namespace Aaris.MapReview
             bool farSimulation = playerDistanceSqr >=
                 FarSimulationDistance * FarSimulationDistance;
             if (farSimulation && now < nextFarSimulation) return;
-            if (playerDistanceSqr < 76f * 76f && now >= nextLootAt)
+            // A rival already carrying a functional weapon must not consume every
+            // nearby pickup on each scheduled loot tick. Leave real guns
+            // available for the player and still retry when unarmed.
+            if (carriedGun == null && playerDistanceSqr < 76f * 76f && now >= nextLootAt)
             {
                 nextLootAt = now + 3.5f;
                 if (owner.TryLootForRival(transform.position, out AarisWeaponSpec found))
