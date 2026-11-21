@@ -81,7 +81,7 @@ class FarRivalBudget(unittest.TestCase):
         self.assertIn("if (nextTick <= now + 0.0001f)", bot)
         self.assertIn("nextFarSimulation = nextTick;", bot)
         self.assertIn("nextFarSimulation = Time.time; // First distant update remains immediate.", bot)
-        self.assertIn("nextFarSimulation = Time.time + FarSimulationInterval;", bot)
+        self.assertIn("nextFarSimulation = now + FarSimulationInterval;", bot)
         for fps, max_per_frame in ((15, 20), (30, 10), (60, 5), (90, 4)):
             with self.subTest(fps=fps):
                 collisions, totals = simulate_hundred_phase_ticks(fps, 10)
