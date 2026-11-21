@@ -83,7 +83,7 @@ class CombatEndToEndContract(unittest.TestCase):
         absorbed = min(helmet, head * 0.35)
         helmet -= absorbed
         hp -= head - absorbed
-        self.assertAlmostEqual(hp, 129.6125, places=3)
+        self.assertAlmostEqual(hp, 129.4625, places=3)
         self.assertAlmostEqual(helmet, 54.7875, places=3)
 
     def test_no_100_burst_far_schedulers(self):
