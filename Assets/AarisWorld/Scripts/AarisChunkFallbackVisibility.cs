@@ -33,7 +33,10 @@ namespace Aaris.MapReview
 
         private void HandleSceneLoaded(Scene scene, LoadSceneMode mode)
         {
-            if (scene.path == chunkScenePath) Reconcile();
+            // A full scene-load event is rare. Query the authoritative path
+            // instead of depending on the callback Scene's identity: Unity
+            // can load the same asset through different scene APIs.
+            Reconcile();
         }
 
         private void HandleSceneUnloaded(Scene scene)
