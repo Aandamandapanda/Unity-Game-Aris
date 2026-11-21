@@ -56,7 +56,7 @@ class AndroidAudioBootTest(unittest.TestCase):
         self.assertIn("private static bool IsEssentialAudioImportBusy()", gate)
         self.assertIn("if (!essentialAudioLoadInFlight.isDone)", gate)
         self.assertIn("essentialAudioCompletionFrame = Time.frameCount;", gate)
-        self.assertEqual(gate.count("if (IsEssentialAudioImportBusy()) return false;"), 2)
+        self.assertEqual(gate.count("bool essentialAudioBusy = IsEssentialAudioImportBusy();"), 2)
         self.assertIn("essentialAudioLoadInFlight = null;", gate)
         self.assertIn("essentialAudioCompletionFrame = -1;", gate)
         harness = (ROOT / "Tools/Validation/StreamingAdmissionTests.cs").read_text()

@@ -521,8 +521,11 @@ namespace Aaris.MapReview
             if (IsEssentialRigFrame() || IsAssetCleanupPending()) return false;
             if (IsNativeTeardownSettleFrame()) return false;
             if (IsAdditiveSceneLoadBusy()) return false;
-            if (IsEssentialAudioImportBusy()) return false;
-            if (IsEssentialWeaponImportBusy()) return false;
+            // Observe both completion states even if the other is still busy.
+            // Short-circuiting here can defer a completed request a second time.
+            bool essentialAudioBusy = IsEssentialAudioImportBusy();
+            bool essentialWeaponBusy = IsEssentialWeaponImportBusy();
+            if (essentialAudioBusy || essentialWeaponBusy) return false;
             if (!IsConstrainedDevice()) return true;
             int frame = Time.frameCount;
             // An admitted hierarchy/import or an observed native completion
@@ -567,8 +570,11 @@ namespace Aaris.MapReview
                 AdditiveSceneDeferredAttempts++;
                 return false;
             }
-            if (IsEssentialAudioImportBusy()) return false;
-            if (IsEssentialWeaponImportBusy()) return false;
+            // Observe both completion states even if the other is still busy.
+            // Short-circuiting here can defer a completed request a second time.
+            bool essentialAudioBusy = IsEssentialAudioImportBusy();
+            bool essentialWeaponBusy = IsEssentialWeaponImportBusy();
+            if (essentialAudioBusy || essentialWeaponBusy) return false;
             if (IsConstrainedDevice())
             {
                 // Background IO can still finalize native objects on the
