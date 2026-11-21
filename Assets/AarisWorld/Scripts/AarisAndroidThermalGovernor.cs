@@ -15,9 +15,11 @@ namespace Aaris.MapReview
     public sealed class AarisAndroidThermalGovernor : MonoBehaviour
     {
         internal static int ThermalStatus { get; private set; } = -1;
+        // -1 = unsupported/unobserved. 1.0 predicts severe thermal pressure.
+        internal static float ForecastThermalHeadroom { get; private set; } = -1f;
         internal static bool SuspendSpeculativePrefetch { get; private set; }
         internal static bool ModerateThermalPressure =>
-            ThermalStatus >= 2 && ThermalStatus <= 6;
+            ThermalStatus >= 2 || ForecastThermalHeadroom >= 0.95f;
 
 #if UNITY_ANDROID && !UNITY_EDITOR
         // Android PowerManager.THERMAL_STATUS_MODERATE = 2;
@@ -26,15 +28,20 @@ namespace Aaris.MapReview
         private const int SevereStatus = 3;
         private const int CoolRecoverySamples = 3;
         private const float SampleIntervalSeconds = 5f;
+        // Android recommends headroom no more than once per ten seconds;
+        // one call per three OS-status polls gives a 15-second interval.
+        private const int HeadroomPollPeriod = 3;
         private static AarisAndroidThermalGovernor active;
         private AndroidJavaObject powerManager;
-        private int coolSamples;
+        private int coolSamples, statusPolls;
+        private bool supportsHeadroom;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void Reset()
         {
             active = null;
             ThermalStatus = -1;
+            ForecastThermalHeadroom = -1f;
             SuspendSpeculativePrefetch = false;
         }
 
@@ -67,11 +74,13 @@ namespace Aaris.MapReview
             {
                 using (var version = new AndroidJavaClass("android.os.Build$VERSION"))
                 {
-                    if (version.GetStatic<int>("SDK_INT") < 29)
+                    int sdk = version.GetStatic<int>("SDK_INT");
+                    if (sdk < 29)
                     {
                         enabled = false;
                         return false;
                     }
+                    supportsHeadroom = sdk >= 30;
                 }
                 using (var unity = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
                 using (var activity = unity.GetStatic<AndroidJavaObject>("currentActivity"))
@@ -93,7 +102,30 @@ namespace Aaris.MapReview
         {
             try
             {
-                ObserveStatus(powerManager.Call<int>("getCurrentThermalStatus"));
+                int status = powerManager.Call<int>("getCurrentThermalStatus");
+                if (supportsHeadroom && statusPolls++ % HeadroomPollPeriod == 0)
+                {
+                    try
+                    {
+                        // 15s forecast: proactively sheds predicted-only IO
+                        // before the OS reports severe throttling on some OEMs.
+                        float headroom = powerManager.Call<float>("getThermalHeadroom", 15);
+                        if (float.IsNaN(headroom) || float.IsInfinity(headroom) ||
+                            headroom < 0f)
+                        {
+                            supportsHeadroom = false;
+                            ForecastThermalHeadroom = -1f;
+                        }
+                        else ForecastThermalHeadroom = headroom;
+                    }
+                    catch (AndroidJavaException)
+                    {
+                        // Status remains useful on OEMs missing headroom.
+                        supportsHeadroom = false;
+                        ForecastThermalHeadroom = -1f;
+                    }
+                }
+                ObserveStatus(status);
                 return true;
             }
             catch (Exception ex)
@@ -107,16 +139,16 @@ namespace Aaris.MapReview
         {
             if (status < 0 || status > 6) return;
             ThermalStatus = status;
-            if (status >= SevereStatus)
+            if (status >= SevereStatus || ForecastThermalHeadroom >= 1f)
             {
                 SuspendSpeculativePrefetch = true;
                 coolSamples = 0;
                 return;
             }
-            if (status >= 2)
+            if (status >= 2 || ForecastThermalHeadroom >= 0.95f)
             {
-                // MODERATE retains current prefetch, but limits speculative
-                // residency in the chunk streamer to one cell.
+                // MODERATE/forecast warning retains one speculative cell.
+                // No actual-position scene or game mechanic is deferred.
                 coolSamples = 0;
                 return;
             }
@@ -134,6 +166,7 @@ namespace Aaris.MapReview
             Debug.LogWarning("AARIS_THERMAL_UNAVAILABLE: " + ex.GetType().Name);
             enabled = false;
             ThermalStatus = -1;
+            ForecastThermalHeadroom = -1f;
             SuspendSpeculativePrefetch = false;
         }
 
@@ -148,6 +181,7 @@ namespace Aaris.MapReview
             {
                 active = null;
                 ThermalStatus = -1;
+                ForecastThermalHeadroom = -1f;
                 SuspendSpeculativePrefetch = false;
             }
         }
