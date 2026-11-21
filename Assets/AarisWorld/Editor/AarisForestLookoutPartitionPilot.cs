@@ -20,6 +20,11 @@ namespace Aaris.MapReview.Editor
             "Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity";
         private const string ChunkPath =
             "Assets/AarisWorld/Scenes/Chunks/Aaris_ForestLookout_Detail.unity";
+        // The original project's serialized Collider.m_Mesh identity. A
+        // changed source requires re-review before the pilot can mutate assets.
+        private const string OriginalColliderGuid =
+            "6d0fe0e15b4c57e9ba9d921e437cc280";
+        private const long OriginalColliderLocalId = 4300000L;
 
         private sealed class Candidate
         {
@@ -61,6 +66,13 @@ namespace Aaris.MapReview.Editor
             Check(collider != null && collider.enabled && !collider.isTrigger &&
                   collider.sharedMesh != null && !collider.convex,
                   "exact-static-mesh-collider-required");
+            string sourceGuid;
+            long sourceLocalId;
+            Check(AssetDatabase.TryGetGUIDAndLocalFileIdentifier(
+                      collider.sharedMesh, out sourceGuid, out sourceLocalId) &&
+                  sourceGuid == OriginalColliderGuid &&
+                  sourceLocalId == OriginalColliderLocalId,
+                  "authored-collision-mesh-changed-before-migration");
             Check(group != null, "missing-authored-lod-group");
             LOD[] lods = group.GetLODs();
             Check(lods != null && lods.Length >= 2, "lod-levels-missing");
@@ -301,8 +313,8 @@ namespace Aaris.MapReview.Editor
             long colliderLocalId;
             Check(AssetDatabase.TryGetGUIDAndLocalFileIdentifier(
                       proxy.sharedMesh, out colliderGuid, out colliderLocalId) &&
-                  colliderGuid == "6d0fe0e15b4c57e9ba9d921e437cc280" &&
-                  colliderLocalId == 4300000L,
+                  colliderGuid == OriginalColliderGuid &&
+                  colliderLocalId == OriginalColliderLocalId,
                   "persistent-collider-source-mesh-identity-changed");
             MeshFilter originalMesh = originalTower.GetComponent<MeshFilter>();
             Check(originalMesh != null && originalMesh.sharedMesh != null,
