@@ -1382,10 +1382,20 @@ namespace Aaris.MapReview
         }
 
         // Selection must check player LOS without mutating a bot-vs-bot target.
+        // An unarmed rival 30-40m away cannot hurt the player yet. It must
+        // not reserve one of only two player-attack slots ahead of an armed
+        // rival with real LOS. Nearby unarmed opponents can still pursue and
+        // punch at contact range.
+        private const float UnarmedPlayerInterestRadius = 12f;
         internal bool HasPlayerSightForSelection()
         {
-            return HasVisibleBody && playerTarget != null && playerTargetHealth != null &&
-                !playerTargetHealth.IsDead && HasSightTo(playerTarget);
+            if (!HasVisibleBody || playerTarget == null || playerTargetHealth == null ||
+                playerTargetHealth.IsDead) return false;
+            if ((carriedGun == null || (carriedMagazine <= 0 && carriedReserve <= 0)) &&
+                (playerTarget.position - transform.position).sqrMagnitude >
+                UnarmedPlayerInterestRadius * UnarmedPlayerInterestRadius)
+                return false;
+            return HasSightTo(playerTarget);
         }
 
         private bool HasSight() { return HasSightTo(target); }
