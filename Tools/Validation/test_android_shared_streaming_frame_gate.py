@@ -169,7 +169,7 @@ class SharedStreamingAdmission(unittest.TestCase):
                         update.index("if (Time.time >= nextZoneTick)"))
         self.assertIn("ApplyZoneDamage();", update)
         self.assertIn("DrawBoundary();", update)
-        self.assertIn("private const int RivalCount = 6;", RIVALS)
+        self.assertIn("private const int RivalCount = 100;", RIVALS)
 
     def test_deferred_spawn_retries_same_slot_without_spawning_burst(self):
         # Model three competing optional frames followed by all six slots.
