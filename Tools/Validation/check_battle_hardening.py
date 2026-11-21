@@ -328,7 +328,7 @@ def audit() -> None:
     assert "if (cachedOwner != owner)" in gun
     assert "cachedActions = owner.GetComponent<AarisBattleActions>();" in gun
     assert "cachedActions.CameraEyeHeight - 0.15f" in gun
-    assert "SameTarget" in gun and "FirstExternalHit" in gun
+    assert "target = muzzleHit;" in gun and "FirstExternalHit" in gun
 
     # A walkable bridge/mesh floor may overlap the prone footprint, but
     # only treat it as support when BOTH head and feet have safe clearance.

@@ -578,15 +578,6 @@ namespace Aaris.MapReview
             return found;
         }
 
-        private static bool SameTarget(Collider a, Collider b)
-        {
-            if (a == null || b == null) return false;
-            if (a == b) return true;
-            if (a.attachedRigidbody != null && a.attachedRigidbody == b.attachedRigidbody)
-                return true;
-            return a.transform.IsChildOf(b.transform) || b.transform.IsChildOf(a.transform);
-        }
-
         public bool TryFire(Camera camera, GameObject owner)
         {
             RefreshReload();
@@ -663,15 +654,10 @@ namespace Aaris.MapReview
                         owner.transform, out RaycastHit muzzleHit);
                     if (muzzleHitFound)
                     {
+                        // Camera and muzzle can hit DIFFERENT heights on the same
+                        // enemy. Actual impact controls headshot AND visuals.
                         impactPoint = muzzleHit.point;
                         impactNormal = muzzleHit.normal;
-                    }
-                    if (muzzleHitFound &&
-                        (!targetFound || !SameTarget(target.collider, muzzleHit.collider)))
-                    {
-                        // The physical muzzle path has final collision authority.
-                        // Cover or an off-reticle obstacle must register an
-                        // impact instead of silently discarding this pellet.
                         target = muzzleHit;
                         targetFound = true;
                     }

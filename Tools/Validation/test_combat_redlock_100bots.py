@@ -54,6 +54,26 @@ class CombatEndToEndContract(unittest.TestCase):
         self.assertIn("AarisCombatFeedbackHUD.NotifyOutgoingDamage", GUN)
         self.assertIn("headshot) damage *= 1.75f", GUN)
 
+    def test_physical_muzzle_impact_controls_same_enemy_headshots(self):
+        # Camera/muzzle parallax can strike the same enemy at different heights.
+        # Camera headshot must NOT count if the physical muzzle struck its body.
+        firing = GUN.split("public bool TryFire(Camera camera, GameObject owner)", 1)[1].split(
+            "internal static void ApplyDamage", 1)[0]
+        muzzle = firing.split("if (!muzzleBlocked && distance > 0.025f)", 1)[1].split(
+            "// One tracer", 1)[0]
+        self.assertIn("if (muzzleHitFound)", muzzle)
+        for token in ("impactPoint = muzzleHit.point;", "impactNormal = muzzleHit.normal;",
+                      "target = muzzleHit;", "targetFound = true;"):
+            self.assertIn(token, muzzle)
+        self.assertNotIn("SameTarget", muzzle)
+        self.assertLess(muzzle.index("target = muzzleHit;"),
+                        muzzle.index("targetFound = true;"))
+        self.assertIn("ApplyDamage(target.collider, spec.damage, owner, target.point)", firing)
+        self.assertIn("headshot = bounds.size.y > .28f && hitPosition.Value.y >=", GUN)
+        threshold = 1.8 * .79
+        self.assertGreater(1.55, threshold)
+        self.assertLess(1.20, threshold)
+
     def test_floating_numbers_project_confirmed_world_hits(self):
         self.assertIn("hitPosition ?? collider.bounds.center", GUN)
         self.assertIn("WorldToScreenPoint(worldHitPosition)", HUD)
