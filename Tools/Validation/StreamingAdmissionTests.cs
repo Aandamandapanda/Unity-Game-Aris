@@ -337,6 +337,69 @@ internal static class StreamingAdmissionTests
             "Static reset retained weapon import");
     }
 
+    private static void EssentialLootAndJsonParseFence()
+    {
+        Configure(6144, "Adreno 610");
+        var manifest = Resources.LoadAsync<TextAsset>("loot_candidates");
+        AarisMobileStreamingFrameGate.TrackEssentialLootManifestLoad(manifest);
+        Frame(2);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild() &&
+              Load() == null && !AarisMobileStreamingFrameGate.TryClaimNonessentialDiagnosticFrame(),
+            "Loot manifest import overlapped optional models or diagnostics");
+        manifest.isDone = true;
+        Frame(3);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Loot completion frame was reused");
+        Frame(4);
+        Check(AarisMobileStreamingFrameGate.ReserveNextFrameForEssentialJsonParse(),
+            "Essential parse reservation missing");
+        Frame(5);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild() &&
+              Load() == null && !AarisMobileStreamingFrameGate.TryClaimNonessentialDiagnosticFrame(),
+            "Managed JSON parse overlapped optional native work");
+        // A second reservation on the first parse frame cannot erase it.
+        Check(AarisMobileStreamingFrameGate.ReserveNextFrameForEssentialJsonParse(),
+            "Second parse reservation failed");
+        Frame(6);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Concurrent parse reservation overwritten");
+        Frame(7);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Completed parse starved optional models");
+        Check(AarisMobileStreamingFrameGate.EssentialLootDeferredAttempts >= 2 &&
+              AarisMobileStreamingFrameGate.EssentialJsonParseDeferredAttempts >= 3,
+            "Missing essential manifest and parse deferral counters");
+
+        Configure(6144, "Adreno 610");
+        var audio = Resources.LoadAsync<AudioClip>("SFX");
+        AarisMobileStreamingFrameGate.TrackEssentialAudioLoad(audio);
+        var gun = Resources.LoadAsync<GameObject>("gun");
+        AarisMobileStreamingFrameGate.TrackEssentialWeaponLoad(gun);
+        var loot = Resources.LoadAsync<TextAsset>("loot");
+        AarisMobileStreamingFrameGate.TrackEssentialLootManifestLoad(loot);
+        Frame(2);
+        audio.isDone = gun.isDone = true;
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Simultaneous audio, gun and loot load admitted cosmetics");
+        Frame(3);
+        loot.isDone = true;
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Third essential completion bypassed shared fence");
+        Frame(4);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Three completed essential imports blocked forever");
+
+        Configure(8192, "Adreno 730");
+        AarisMobileStreamingFrameGate.TrackEssentialLootManifestLoad(
+            Resources.LoadAsync<TextAsset>("loot"));
+        Check(!AarisMobileStreamingFrameGate.ReserveNextFrameForEssentialJsonParse() &&
+              AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "High-end device throttled by JSON parser");
+        Configure(6144, "Adreno 610");
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Subsystem reset retained manifest or parse reservation");
+    }
+
     private static void DiagnosticImportFence()
     {
         // This regression executes the actual production gate with controlled
@@ -603,7 +666,7 @@ internal static class StreamingAdmissionTests
     public static void Main()
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
-        Hardware(); ImportFence(); EssentialAudioFence(); AdditiveSceneFence(); DiagnosticImportFence(); EssentialWeaponFence(); Pressure(); RefreshAwarePressure(); PhysicsCatchupAdmission(); CleanupRigAndReset();
+        Hardware(); ImportFence(); EssentialAudioFence(); AdditiveSceneFence(); DiagnosticImportFence(); EssentialWeaponFence(); EssentialLootAndJsonParseFence(); Pressure(); RefreshAwarePressure(); PhysicsCatchupAdmission(); CleanupRigAndReset();
         Console.WriteLine("STREAMING_ADMISSION_ANDROID_PASS checks=" + checks);
 #else
         Configure();

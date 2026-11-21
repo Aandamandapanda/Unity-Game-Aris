@@ -69,6 +69,16 @@ namespace Aaris.MapReview
         private static ResourceRequest essentialWeaponLoadInFlight;
         private static int essentialWeaponCompletionFrame = -1;
         internal static int EssentialWeaponDeferredAttempts { get; private set; }
+        // The authored loot manifest is a direct, gameplay-critical async
+        // import; its native completion must not collide with optional art.
+        private static ResourceRequest essentialLootLoadInFlight;
+        private static int essentialLootCompletionFrame = -1;
+        internal static int EssentialLootDeferredAttempts { get; private set; }
+        // A yield-before-JSON-decode schedules essential CPU work on the NEXT
+        // render frame. Reserve through that frame rather than only its start.
+        // Consecutive reservations must never overwrite an already-due frame.
+        private static int essentialJsonParseReservedThroughFrame = -1;
+        internal static int EssentialJsonParseDeferredAttempts { get; private set; }
         // Additive scene activation may consume native main-thread time after
         // asynchronous IO. Never pause allowSceneActivation (Unity's queue).
         // This persistent list allocates once and preserves overlapping streamers.
@@ -256,6 +266,70 @@ namespace Aaris.MapReview
             return false;
         }
 
+        // A loot import is direct: never allow cosmetic IO/admission to
+        // postpone the essential world/medical spawn manifest.
+        internal static void TrackEssentialLootManifestLoad(ResourceRequest request)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (request == null || !IsConstrainedDevice()) return;
+            essentialLootLoadInFlight = request;
+            claimedFrame = Time.frameCount;
+#endif
+        }
+
+        private static bool IsEssentialLootManifestBusy()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (!IsConstrainedDevice()) return false;
+            if (essentialLootLoadInFlight != null)
+            {
+                if (!essentialLootLoadInFlight.isDone)
+                {
+                    EssentialLootDeferredAttempts++;
+                    return true;
+                }
+                essentialLootLoadInFlight = null;
+                essentialLootCompletionFrame = Time.frameCount;
+            }
+            if (essentialLootCompletionFrame == Time.frameCount)
+            {
+                EssentialLootDeferredAttempts++;
+                return true;
+            }
+#endif
+            return false;
+        }
+
+        // Called before the existing yield between native JSON import and
+        // managed decode, so essential parsers retain full speed while
+        // optional 3D model imports and snapshots avoid that parse frame.
+        internal static bool ReserveNextFrameForEssentialJsonParse()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (IsConstrainedDevice())
+            {
+                essentialJsonParseReservedThroughFrame =
+                    System.Math.Max(essentialJsonParseReservedThroughFrame,
+                        Time.frameCount + 1);
+                return true;
+            }
+#endif
+            return false;
+        }
+
+        private static bool IsEssentialJsonParseFrame()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (IsConstrainedDevice() &&
+                Time.frameCount <= essentialJsonParseReservedThroughFrame)
+            {
+                EssentialJsonParseDeferredAttempts++;
+                return true;
+            }
+#endif
+            return false;
+        }
+
         // Unity's Android frame pacing uses integer divisors of display refresh.
         // A 60-FPS request on 90 Hz is effectively 45 FPS, not 60 FPS.
         // Sample display timing only every 120 frames or on a target-FPS change;
@@ -366,6 +440,11 @@ namespace Aaris.MapReview
             essentialWeaponLoadInFlight = null;
             essentialWeaponCompletionFrame = -1;
             EssentialWeaponDeferredAttempts = 0;
+            essentialLootLoadInFlight = null;
+            essentialLootCompletionFrame = -1;
+            EssentialLootDeferredAttempts = 0;
+            essentialJsonParseReservedThroughFrame = -1;
+            EssentialJsonParseDeferredAttempts = 0;
             additiveLoads.Clear();
             additiveIntegrationFrame = -1;
             AdditiveSceneDeferredAttempts = 0;
@@ -519,13 +598,15 @@ namespace Aaris.MapReview
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (IsEssentialRigFrame() || IsAssetCleanupPending()) return false;
+            if (IsEssentialJsonParseFrame()) return false;
             if (IsNativeTeardownSettleFrame()) return false;
             if (IsAdditiveSceneLoadBusy()) return false;
             // Observe both completion states even if the other is still busy.
             // Short-circuiting here can defer a completed request a second time.
             bool essentialAudioBusy = IsEssentialAudioImportBusy();
             bool essentialWeaponBusy = IsEssentialWeaponImportBusy();
-            if (essentialAudioBusy || essentialWeaponBusy) return false;
+            bool essentialLootBusy = IsEssentialLootManifestBusy();
+            if (essentialAudioBusy || essentialWeaponBusy || essentialLootBusy) return false;
             if (!IsConstrainedDevice()) return true;
             int frame = Time.frameCount;
             // An admitted hierarchy/import or an observed native completion
@@ -549,6 +630,7 @@ namespace Aaris.MapReview
         internal static bool TryClaimOptionalModelBuild()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
+            if (IsEssentialJsonParseFrame()) return false;
             if (IsEssentialRigFrame())
             {
                 // Essential player/aircraft frames have priority over optional
@@ -574,7 +656,8 @@ namespace Aaris.MapReview
             // Short-circuiting here can defer a completed request a second time.
             bool essentialAudioBusy = IsEssentialAudioImportBusy();
             bool essentialWeaponBusy = IsEssentialWeaponImportBusy();
-            if (essentialAudioBusy || essentialWeaponBusy) return false;
+            bool essentialLootBusy = IsEssentialLootManifestBusy();
+            if (essentialAudioBusy || essentialWeaponBusy || essentialLootBusy) return false;
             if (IsConstrainedDevice())
             {
                 // Background IO can still finalize native objects on the
