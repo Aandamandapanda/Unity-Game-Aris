@@ -32,12 +32,15 @@ namespace Aaris.MapReview
         }
         public event Action<AarisOfflineHealth> Died;
         public event Action<AarisOfflineHealth> HealthChanged;
+        // Authoritative combat feedback; listeners receive only actual HP loss.
+        public event Action<AarisOfflineHealth, float, GameObject> Damaged;
 
         private void Awake() => current = maximumHealth;
 
         public void ApplyDamage(float amount, GameObject attacker)
         {
             if (dead || float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0f) return;
+            float previous = current;
             float absorbed = Mathf.Min(helmetDurability, amount * helmetProtection);
             helmetDurability = Mathf.Max(0f, helmetDurability - absorbed);
             current = Mathf.Max(0f, current - (amount - absorbed));
@@ -45,6 +48,7 @@ namespace Aaris.MapReview
             // a zero-HP notification must already report IsDead = true.
             if (current <= 0f) dead = true;
             HealthChanged?.Invoke(this);
+            if (previous > current) Damaged?.Invoke(this, previous - current, attacker);
             if (!dead) return;
             Died?.Invoke(this);
             Debug.Log("Aaris offline combat: combatant defeated.");
