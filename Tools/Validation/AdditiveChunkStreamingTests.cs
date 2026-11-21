@@ -91,6 +91,14 @@ namespace UnityEngine.SceneManagement
 }
 namespace Aaris.MapReview
 {
+    // The real Android governor uses JNI. The chunk streaming host-engine
+    // fixture intentionally models only its cached policy (no Java runtime).
+    internal static class AarisAndroidThermalGovernor
+    {
+        internal static bool SuspendSpeculativePrefetch;
+        internal static bool ModerateThermalPressure;
+    }
+
     internal static class AarisMobileStreamingFrameGate
     {
         internal static int physicsClaims, teardownClaims, trackedSceneLoads;
