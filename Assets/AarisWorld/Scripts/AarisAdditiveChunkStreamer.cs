@@ -299,13 +299,32 @@ namespace Aaris.MapReview
             else if (loadCell >= 0)
             {
 #if UNITY_ANDROID && !UNITY_EDITOR
+                // Android thermal pressure controls speculative IO and native
+                // activation, never a cell needed at the current player position.
+                // The full-detail cell still loads inside the original entry radius.
+                if (!loadIsUrgent &&
+                    AarisAndroidThermalGovernor.SuspendSpeculativePrefetch)
+                    return;
+                // Under MODERATE thermal load keep one future cell resident,
+                // instead of stacking two optional native scene activations.
+                if (!loadIsUrgent &&
+                    AarisAndroidThermalGovernor.ModerateThermalPressure &&
+                    speculativeResidentCount >= 1)
+                    return;
                 // Bound predicted-only residency on constrained devices. A cell
                 // inside the player's real load margin ALWAYS bypasses this cap.
                 if (!loadIsUrgent &&
                     AarisMobileStreamingFrameGate.IsConstrainedDevice() &&
                     speculativeResidentCount >= maxSpeculativeResidentCells)
                     return;
-                if (!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild()) return;
+                // Real-position entry must not inherit the thermal
+                // *speculative* delay. It still claims the global native slot
+                // and honours essential import, physics and teardown fences.
+                if (loadIsUrgent)
+                {
+                    if (!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad()) return;
+                }
+                else if (!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild()) return;
 #endif
                 StartOperation(loadCell, true);
             }

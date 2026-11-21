@@ -91,6 +91,14 @@ namespace UnityEngine.SceneManagement
 }
 namespace Aaris.MapReview
 {
+    // The real Android governor uses JNI. The chunk streaming host-engine
+    // fixture intentionally models only its cached policy (no Java runtime).
+    internal static class AarisAndroidThermalGovernor
+    {
+        internal static bool SuspendSpeculativePrefetch;
+        internal static bool ModerateThermalPressure;
+    }
+
     internal static class AarisMobileStreamingFrameGate
     {
         internal static int physicsClaims, teardownClaims, trackedSceneLoads;
@@ -98,6 +106,7 @@ namespace Aaris.MapReview
         { if (operation != null) trackedSceneLoads++; }
         internal static bool IsConstrainedDevice() { return true; }
         internal static bool TryClaimOptionalModelBuild() { return true; }
+        internal static bool TryClaimUrgentSceneLoad() { return true; }
         internal static void ReservePhysicsStreamingFrame() { physicsClaims++; }
         internal static void ReserveNativeTeardownFrame() { teardownClaims++; }
     }
@@ -156,6 +165,8 @@ internal static class AdditiveChunkStreamingTests
     {
         SceneManager.Reset();
         Time.frameCount = 0;
+        AarisAndroidThermalGovernor.SuspendSpeculativePrefetch = false;
+        AarisAndroidThermalGovernor.ModerateThermalPressure = false;
 #if UNITY_ANDROID && !UNITY_EDITOR
         // Mimic a fresh Android play session between unrelated test cases.
         // Runtime statics persist only within one session.
@@ -249,6 +260,40 @@ internal static class AdditiveChunkStreamingTests
         Frame(manager, target, 5.6f, 180f);
         Check(SceneManager.loadCount == 1,
             "actual near-player distance still overrides speculative budget");
+#endif
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        // Thermal governor only stops forecast-only loads. The real-player
+        // entry range and its geometry must NEVER be hidden under severe heat.
+        ResetScene();
+        target = new Transform();
+        manager = Make(target);
+        AarisAndroidThermalGovernor.SuspendSpeculativePrefetch = true;
+        Frame(manager, target, 30f, 210f);
+        Frame(manager, target, 30.3f, 200f);
+        Check(SceneManager.loadCount == 0,
+            "severe thermal pressure should skip speculative future scene IO");
+        Frame(manager, target, 30.6f, 180f);
+        Check(SceneManager.loadCount == 1,
+            "severe thermal pressure cannot skip near-player full detail");
+        SceneManager.Finish();
+        Frame(manager, target, 30.7f, 180f);
+        Frame(manager, target, 31.1f, 300f);
+        Check(SceneManager.unloadCount == 1,
+            "thermal state must not block native distant scene retirement");
+
+        // MODERATE caps *only* extra prediction residency and leaves urgent
+        // geometry authoritative even after two stream transitions.
+        ResetScene();
+        target = new Transform();
+        manager = Make(target);
+        AarisAndroidThermalGovernor.ModerateThermalPressure = true;
+        Frame(manager, target, 32f, 210f);
+        Frame(manager, target, 32.3f, 200f);
+        Check(SceneManager.loadCount == 1,
+            "moderate heat must still admit the first predicted scene");
+        SceneManager.Finish();
+        Frame(manager, target, 32.4f, 200f);
 #endif
 
 #if UNITY_ANDROID && !UNITY_EDITOR

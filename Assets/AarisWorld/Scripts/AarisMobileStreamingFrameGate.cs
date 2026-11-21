@@ -12,6 +12,11 @@ namespace Aaris.MapReview
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
         private static int claimedFrame = -1;
+        // Native model/import admission is spaced during actual OS thermal
+        // throttling. The frame gap is bounded; every optional job retries.
+        // Gameplay-critical spawn/physics paths never enter this gate.
+        private static int lastThermalModelAdmissionFrame = -1;
+        internal static int ThermalSpacingDeferredAttempts { get; private set; }
         // One frame of native retirement after a streamed hierarchy is destroyed.
         private static int nativeTeardownSettleFrame = -1;
         private static bool devicePolicyReady, constrainedDevice;
@@ -441,6 +446,8 @@ namespace Aaris.MapReview
         private static void Reset()
         {
             claimedFrame = -1;
+            lastThermalModelAdmissionFrame = -1;
+            ThermalSpacingDeferredAttempts = 0;
             nativeTeardownSettleFrame = -1;
             devicePolicyReady = constrainedDevice = false;
             importIntegrationFrame = pressureDecisionFrame = -1;
@@ -666,6 +673,20 @@ namespace Aaris.MapReview
 
         internal static bool TryClaimOptionalModelBuild()
         {
+            return TryClaimOptionalModelBuild(false);
+        }
+
+        // Only an independently authored scene whose original position is
+        // inside the player's actual load margin may bypass thermal *spacing*.
+        // Essential import fences and the one-native-work-per-frame gate
+        // remain identical; predicted-only cells must use normal admission.
+        internal static bool TryClaimUrgentSceneLoad()
+        {
+            return TryClaimOptionalModelBuild(true);
+        }
+
+        private static bool TryClaimOptionalModelBuild(bool urgentScene)
+        {
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (IsEssentialJsonParseFrame()) return false;
             if (IsEssentialRigFrame())
@@ -707,7 +728,22 @@ namespace Aaris.MapReview
                     return false;
                 }
                 if (ShouldDeferForFramePressure(frame)) return false;
+                // Android's thermal signal is cached by a separate 5-second
+                // sampler: zero JNI, reflection, allocations or OS reads here.
+                // A 2/4-frame minimum interval amortizes optional native
+                // hierarchy/texture imports across hot rendered frames.
+                // This is a spacing limit, not a total work cap or fidelity cut.
+                int thermalGap = AarisAndroidThermalGovernor.SuspendSpeculativePrefetch
+                    ? 4 : (AarisAndroidThermalGovernor.ModerateThermalPressure ? 2 : 0);
+                if (!urgentScene && thermalGap > 0 &&
+                    lastThermalModelAdmissionFrame >= 0 &&
+                    frame - lastThermalModelAdmissionFrame < thermalGap)
+                {
+                    ThermalSpacingDeferredAttempts++;
+                    return false;
+                }
                 claimedFrame = frame;
+                lastThermalModelAdmissionFrame = frame;
             }
 #endif
             return true;

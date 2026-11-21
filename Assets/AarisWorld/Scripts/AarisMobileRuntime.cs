@@ -222,6 +222,10 @@ namespace Aaris.MapReview
 #endif
             yield return null; // Keep the opening terrain draw clear of optional audits.
 #if UNITY_ANDROID && !UNITY_EDITOR
+            // Add the OS thermal sampler AFTER the first rendered frame.
+            // It never touches visual fidelity or authoritative gameplay.
+            if (GetComponent<AarisAndroidThermalGovernor>() == null)
+                gameObject.AddComponent<AarisAndroidThermalGovernor>();
             startupDrop = FindFirstObjectByType<AarisOfflineDrop>();
 #endif
             if (releaseTerrainPaintCpuCopies)
@@ -1160,7 +1164,13 @@ namespace Aaris.MapReview
             public float lootCandidateParseMs = -1f, weaponDefinitionParseMs = -1f;
             public bool planeHighDetailSelected;
             public bool optionalStreamConstrained;
+            // -1 means Android Thermal API unavailable / not sampled yet.
+            // 0..6 maps to Android PowerManager thermal status.
+            public int androidThermalStatus = -1;
+            public float androidForecastThermalHeadroom = -1f;
+            public bool speculativePrefetchSuspended, moderateThermalPressure;
             public int optionalStreamImportSettleDeferrals, optionalStreamPressureDeferredFrames;
+            public int optionalStreamThermalSpacingDeferrals;
             // Render-thread native upload budget, not asset quality or an FPS claim.
             public int asyncUploadTimeSliceMs;
             public int assetUnloadStartedCount, assetUnloadCompletedCount, assetUnloadSuppressedCount;
@@ -1322,10 +1332,16 @@ namespace Aaris.MapReview
             s.optionalStreamImportDeferrals =
                 AarisMobileStreamingFrameGate.ImportDeferredAttempts;
             s.optionalStreamConstrained = AarisMobileStreamingFrameGate.IsConstrainedDevice();
+            s.androidThermalStatus = AarisAndroidThermalGovernor.ThermalStatus;
+            s.androidForecastThermalHeadroom = AarisAndroidThermalGovernor.ForecastThermalHeadroom;
+            s.speculativePrefetchSuspended = AarisAndroidThermalGovernor.SuspendSpeculativePrefetch;
+            s.moderateThermalPressure = AarisAndroidThermalGovernor.ModerateThermalPressure;
             s.optionalStreamImportSettleDeferrals =
                 AarisMobileStreamingFrameGate.ImportSettleDeferredAttempts;
             s.optionalStreamPressureDeferredFrames =
                 AarisMobileStreamingFrameGate.PressureDeferredFrames;
+            s.optionalStreamThermalSpacingDeferrals =
+                AarisMobileStreamingFrameGate.ThermalSpacingDeferredAttempts;
             if (GraphicsSettings.currentRenderPipeline is UniversalRenderPipelineAsset pipeline)
             {
                 s.renderScale = pipeline.renderScale;

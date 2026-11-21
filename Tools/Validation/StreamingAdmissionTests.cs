@@ -44,6 +44,14 @@ namespace UnityEngine
 
 namespace Aaris.MapReview
 {
+    // Production governor polls Android on a coroutine. This fixture exposes
+    // only its cached decisions to compile/test the actual admission gate.
+    internal static class AarisAndroidThermalGovernor
+    {
+        internal static bool SuspendSpeculativePrefetch;
+        internal static bool ModerateThermalPressure;
+    }
+
     public static class AarisMobileRuntime
     {
         /* GPU_POLICY */
@@ -71,6 +79,8 @@ internal static class StreamingAdmissionTests
         };
         Screen.reads = 0;
         SystemInfo.memoryReads = SystemInfo.gpuReads = Resources.requests = 0;
+        AarisAndroidThermalGovernor.SuspendSpeculativePrefetch = false;
+        AarisAndroidThermalGovernor.ModerateThermalPressure = false;
         Frame(1);
     }
     private static ResourceRequest Load(string path = "optional-model")
@@ -768,12 +778,101 @@ internal static class StreamingAdmissionTests
             "Subsystem reset leaked state");
         Check(Load() != null, "Reset retained old in-flight request");
     }
+    private static void ThermalAdmissionSpacing()
+    {
+        Configure(6144, "Adreno 610");
+        AarisAndroidThermalGovernor.ModerateThermalPressure = true;
+        Frame(10);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Moderate thermal load blocked first optional model");
+        Frame(11);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Moderate thermal load should space optional models by two frames");
+        Frame(12);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Moderate thermal spacing starved second model");
+        Frame(13);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Moderate spacing allowed consecutive native builds");
+        AarisAndroidThermalGovernor.SuspendSpeculativePrefetch = true;
+        Frame(14);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Severe thermal interval allowed optional model too early");
+        Frame(15);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Severe thermal interval allowed early native integration");
+        Frame(16);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Four-frame thermal spacing permanently starved native models");
+        Frame(17);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Severe thermal interval admitted two adjacent native builds");
+        Frame(20);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Sustained severe thermal pressure starved authored models");
+        Check(AarisMobileStreamingFrameGate.ThermalSpacingDeferredAttempts >= 5,
+            "Thermal scheduling deferrals were not diagnosed");
+        AarisAndroidThermalGovernor.ModerateThermalPressure = false;
+        AarisAndroidThermalGovernor.SuspendSpeculativePrefetch = false;
+        Frame(21);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Cooling failed to restore normal frame-by-frame admission");
+        Configure(6144, "Adreno 610");
+        Check(AarisMobileStreamingFrameGate.ThermalSpacingDeferredAttempts == 0,
+            "Thermal-admission telemetry leaked across gameplay sessions");
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Thermal-admission reset blocked first frame");
+
+        // A scene truly inside the player's load margin bypasses only
+        // thermal *spacing*: same-frame ownership and live native imports
+        // must still be fenced. This protects geometry on hot traversals.
+        Configure(6144, "Adreno 610");
+        AarisAndroidThermalGovernor.SuspendSpeculativePrefetch = true;
+        Frame(30);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Severe first model admission blocked");
+        Frame(31);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Predicted-only thermal work incorrectly bypassed spacing");
+        Check(AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad(),
+            "Player-near original detail waited for speculative thermal cooldown");
+        Check(!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad(),
+            "Urgent scene reused a same-frame native integration slot");
+        Frame(32);
+        Check(AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad(),
+            "Two adjacent urgent scene frames incorrectly lost normal admission");
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Optional task bypassed the urgent scene's native frame claim");
+        Configure(6144, "Adreno 610");
+        AarisAndroidThermalGovernor.SuspendSpeculativePrefetch = true;
+        ResourceRequest pendingSceneImport = Load("optional-prefetch");
+        Check(pendingSceneImport != null, "Optional import should launch initially");
+        Frame(2);
+        Check(!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad(),
+            "Urgent scene bypassed active native import fence");
+        pendingSceneImport.isDone = true;
+        Frame(3);
+        Check(!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad(),
+            "Urgent scene overlapped native import completion");
+        Frame(4);
+        Check(AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad(),
+            "Completed native import kept player-near authored detail blocked");
+
+        // A fast Android GPU never enters the constrained native budget;
+        // hot OS telemetry must not invent a new GPU-quality tier.
+        Configure(8192, "Adreno 730");
+        AarisAndroidThermalGovernor.SuspendSpeculativePrefetch = true;
+        Frame(30);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild() &&
+              AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "High-end Android incorrectly inherited constrained frame spacing");
+    }
 #endif
 
     public static void Main()
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
-        Hardware(); ImportFence(); EssentialAudioFence(); AdditiveSceneFence(); DiagnosticImportFence(); EssentialWeaponFence(); EssentialLootAndJsonParseFence(); Pressure(); RefreshAwarePressure(); PhysicsCatchupAdmission(); CleanupRigAndReset(); LootTeardownFence();
+        Hardware(); ImportFence(); EssentialAudioFence(); AdditiveSceneFence(); DiagnosticImportFence(); EssentialWeaponFence(); EssentialLootAndJsonParseFence(); Pressure(); RefreshAwarePressure(); PhysicsCatchupAdmission(); CleanupRigAndReset(); LootTeardownFence(); ThermalAdmissionSpacing();
         Console.WriteLine("STREAMING_ADMISSION_ANDROID_PASS checks=" + checks);
 #else
         Configure();
