@@ -47,7 +47,7 @@ false_positives = {
 }
 entries = [x for x in subprocess.check_output(
     ['git', 'status', '--porcelain=v1', '--untracked-files=no', '-z']
-).split(b'\\0') if x]
+).split(b'\0') if x]
 for entry in entries:
     status = entry[:2].decode('ascii', 'replace')
     path = entry[3:].decode('utf-8', 'replace')
@@ -56,7 +56,7 @@ for entry in entries:
         print('AARIS_SYNC_ERROR=tracked_local_changes_preserved')
         sys.exit(6)
     row = subprocess.check_output(['git', 'ls-files', '-s', '--', path], text=True)
-    if not row or '\\t' not in row:
+    if not row or '\t' not in row:
         print('AARIS_SYNC_ERROR=index_entry_missing')
         sys.exit(6)
     indexed_sha = row.split('\\t')[0].split()[1]
