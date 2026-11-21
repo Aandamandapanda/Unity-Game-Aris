@@ -2130,10 +2130,14 @@ namespace Aaris.MapReview
             // none needs a model may one approaching car borrow the SAME async
             // loading slot. Real player position still exclusively controls
             // physics, placement, visibility, load and unload distances.
-            if (closestType < 0 && predictedPrewarmPosition != playerPosition &&
-                !AarisAndroidThermalGovernor.SuspendSpeculativePrefetch)
+            if (closestType < 0 && predictedPrewarmPosition != playerPosition)
             {
-                float predictedNearestSq =
+                // Only the *predicted-only* request is suppressed under
+                // severe OS thermal pressure. The actual-position 150 m
+                // model prewarm above remains unchanged.
+                if (!AarisAndroidThermalGovernor.SuspendSpeculativePrefetch)
+                {
+                    float predictedNearestSq =
                     AuthoredPrewarmRadius * AuthoredPrewarmRadius;
                 foreach (var record in plans)
                 {
@@ -2145,6 +2149,7 @@ namespace Aaris.MapReview
                         authoredBodyRequests[typeIndex] != null) continue;
                     closestType = typeIndex;
                     predictedNearestSq = distanceSq;
+                }
                 }
             }
 #endif
