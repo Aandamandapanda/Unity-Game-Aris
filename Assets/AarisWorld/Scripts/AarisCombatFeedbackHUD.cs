@@ -21,7 +21,7 @@ namespace Aaris.MapReview
         private AarisOfflineDrop drop;
         private Camera aimCamera;
         private Canvas canvas;
-        private Image healthFill, hitFlash;
+        private Image healthFill, hitFlash, opticalRing;
         private Text healthText, scopeText, hitDirection;
         private float nextAimCheck, hitFadeUntil;
         private int numberIndex;
@@ -130,6 +130,11 @@ namespace Aaris.MapReview
                 21, TextAnchor.MiddleCenter);
             healthText.fontStyle = FontStyle.Bold;
 
+            opticalRing = Block(root.transform, "2X 4X scope optic",
+                new Vector2(.5f, .5f), new Vector2(174f, 174f),
+                Vector2.zero, new Color(1f, 1f, 1f, .56f));
+            opticalRing.sprite = AarisHudGlyphs.Ring;
+            opticalRing.gameObject.SetActive(false);
             var reticleRoot = Rect(root.transform, "Red lock reticle",
                 new Vector2(.5f, .5f), new Vector2(60f, 60f), Vector2.zero);
             Vector2[] positions = {
@@ -254,12 +259,27 @@ namespace Aaris.MapReview
                 ? inventory.Current.Spec.ScopeLabel + (inventory.Aiming ? " ADS" : "")
                 : "";
             if (scopeText.text != labelText) scopeText.text = labelText;
+            bool showOptic = armed && inventory.Aiming && scope >= 2;
+            if (opticalRing != null)
+            {
+                if (opticalRing.gameObject.activeSelf != showOptic)
+                    opticalRing.gameObject.SetActive(showOptic);
+                if (showOptic)
+                {
+                    float size = scope == 4 ? 226f : 174f;
+                    if (opticalRing.rectTransform.sizeDelta.x != size)
+                        opticalRing.rectTransform.sizeDelta = new Vector2(size, size);
+                }
+            }
             if (lastLock != lockOn || lastScope != labelText)
             {
                 lastLock = lockOn; lastScope = labelText;
                 Color color = lockOn ? new Color(1f, .12f, .10f, 1f) : Color.white;
                 for (int i = 0; i < crosshair.Length; i++)
                     crosshair[i].color = color;
+                if (opticalRing != null) opticalRing.color =
+                    lockOn ? new Color(1f, .15f, .12f, .7f) :
+                        new Color(1f, 1f, 1f, .56f);
             }
             for (int i = 0; i < crosshair.Length; i++)
                 if (crosshair[i].gameObject.activeSelf != armed)
