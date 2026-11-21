@@ -106,6 +106,7 @@ namespace Aaris.MapReview
         { if (operation != null) trackedSceneLoads++; }
         internal static bool IsConstrainedDevice() { return true; }
         internal static bool TryClaimOptionalModelBuild() { return true; }
+        internal static bool TryClaimUrgentSceneLoad() { return true; }
         internal static void ReservePhysicsStreamingFrame() { physicsClaims++; }
         internal static void ReserveNativeTeardownFrame() { teardownClaims++; }
     }
