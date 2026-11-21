@@ -56,6 +56,13 @@ namespace UnityEngine.SceneManagement
             if (sceneUnloaded != null)
                 sceneUnloaded(new Scene { path = path, isLoaded = false });
         }
+        public static void RaiseUnloadWithoutStablePath(string path)
+        {
+            loaded[path] = false;
+            // Simulate native tear-down making the event Scene.path invalid.
+            if (sceneUnloaded != null)
+                sceneUnloaded(new Scene { path = null, isLoaded = false });
+        }
         public static void Reset()
         {
             loaded.Clear();
@@ -112,6 +119,13 @@ internal static class WorldChunkFallbackVisibilityTests
         SceneManager.RaiseUnload(target);
         Assert(originalFar.enabled && secondFar.enabled,
                "Scene unloading left a distant silhouette hole");
+
+        SceneManager.RaiseLoad(target);
+        Assert(!originalFar.enabled && !secondFar.enabled,
+               "Full detail was not restored on reload");
+        SceneManager.RaiseUnloadWithoutStablePath(target);
+        Assert(originalFar.enabled && secondFar.enabled,
+               "Native unload invalidated Scene.path and hid last-LOD silhouette");
 
         SceneManager.RaiseLoad(target);
         Call(c, "OnDisable");
