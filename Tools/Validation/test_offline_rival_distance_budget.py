@@ -59,7 +59,7 @@ class FarRivalBudget(unittest.TestCase):
         self.assertIn("now - lastSimulationTime", update)
         self.assertIn("Mathf.Min(Time.deltaTime, 0.12f)", update)
         self.assertIn("(target.position - transform.position).sqrMagnitude < 42f * 42f && HasSight()", update)
-        self.assertIn("distance <= 38f", update)
+        self.assertIn("distance <= (carriedGun == null ? 2.25f : 38f)", update)
         self.assertIn("owner.WouldCrossInactiveCover", update)
 
     def test_far_movement_stays_near_realtime(self):

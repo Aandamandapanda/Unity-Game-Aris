@@ -1181,11 +1181,14 @@ namespace Aaris.MapReview
             coverHeading.y = 0f;
             Vector3 travelDirection = seekingCover ? coverHeading.normalized :
                 retreat ? retreatDirection : toward;
+            // Unarmed rivals close to contact range; no imaginary SMG shots.
             float moveSpeed = seekingCover ? 3.45f : retreat ? 3.2f :
+                carriedGun == null ? (distance > 1.7f ? 2.85f : 0f) :
                 distance > 12f ? 2.85f : distance < 7f ? -1.15f : 0f;
             Vector3 desired = Quaternion.Euler(0f, turnOffset, 0f) *
                 travelDirection * moveSpeed;
-            if (canSee && !retreat && !seekingCover) desired *= .23f; // Hold to fire without skating.
+            if (canSee && !retreat && !seekingCover && carriedGun != null)
+                desired *= .23f; // Armed only; unarmed bots close to melee.
             Vector3 displacement = desired * dt;
             if (displacement.sqrMagnitude > 0.000001f &&
                 owner.WouldCrossInactiveCover(transform.position, displacement))
@@ -1232,7 +1235,9 @@ namespace Aaris.MapReview
                 float wanted = Mathf.Clamp01(groundSpeed / 2.9f);
                 UpdateAnimationBlend(wanted, dt);
             }
-            if (hasTarget && canSee && distance <= 38f &&
+            // Punch only within contact range if no firearm is equipped.
+            if (hasTarget && canSee &&
+                distance <= (carriedGun == null ? 2.25f : 38f) &&
                 (target != playerTarget || owner.MayAttackPlayer(this)) &&
                 Vector3.Dot(transform.forward, toward) > .84f &&
                 Time.time >= nextAttack && TryGetSightHit(target, out RaycastHit shotHit))
@@ -1250,10 +1255,16 @@ namespace Aaris.MapReview
                     : 1.15f;
                 nextAttack = Time.time + fireInterval +
                     UnityEngine.Random.Range(.1f, .35f);
-                if (carriedGun != null) carriedMagazine--;
-                AarisAudioDirector.GunShot(carriedGun != null ? carriedGun.category : "SMG",
-                    carriedGun != null ? carriedGun.id : "Rival",
-                    transform.position + Vector3.up);
+                if (carriedGun != null)
+                {
+                    carriedMagazine--;
+                    AarisAudioDirector.GunShot(carriedGun.category, carriedGun.id,
+                        transform.position + Vector3.up);
+                }
+                else
+                {
+                    AarisAudioDirector.Punch(transform.position + Vector3.up);
+                }
                 float damage = carriedGun != null
                     ? Mathf.Clamp(carriedGun.damage * .23f, 4f, 26f) : 6f;
                 // A physical LOS bullet feeds the SAME hitbox receiver as player guns.
