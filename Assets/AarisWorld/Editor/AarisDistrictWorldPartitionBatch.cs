@@ -102,6 +102,17 @@ namespace Aaris.MapReview.Editor
                 {
                     var collider = child.GetComponent<MeshCollider>();
                     var lod = child.GetComponent<LODGroup>();
+                    // The real harbour pier is a physical gameplay walkway,
+                    // but does not own an authored LODGroup. Never substitute
+                    // a generated low-poly representation or move its collider.
+                    if (name == "EasternPort" && child.name == "Port_Sea_Pier")
+                    {
+                        Check(collider != null && lod == null &&
+                              child.GetComponentsInChildren<Collider>(true).Length == 1 &&
+                              child.GetComponentsInChildren<Renderer>(true).Length == 1,
+                              "harbour-pier-physical-path-changed");
+                        continue;
+                    }
                     if (collider == null && lod == null)
                     {
                         // Never migrate water surfaces, airfield runway or
