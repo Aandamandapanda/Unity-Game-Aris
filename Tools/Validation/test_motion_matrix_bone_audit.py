@@ -106,7 +106,7 @@ class MotionMatrixBoneAuditTests(unittest.TestCase):
             self.assertIn(metric, transition)
         self.assertIn("if(transitioning){", transition)
 
-    def test_editor_contract_is_only_in_motion_matrix_mode(self):
+    def test_editor_motion_matrix_and_transition_capture_guards(self):
         editor = (ROOT / "Assets/AarisWorld/Editor/AarisPoseFrames.cs").read_text()
         self.assertIn("if(motionMatrix)", editor)
         self.assertIn("MOTION_TIMESTAMP stage=", editor)
@@ -114,12 +114,34 @@ class MotionMatrixBoneAuditTests(unittest.TestCase):
         self.assertIn("lastMotionCaptureFrame = -1;", editor)
         self.assertIn("Time.frameCount != lastMotionCaptureFrame", editor)
         self.assertIn("lastMotionCaptureFrame = Time.frameCount;", editor)
+        self.assertIn(
+            "((!motionMatrix && !transitionFrames) || "
+            "Time.frameCount != lastMotionCaptureFrame)", editor,
+        )
+        self.assertIn(
+            "if(motionMatrix || transitionFrames) "
+            "lastMotionCaptureFrame = Time.frameCount;", editor,
+        )
+        self.assertIn("TRANSITION_TIMESTAMP stance=", editor)
+        self.assertIn('" gameFrame="+Time.frameCount', editor)
         self.assertIn("Time.unscaledTimeAsDouble.ToString(\"F6\"", editor)
         self.assertIn(
             "if(motionMatrix || count==0 || (orbitStance && count==needed-1))",
             editor,
         )
         self.assertIn("LogPhysicalHeight(p,b);", editor)
+
+    def test_transition_bad_pelvis_basis_fails_closed(self):
+        editor = (ROOT / "Assets/AarisWorld/Editor/AarisPoseFrames.cs").read_text()
+        start = editor.index("static void LogTransitionContact(")
+        end = editor.index("static void Finish(string reason)", start)
+        transition = editor[start:end]
+        self.assertIn("TRANSITION_HIP_AXIS_DEGENERATE", transition)
+        self.assertIn("if(transitioning && !p.IsInAir)", transition)
+        self.assertLess(
+            transition.index("TRANSITION_HIP_AXIS_DEGENERATE"),
+            transition.index("TRANSITION_KNEE_SIDEWAYS_OVER_30CM"),
+        )
 
 
 if __name__ == "__main__":
