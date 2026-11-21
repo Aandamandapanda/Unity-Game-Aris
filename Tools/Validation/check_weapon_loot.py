@@ -259,7 +259,7 @@ def run():
     assert 'throw new FormatException("Invalid weapon entry at " + i)' in catalog_cs
     assert 'throw new FormatException("Duplicate weapon identifier.")' in catalog_cs
     assert "TryFirstOtherHit" not in gun_cs # renamed and rewritten, not a second weapon motor
-    assert "FirstExternalHit" in gun_cs and "SameTarget" in gun_cs
+    assert "FirstExternalHit" in gun_cs and "target = muzzleHit;" in gun_cs
     assert "magazine--;" in gun_cs and "nextFire = Time.time + spec.ShotInterval;" in gun_cs
     # Accepted shots get a pooled visual flash. Construction happens at
     # configuration/equip time, never inside the automatic-fire hot path.

@@ -132,7 +132,7 @@ def assert_regression() -> None:
     assert "count = hits.Length;" in query_buffer
     assert "candidates[i].distance" in GUN
     assert "if (saturated) return false;" not in GUN
-    assert "SameTarget" in GUN
+    assert "SameTarget" not in GUN
     assert "collider.transform.IsChildOf(owner)" in GUN
     assert "Physics.DefaultRaycastLayers" in GUN
     assert "Vector3 muzzle" in GUN and "muzzleHit" in GUN
