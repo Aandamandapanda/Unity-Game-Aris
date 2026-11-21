@@ -29,7 +29,8 @@
       },
       "handScale": 1,
       "presentationLengthMetres": 0.65,
-      "handlingMassKg": 4.1
+      "handlingMassKg": 4.1,
+      "scopePower": 1
     },
     {
       "id": "AssaultRifle",
@@ -60,7 +61,8 @@
       },
       "handScale": 1,
       "presentationLengthMetres": 0.91,
-      "handlingMassKg": 3.4
+      "handlingMassKg": 3.4,
+      "scopePower": 2
     },
     {
       "id": "BattleRifle",
@@ -91,7 +93,8 @@
       },
       "handScale": 1,
       "presentationLengthMetres": 1.02,
-      "handlingMassKg": 4.4
+      "handlingMassKg": 4.4,
+      "scopePower": 2
     },
     {
       "id": "Sniper",
@@ -122,7 +125,8 @@
       },
       "handScale": 1,
       "presentationLengthMetres": 1.23,
-      "handlingMassKg": 5.1
+      "handlingMassKg": 5.1,
+      "scopePower": 4
     },
     {
       "id": "Shotgun",
@@ -153,7 +157,8 @@
       },
       "handScale": 1,
       "presentationLengthMetres": 1.03,
-      "handlingMassKg": 3.6
+      "handlingMassKg": 3.6,
+      "scopePower": 0
     },
     {
       "id": "DMR",
@@ -184,7 +189,8 @@
       },
       "handScale": 1,
       "presentationLengthMetres": 1.02,
-      "handlingMassKg": 4.4
+      "handlingMassKg": 4.4,
+      "scopePower": 0
     }
   ]
 }
