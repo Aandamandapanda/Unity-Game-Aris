@@ -28,7 +28,7 @@ class CombatEndToEndContract(unittest.TestCase):
         self.assertEqual(by_id["Shotgun"]["scopePower"], 0)
         self.assertIn("AarisOfflineBRDirector.TryAcquireAimTarget", GUN)
         self.assertIn("TryAcquireAimTarget(aimCamera, transform", HUD)
-        self.assertIn("if (first == null || !first.transform.IsChildOf(candidate.transform))", BOTS)
+        self.assertIn("if (closest == null || !closest.transform.IsChildOf(candidate.transform))", BOTS)
         self.assertIn("shotForward = Vector3.Slerp", GUN)
         self.assertIn('"NO SCOPE"', read("AarisWeaponCatalog.cs"))
         self.assertIn("opticalRing.gameObject.SetActive(showOptic)", HUD)
