@@ -33,8 +33,13 @@ jobs:
         run: |
           python3 -m unittest discover -s Tools/Validation -p 'test_forestlookout_partition_pilot.py' -v
           python3 -m unittest discover -s Tools/Validation -p 'test_world_partition_readiness.py' -q
-          if python3 Tools/Validation/world_partition_readiness.py --require-safe >/dev/null; then
-            echo "Unexpectedly reported district extraction as safe"
+          set +e
+          python3 Tools/Validation/world_partition_readiness.py --require-safe >/tmp/world-partition-preflight.log 2>&1
+          preflight_code=$?
+          set -e
+          if [ "$preflight_code" -ne 1 ]; then
+            echo "World audit must return exactly 1 for known unsafe districts; got $preflight_code"
+            cat /tmp/world-partition-preflight.log
             exit 1
           fi
       - name: Mono compiler runtime and callback test on production C#
