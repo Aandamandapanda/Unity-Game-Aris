@@ -30,6 +30,20 @@ class WeaponFeedbackContract(unittest.TestCase):
         self.assertIn("attacker != instance.inventory.gameObject", update)
         self.assertIn("Time.unscaledTime + 0.13f", update)
 
+    def test_pooled_tapered_muzzle_flash(self):
+        build = GUN.split("private void EnsureMuzzleFlash()", 1)[1].split(
+            "private void TriggerMuzzleFlash()", 1)[0]
+        trigger = GUN.split("private void TriggerMuzzleFlash()", 1)[1].split(
+            "private static Material CasingMaterial", 1)[0]
+        self.assertIn("MuzzleFlameMesh()", build)
+        self.assertIn("MeshFilter", build)
+        self.assertIn("Vector3.one * 0.115f", build)
+        self.assertNotIn("PrimitiveType.Quad", build)
+        self.assertIn("sharedMuzzleFlameMesh", GUN)
+        self.assertIn("mesh.colors32 = colors;", GUN)
+        for token in ("new GameObject", "new Mesh", "Instantiate("):
+            self.assertNotIn(token, trigger)
+
     def test_visibility_and_alpha_fade(self):
         self.assertIn('Shader.Find("Universal Render Pipeline/Particles/Unlit")', LOOT)
         self.assertIn("shared.EnableKeyword(\"_SURFACE_TYPE_TRANSPARENT\");", LOOT)
