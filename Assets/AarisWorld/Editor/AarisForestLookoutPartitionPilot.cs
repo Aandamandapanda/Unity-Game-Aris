@@ -358,6 +358,33 @@ namespace Aaris.MapReview.Editor
                   proxyRenderer.GetComponent<MeshFilter>().sharedMesh ==
                     lastLodMesh.sharedMesh,
                   "persistent-silhouette-mesh-not-identical");
+            // Native mesh identity alone cannot prove that users will see the
+            // same authored landmark. Keep materials, world pose and uniform
+            // / nonuniform scale aligned with the original last LOD renderer.
+            Renderer authoredFar = authoredLod.GetLODs()[
+                authoredLod.GetLODs().Length - 1].renderers[0];
+            Check(Vector3.Distance(root.position,
+                      originalTower.transform.position) < 0.001f &&
+                  Quaternion.Angle(root.rotation,
+                      originalTower.transform.rotation) < 0.01f &&
+                  Vector3.Distance(root.lossyScale,
+                      originalTower.transform.lossyScale) < 0.001f,
+                  "persistent-proxy-world-pose-drift");
+            Check(Vector3.Distance(proxyRenderer.transform.position,
+                      authoredFar.transform.position) < 0.001f &&
+                  Quaternion.Angle(proxyRenderer.transform.rotation,
+                      authoredFar.transform.rotation) < 0.01f &&
+                  Vector3.Distance(proxyRenderer.transform.lossyScale,
+                      authoredFar.transform.lossyScale) < 0.001f,
+                  "last-lod-silhouette-world-pose-drift");
+            Material[] proxyMaterials = proxyRenderer.sharedMaterials;
+            Material[] authoredMaterials = authoredFar.sharedMaterials;
+            Check(proxyMaterials.Length == authoredMaterials.Length,
+                  "last-lod-material-slot-count-changed");
+            for (int materialIndex = 0;
+                 materialIndex < authoredMaterials.Length; materialIndex++)
+                Check(proxyMaterials[materialIndex] == authoredMaterials[materialIndex],
+                      "last-lod-material-identity-changed");
             EditorSceneManager.CloseScene(cell, true);
             Check(bootstrap.IsValid(), "persistent-scene-closed");
             Debug.Log("AARIS_FORESTLOOKOUT_PILOT_VERIFY_PASS " +
