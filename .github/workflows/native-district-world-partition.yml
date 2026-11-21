@@ -1,0 +1,53 @@
+name: Aaris native district chunk authoring contracts
+on:
+  pull_request:
+    paths:
+      - 'Assets/AarisWorld/Editor/AarisDistrictWorldPartitionBatch.cs'
+      - 'Assets/AarisWorld/Editor/AarisDistrictWorldPartitionBatch.cs.meta'
+      - 'Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity'
+      - 'Assets/AarisWorld/Scenes/Chunks/Aaris_District_*'
+      - 'ProjectSettings/EditorBuildSettings.asset'
+      - 'Tools/Validation/test_native_district_world_partition.py'
+      - '.github/workflows/native-district-world-partition.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Assets/AarisWorld/Editor/AarisDistrictWorldPartitionBatch.cs'
+      - 'Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity'
+      - 'Assets/AarisWorld/Scenes/Chunks/Aaris_District_*'
+      - 'ProjectSettings/EditorBuildSettings.asset'
+      - 'Tools/Validation/test_native_district_world_partition.py'
+permissions:
+  contents: read
+jobs:
+  source-and-world-references:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Verify zero-loss static building source or authored chunk graph
+        run: python3 Tools/Validation/test_native_district_world_partition.py
+      - name: Preserve exact ForestLookout collider/LOD pilot
+        run: python3 Tools/Validation/test_forestlookout_partition_pilot.py
+      - name: Verify additive native streaming state machine
+        run: python3 Tools/Validation/test_additive_chunk_streaming.py
+      - name: Verify world collision / external reference boundaries
+        run: python3 Tools/Validation/world_partition_readiness.py
+      - name: Verify editor code never modifies global terrain graphics quality
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          code = Path("Assets/AarisWorld/Editor/AarisDistrictWorldPartitionBatch.cs").read_text()
+          assert 'GetComponent<AarisNearbyColliders>()' in code
+          assert 'GetComponent<AarisAdditiveChunkStreamer>()' in code
+          assert 'scenePath").stringValue = district.path' in code
+          assert 'AARIS_DISTRICT_APPLY_VERIFY_COMPLETE' in code
+          assert 'AARIS_WORLD_PARTITION_APPLY' in code
+          for forbidden in ("TerrainData.", "QualitySettings.", "DestroyImmediate(c.tower)",
+                            "Screen.SetResolution(", "SetActive(false)", "git worktree"):
+              assert forbidden not in code, forbidden
+          print("AARIS_DISTRICT_AUTHORING_INVARIANTS_PASS")
+          PY
