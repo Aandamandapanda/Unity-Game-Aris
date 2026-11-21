@@ -9,6 +9,7 @@ namespace UnityEngine
     public class Object { }
     public class GameObject : Object { }
     public class AudioClip : Object { }
+    public class TextAsset : Object { }
     public class AsyncOperation { public bool isDone; public int priority; }
     public sealed class ResourceRequest : AsyncOperation { }
     public enum RuntimeInitializeLoadType { SubsystemRegistration }
@@ -277,6 +278,65 @@ internal static class StreamingAdmissionTests
             "High-end Android GPU was unnecessarily throttled");
     }
 
+    private static void EssentialWeaponFence()
+    {
+        Configure(6144, "Adreno 610");
+        var definitions = Resources.LoadAsync<TextAsset>("weapon_catalog");
+        AarisMobileStreamingFrameGate.TrackEssentialWeaponLoad(definitions);
+        Check(Resources.requests == 1, "Direct catalog request missing");
+        Frame(2);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild() &&
+              Load() == null, "Optional import overlapped weapon catalog");
+        definitions.isDone = true;
+        Frame(3);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Catalog completion frame reused");
+        Frame(4);
+        var gun = Resources.LoadAsync<GameObject>("gun");
+        AarisMobileStreamingFrameGate.TrackEssentialWeaponLoad(gun);
+        Frame(5);
+        Check(!AarisMobileStreamingFrameGate.TryClaimNonessentialDiagnosticFrame(),
+            "Gun model import overlapped diagnostic");
+        gun.isDone = true;
+        Frame(6);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Gun integration frame reused");
+        Frame(7);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Completed weapon import starved visuals");
+        Check(AarisMobileStreamingFrameGate.EssentialWeaponDeferredAttempts >= 3,
+            "Essential weapon deferral count missing");
+
+        Configure(6144, "Adreno 610");
+        var audio = Resources.LoadAsync<AudioClip>("shot");
+        AarisMobileStreamingFrameGate.TrackEssentialAudioLoad(audio);
+        var weapon = Resources.LoadAsync<GameObject>("gun");
+        AarisMobileStreamingFrameGate.TrackEssentialWeaponLoad(weapon);
+        Frame(2);
+        weapon.isDone = true;
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Overlap allowed optional import");
+        Frame(3);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Unfinished audio was ignored");
+        audio.isDone = true;
+        Frame(4);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Audio completion bypassed native fence");
+        Frame(5);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Overlapping completed imports blocked forever");
+
+        Configure(8192, "Adreno 730");
+        AarisMobileStreamingFrameGate.TrackEssentialWeaponLoad(
+            Resources.LoadAsync<GameObject>("gun"));
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "High-end phone throttled");
+        Configure(6144, "Adreno 610");
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Static reset retained weapon import");
+    }
+
     private static void DiagnosticImportFence()
     {
         // This regression executes the actual production gate with controlled
@@ -543,7 +603,7 @@ internal static class StreamingAdmissionTests
     public static void Main()
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
-        Hardware(); ImportFence(); EssentialAudioFence(); AdditiveSceneFence(); DiagnosticImportFence(); Pressure(); RefreshAwarePressure(); PhysicsCatchupAdmission(); CleanupRigAndReset();
+        Hardware(); ImportFence(); EssentialAudioFence(); AdditiveSceneFence(); DiagnosticImportFence(); EssentialWeaponFence(); Pressure(); RefreshAwarePressure(); PhysicsCatchupAdmission(); CleanupRigAndReset();
         Console.WriteLine("STREAMING_ADMISSION_ANDROID_PASS checks=" + checks);
 #else
         Configure();
