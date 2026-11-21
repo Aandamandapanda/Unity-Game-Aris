@@ -673,6 +673,20 @@ namespace Aaris.MapReview
 
         internal static bool TryClaimOptionalModelBuild()
         {
+            return TryClaimOptionalModelBuild(false);
+        }
+
+        // Only an independently authored scene whose original position is
+        // inside the player's actual load margin may bypass thermal *spacing*.
+        // Essential import fences and the one-native-work-per-frame gate
+        // remain identical; predicted-only cells must use normal admission.
+        internal static bool TryClaimUrgentSceneLoad()
+        {
+            return TryClaimOptionalModelBuild(true);
+        }
+
+        private static bool TryClaimOptionalModelBuild(bool urgentScene)
+        {
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (IsEssentialJsonParseFrame()) return false;
             if (IsEssentialRigFrame())
@@ -721,7 +735,8 @@ namespace Aaris.MapReview
                 // This is a spacing limit, not a total work cap or fidelity cut.
                 int thermalGap = AarisAndroidThermalGovernor.SuspendSpeculativePrefetch
                     ? 4 : (AarisAndroidThermalGovernor.ModerateThermalPressure ? 2 : 0);
-                if (thermalGap > 0 && lastThermalModelAdmissionFrame >= 0 &&
+                if (!urgentScene && thermalGap > 0 &&
+                    lastThermalModelAdmissionFrame >= 0 &&
                     frame - lastThermalModelAdmissionFrame < thermalGap)
                 {
                     ThermalSpacingDeferredAttempts++;
