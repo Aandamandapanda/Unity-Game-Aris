@@ -46,6 +46,8 @@ namespace Aaris.MapReview
         private float nextDropComponentRefresh;
         private AarisOfflineMatchEnd matchEnd;
         private AarisNearbyColliders nearbyColliders;
+        private AarisWeaponLootWorld rivalLootWorld;
+        private float nextLootWorldLookup;
         private Terrain[] terrains;
         private int attemptedSlots, activeRivals, spawnedRivals;
         private float startedAt, nextSpawn, nextZoneTick, nextDamageTick, nextRingDraw;
@@ -603,6 +605,18 @@ namespace Aaris.MapReview
             return bot == attackerOne || bot == attackerTwo;
         }
 
+        internal bool TryLootForRival(Vector3 position, out AarisWeaponSpec weapon)
+        {
+            weapon = null;
+            if (rivalLootWorld == null && Time.time >= nextLootWorldLookup)
+            {
+                nextLootWorldLookup = Time.time + 5f;
+                rivalLootWorld = FindFirstObjectByType<AarisWeaponLootWorld>();
+            }
+            return rivalLootWorld != null &&
+                rivalLootWorld.TryTakeForRival(position, out weapon);
+        }
+
         internal bool FindRivalOpponent(AarisOfflineRival self,
             out Transform victim, out AarisOfflineHealth victimHealth)
         {
@@ -843,6 +857,9 @@ namespace Aaris.MapReview
         private bool visualBuilt;
         private float nextVisualCheck, staggeredVisualDelay;
         private int medkits = 1;
+        private float nextLootAt;
+        private AarisWeaponSpec carriedGun;
+        private int carriedMagazine;
         private readonly Collider[] coverCandidates = new Collider[24];
         private Vector3 coverDestination;
         private float coverUntil, nextCoverQuery;
@@ -887,6 +904,7 @@ namespace Aaris.MapReview
             farSimulationPhase = encounterSlot * (FarSimulationInterval / 100f);
 #endif
             staggeredVisualDelay = Time.time + encounterSlot * 0.015f;
+            nextLootAt = Time.time + encounterSlot * 0.035f + 1f;
             if ((transform.position - victim.position).sqrMagnitude < 100f * 100f)
                 BuildVisual();
         }
@@ -1023,6 +1041,15 @@ namespace Aaris.MapReview
             float playerDistance = Vector3.Distance(playerTarget.position, transform.position);
             bool farSimulation = playerDistance >= FarSimulationDistance;
             if (farSimulation && now < nextFarSimulation) return;
+            if (playerDistance < 76f && now >= nextLootAt)
+            {
+                nextLootAt = now + 3.5f;
+                if (owner.TryLootForRival(transform.position, out AarisWeaponSpec found))
+                {
+                    carriedGun = found;
+                    carriedMagazine = found.magazineSize;
+                }
+            }
             float dt = Mathf.Min(Time.deltaTime, 0.12f);
             if (farSimulation)
                 dt = Mathf.Clamp(now - lastSimulationTime, 0f, 0.46f);
@@ -1159,10 +1186,26 @@ namespace Aaris.MapReview
                 Vector3.Dot(transform.forward, toward) > .84f &&
                 Time.time >= nextAttack && HasSight())
             {
-                // Offline damage contract, not real-world ballistics.
-                nextAttack = Time.time + UnityEngine.Random.Range(1.15f, 1.65f);
-                AarisAudioDirector.GunShot("SMG", "Rival", transform.position + Vector3.up);
-                targetHealth.ApplyDamage(6f, gameObject);
+                // Physical loot changes the bot's magazine, fire interval,
+                // damage and gunshot sound; no runtime gun model clone required.
+                if (carriedGun != null && carriedMagazine == 0)
+                {
+                    carriedMagazine = carriedGun.magazineSize;
+                    nextAttack = Time.time + carriedGun.reloadSeconds;
+                    return;
+                }
+                float fireInterval = carriedGun != null
+                    ? Mathf.Clamp(carriedGun.ShotInterval * 3f, .35f, 2.4f)
+                    : 1.15f;
+                nextAttack = Time.time + fireInterval +
+                    UnityEngine.Random.Range(.1f, .35f);
+                if (carriedGun != null) carriedMagazine--;
+                AarisAudioDirector.GunShot(carriedGun != null ? carriedGun.category : "SMG",
+                    carriedGun != null ? carriedGun.id : "Rival",
+                    transform.position + Vector3.up);
+                float damage = carriedGun != null
+                    ? Mathf.Clamp(carriedGun.damage * .23f, 4f, 26f) : 6f;
+                targetHealth.ApplyDamage(damage, gameObject);
             }
         }
 
