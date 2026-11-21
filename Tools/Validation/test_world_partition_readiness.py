@@ -88,15 +88,31 @@ class WorldPartitionReadiness(unittest.TestCase):
     def test_live_world_has_all_authored_visual_and_collision_dependencies(self):
         report = mod.audit_scene(ROOT / mod.SCENE)
         self.assertEqual(report["terrain_objects"], 4)
-        self.assertEqual(report["game_objects"], 878)
-        self.assertEqual(report["lod_groups"], 128)
+        native_pilot = (
+            ROOT / "Assets/AarisWorld/Scenes/Chunks/Aaris_ForestLookout_Detail.unity"
+        ).is_file()
+        # Exactly one authored 3-object LOD tower relocates to a detail cell,
+        # leaving a 2-object persistent collision+far-silhouette replacement.
+        self.assertEqual(report["game_objects"], 877 if native_pilot else 878)
+        self.assertEqual(report["lod_groups"], 127 if native_pilot else 128)
         self.assertEqual(report["mesh_colliders"], 95)
         self.assertEqual(report["box_colliders"], 200)
         self.assertEqual(len(report["districts"]), 13)
         self.assertFalse(report["ready_for_district_migration"])
         self.assertTrue(all(not d["direct_move_safe"] for d in report["districts"]))
-        self.assertTrue(all(d["lod_groups"] > 0 and d["mesh_colliders"] > 0
+        self.assertTrue(all(d["mesh_colliders"] > 0
                             for d in report["districts"]))
+        self.assertTrue(all(d["lod_groups"] > 0
+                            for d in report["districts"]
+                            if not (native_pilot and d["name"] == "ForestLookout")))
+        if native_pilot:
+            lookout = next(d for d in report["districts"]
+                           if d["name"] == "ForestLookout")
+            self.assertEqual(lookout["objects"], 3)
+            self.assertEqual(lookout["lod_groups"], 0)
+            self.assertEqual(lookout["mesh_colliders"], 1)
+            self.assertEqual(lookout["inbound_inspector_refs"], 1)
+            self.assertFalse(lookout["direct_move_safe"])
         self.assertEqual(
             [r["name"] for r in report["persistent_groups"]],
             ["Terrain_2x2", "BattleRoyaleProps",

@@ -1,0 +1,56 @@
+name: Aaris ForestLookout Chunk Runtime Contracts
+
+on:
+  pull_request:
+    paths:
+      - 'Assets/AarisWorld/Scripts/AarisChunkFallbackVisibility.cs'
+      - 'Assets/AarisWorld/Editor/AarisForestLookoutPartitionPilot.cs'
+      - 'Tools/Validation/WorldChunkFallbackVisibilityTests.cs'
+      - 'Tools/Validation/test_forestlookout_partition_pilot.py'
+      - '.github/workflows/aaris-world-forestlookout-pilot.yml'
+  push:
+    paths:
+      - 'Assets/AarisWorld/Scripts/AarisChunkFallbackVisibility.cs'
+      - 'Assets/AarisWorld/Editor/AarisForestLookoutPartitionPilot.cs'
+      - 'Tools/Validation/WorldChunkFallbackVisibilityTests.cs'
+      - 'Tools/Validation/test_forestlookout_partition_pilot.py'
+      - '.github/workflows/aaris-world-forestlookout-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  controlled-production-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout current commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check source contracts and fail-closed world inventory
+        run: |
+          python3 -m unittest discover -s Tools/Validation -p 'test_forestlookout_partition_pilot.py' -v
+          python3 -m unittest discover -s Tools/Validation -p 'test_world_partition_readiness.py' -q
+          set +e
+          python3 Tools/Validation/world_partition_readiness.py --require-safe >/tmp/world-partition-preflight.log 2>&1
+          preflight_code=$?
+          set -e
+          if [ "$preflight_code" -ne 1 ]; then
+            echo "World audit must return exactly 1 for known unsafe districts; got $preflight_code"
+            cat /tmp/world-partition-preflight.log
+            exit 1
+          fi
+      - name: Mono compiler runtime and callback test on production C#
+        run: |
+          set -euo pipefail
+          if ! command -v mcs >/dev/null || ! command -v mono >/dev/null; then
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mono-mcs mono-runtime
+          fi
+          mcs -warnaserror -out:/tmp/aaris-world-fallback-test.exe \
+            Tools/Validation/WorldChunkFallbackVisibilityTests.cs \
+            Assets/AarisWorld/Scripts/AarisChunkFallbackVisibility.cs
+          mono /tmp/aaris-world-fallback-test.exe
+          echo "Production fallback compiled and event-lifecycle verified; Unity Editor scene and Android FPS still unverified."

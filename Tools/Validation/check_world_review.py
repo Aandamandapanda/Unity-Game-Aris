@@ -40,7 +40,21 @@ def check(native=False):
         prefab_checks.append(name)
     objects=documents(ROOT/SCENE);names={i:d['m_Name'] for c,i,n,d in objects if n=='GameObject'}
     transforms={names[d['m_GameObject']['fileID']]:d for c,i,n,d in objects if n=='Transform'}
-    for b in layout['buildings']:assert list(transforms[b['name']]['m_LocalScale'].values())==b['scale']
+    detail_scene=ROOT/'Assets/AarisWorld/Scenes/Chunks/Aaris_ForestLookout_Detail.unity'
+    if detail_scene.exists():
+        detail=documents(detail_scene)
+        detail_names={i:d['m_Name'] for c,i,n,d in detail if n=='GameObject'}
+        detail_transforms={
+            detail_names[d['m_GameObject']['fileID']]:d
+            for c,i,n,d in detail if n=='Transform'
+        }
+        assert set(transforms).isdisjoint(detail_transforms), 'Duplicate full-detail tower in bootstrap'
+        assert 'ForestLookout_watchtower_01' in detail_transforms, 'Expected full-detail tower missing'
+        assert len(detail_transforms)==3, 'Additive landmark contents changed unexpectedly'
+        transforms.update(detail_transforms)
+    for b in layout['buildings']:
+        assert b['name'] in transforms, ('Missing authored building across scenes',b['name'])
+        assert list(transforms[b['name']]['m_LocalScale'].values())==b['scale']
     scene_spawn = transforms['AarisPlayer']['m_LocalPosition']
     reported_spawn = report['safe_spawn_m']
     assert len(reported_spawn) == 3 and all(
