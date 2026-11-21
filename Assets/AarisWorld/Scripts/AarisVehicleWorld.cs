@@ -2130,7 +2130,8 @@ namespace Aaris.MapReview
             // none needs a model may one approaching car borrow the SAME async
             // loading slot. Real player position still exclusively controls
             // physics, placement, visibility, load and unload distances.
-            if (closestType < 0 && predictedPrewarmPosition != playerPosition)
+            if (closestType < 0 && predictedPrewarmPosition != playerPosition &&
+                !AarisAndroidThermalGovernor.SuspendSpeculativePrefetch)
             {
                 float predictedNearestSq =
                     AuthoredPrewarmRadius * AuthoredPrewarmRadius;
