@@ -87,6 +87,24 @@ class CombatEndToEndContract(unittest.TestCase):
         self.assertGreater(1.55, threshold)
         self.assertLess(1.20, threshold)
 
+    def test_camera_only_impact_must_not_damage_without_muzzle_contact(self):
+        firing = GUN.split("public bool TryFire(Camera camera, GameObject owner)", 1)[1].split(
+            "internal static void ApplyDamage", 1)[0]
+        muzzle = firing.split("if (!muzzleBlocked && distance > 0.025f)", 1)[1].split(
+            "// One tracer", 1)[0]
+        self.assertIn("targetFound = muzzleHitFound;", muzzle)
+        self.assertIn("distance + 0.05f", muzzle)
+        self.assertIn("else if (!muzzleBlocked)", muzzle)
+        self.assertIn("targetFound = false;", muzzle)
+        self.assertIn("if (targetFound)", firing)
+        for barrel_block, camera_hit, physical_hit, expected in (
+                (False, True, False, False),
+                (False, True, True, True),
+                (False, False, True, True),
+                (True, True, False, True),
+                (False, False, False, False)):
+            self.assertEqual(barrel_block or physical_hit, expected)
+
     def test_floating_numbers_project_confirmed_world_hits(self):
         self.assertIn("hitPosition ?? collider.bounds.center", GUN)
         self.assertIn("WorldToScreenPoint(worldHitPosition)", HUD)
