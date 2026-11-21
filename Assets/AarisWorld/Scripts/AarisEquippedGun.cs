@@ -618,8 +618,10 @@ namespace Aaris.MapReview
             Vector3 shotForward = camera.transform.forward;
             float assistCone = spec.scopePower == 4 ? 1.4f :
                 spec.scopePower == 2 ? 2.3f : 3.7f;
-            if (AarisOfflineBRDirector.TryAcquireAimTarget(camera, owner.transform,
-                spec.rangeMetres, assistCone, out Vector3 assisted))
+            bool assistedLock = AarisOfflineBRDirector.TryAcquireAimTarget(
+                camera, owner.transform, spec.rangeMetres, assistCone,
+                out Vector3 assisted);
+            if (assistedLock)
             {
                 // A confirmed RED reticle must correspond to the actual shot
                 // ray. Partial Slerp at 4x can miss a 0.62m rival capsule even
@@ -627,12 +629,21 @@ namespace Aaris.MapReview
                 // muzzle obstruction still govern the final pellet impacts.
                 shotForward = assisted;
             }
+            // The red target indicator must give reliable body hits, not
+            // promise a lock while long-range random spread misses a 0.62m
+            // capsule. Keep unassisted accuracy untouched and preserve the
+            // shotgun's multi-pellet pattern. Cover, muzzle parallax, ammo,
+            // recoil and actual PhysX impacts remain authoritative.
+            float shotSpreadDegrees = !assistedLock ? spec.spreadDegrees :
+                spec.pellets > 1 ? spec.spreadDegrees * 0.65f :
+                Mathf.Min(spec.spreadDegrees * 0.30f,
+                    14f / Mathf.Max(1f, spec.rangeMetres));
             bool impactSoundEmitted = false;
             for (int pellet = 0; pellet < spec.pellets; pellet++)
             {
                 Vector2 spread = new Vector2(AarisWeaponRandom.Next01(ref spreadSeed) * 2f - 1f,
                     AarisWeaponRandom.Next01(ref spreadSeed) * 2f - 1f);
-                spread = Vector2.ClampMagnitude(spread, 1f) * spec.spreadDegrees;
+                spread = Vector2.ClampMagnitude(spread, 1f) * shotSpreadDegrees;
                 Vector3 look = Quaternion.AngleAxis(spread.x, camera.transform.up) *
                     Quaternion.AngleAxis(-spread.y, camera.transform.right) * shotForward;
                 Ray aim = new Ray(camera.transform.position, look);
@@ -694,6 +705,26 @@ namespace Aaris.MapReview
             return true;
         }
 
+        // Authored rigs may put a tiny collider on the Head bone. A 20cm head
+        // hitbox fails the height heuristic below, even when PhysX actually hit
+        // the head. Match only explicit bone/hitbox names under the victim root;
+        // never promote arbitrary body colliders or scenery to headshots.
+        private static bool IsAuthoredHeadHit(Collider hit, Transform receiver)
+        {
+            if (hit == null || receiver == null) return false;
+            for (Transform part = hit.transform;
+                part != null && part != receiver; part = part.parent)
+            {
+                string label = part.name;
+                if (string.Equals(label, "Head", System.StringComparison.OrdinalIgnoreCase) ||
+                    label.EndsWith(":Head", System.StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(label, "HeadHitbox", System.StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(label, "HeadCollider", System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
         internal static void ApplyDamage(Collider collider, float amount, GameObject attacker)
         {
             ApplyDamage(collider, amount, attacker, null);
@@ -723,8 +754,9 @@ namespace Aaris.MapReview
                         Bounds bounds = collider.bounds;
                         // Respect the current collision stance (standing, crouching,
                         // prone), rather than assuming a standing 1.8m capsule.
-                        headshot = bounds.size.y > .28f && hitPosition.Value.y >=
-                            bounds.min.y + bounds.size.y * .79f;
+                        headshot = IsAuthoredHeadHit(collider, node) ||
+                            (bounds.size.y > .28f && hitPosition.Value.y >=
+                                bounds.min.y + bounds.size.y * .79f);
                         if (headshot) damage *= 1.75f;
                         float before = victim.CurrentHealth;
                         victim.ApplyHitDamage(damage, attacker, headshot);

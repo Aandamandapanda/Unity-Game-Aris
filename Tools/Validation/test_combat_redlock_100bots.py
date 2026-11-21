@@ -82,10 +82,42 @@ class CombatEndToEndContract(unittest.TestCase):
         self.assertLess(muzzle.index("target = muzzleHit;"),
                         muzzle.index("targetFound = true;"))
         self.assertIn("ApplyDamage(target.collider, spec.damage, owner, target.point)", firing)
-        self.assertIn("headshot = bounds.size.y > .28f && hitPosition.Value.y >=", GUN)
+        self.assertIn("headshot = IsAuthoredHeadHit(collider, node) ||", GUN)
+        self.assertIn("bounds.size.y > .28f && hitPosition.Value.y >=", GUN)
         threshold = 1.8 * .79
         self.assertGreater(1.55, threshold)
         self.assertLess(1.20, threshold)
+
+    def test_red_lock_spread_remains_physical_and_mobile_friendly(self):
+        # Red-lock assistance narrows inaccuracy only after a physical LOS
+        # check. The gun still performs its muzzle ray and individual impacts.
+        self.assertIn("bool assistedLock = AarisOfflineBRDirector.TryAcquireAimTarget(", GUN)
+        self.assertIn("float shotSpreadDegrees = !assistedLock ? spec.spreadDegrees :", GUN)
+        self.assertIn("14f / Mathf.Max(1f, spec.rangeMetres)", GUN)
+        self.assertIn("spec.pellets > 1 ? spec.spreadDegrees * 0.65f", GUN)
+        self.assertIn("Vector2.ClampMagnitude(spread, 1f) * shotSpreadDegrees", GUN)
+        self.assertIn("ApplyDamage(target.collider, spec.damage, owner, target.point)", GUN)
+        for weapon in CAT["weapons"]:
+            full = float(weapon["spreadDegrees"])
+            assisted = (full * 0.65 if weapon["pellets"] > 1 else
+                        min(full * 0.30, 14.0 / max(1.0, weapon["rangeMetres"])))
+            self.assertGreater(assisted, 0.0)
+            self.assertLessEqual(assisted, full)
+            if weapon["pellets"] == 1:
+                # Angular offset at listed range stays inside a 0.31m
+                # default bot capsule: aiming remains physical and fair.
+                lateral = math.tan(math.radians(assisted)) * weapon["rangeMetres"]
+                self.assertLess(lateral, 0.31)
+
+    def test_small_authored_head_hitboxes_count_as_real_headshots(self):
+        self.assertIn("private static bool IsAuthoredHeadHit(Collider hit, Transform receiver)", GUN)
+        self.assertIn("part != null && part != receiver; part = part.parent", GUN)
+        for bone in ('"Head"', '"HeadHitbox"', '"HeadCollider"', '":Head"'):
+            self.assertIn(bone, GUN)
+        self.assertIn("headshot = IsAuthoredHeadHit(collider, node) ||", GUN)
+        self.assertIn("bounds.size.y > .28f && hitPosition.Value.y >=", GUN)
+        # The old 28cm minimum rejected a genuine 20cm HeadCollider.
+        self.assertLess(0.20, 0.28)
 
     def test_camera_only_impact_must_not_damage_without_muzzle_contact(self):
         firing = GUN.split("public bool TryFire(Camera camera, GameObject owner)", 1)[1].split(
