@@ -1,0 +1,6 @@
+UNITY=6000.3.26f1
+SITE_1_WORLD=(-189.00, -10.60, -215.00)
+PHOTO_GroundLoot_Before_Site_1_bytes=95608
+PHOTO_GroundLoot_After_Site_1_bytes=95499
+SITE_1_PICKUPS active=3 mesh=3 within50m=3 invalidSize=0 longestNearby_m=1.020 nearest=2.51
+RESULT=PASS
