@@ -311,7 +311,14 @@ namespace Aaris.MapReview
                     AarisMobileStreamingFrameGate.IsConstrainedDevice() &&
                     speculativeResidentCount >= maxSpeculativeResidentCells)
                     return;
-                if (!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild()) return;
+                // Real-position entry must not inherit the thermal
+                // *speculative* delay. It still claims the global native slot
+                // and honours essential import, physics and teardown fences.
+                if (loadIsUrgent)
+                {
+                    if (!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad()) return;
+                }
+                else if (!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild()) return;
 #endif
                 StartOperation(loadCell, true);
             }
