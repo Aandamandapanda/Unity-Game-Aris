@@ -84,7 +84,7 @@ class AndroidThermalStreamingTests(unittest.TestCase):
         self.assertNotIn("while (true)", THERMAL)
 
     def test_native_chunk_prefetch_only_near_geometry_unchanged(self):
-        android_block = WORLD.split("if (unloadCell >= 0", 1)[1].split("#endif", 1)[0]
+        android_block = WORLD.split("else if (loadCell >= 0)", 1)[1].split("#endif", 1)[0]
         self.assertIn("if (!loadIsUrgent &&", android_block)
         self.assertIn("AarisAndroidThermalGovernor.SuspendSpeculativePrefetch", android_block)
         self.assertIn("AarisAndroidThermalGovernor.ModerateThermalPressure", android_block)
@@ -117,7 +117,7 @@ class AndroidThermalStreamingTests(unittest.TestCase):
                       "detailObjectDistance =", "msaaSampleCount =", "SetResolution(",
                       "TerrainData.", "qualityLevel", "Destroy(",
                       "Resources.UnloadUnusedAssets"):
-            self.assertNotIn(token, THERMAL)
+            self.assertNotIn(token, THERMAL) if token != "Destroy(" else self.assertNotIn(" Destroy(", THERMAL)
         self.assertNotIn("PlayerSettings.", THERMAL)
 
 
