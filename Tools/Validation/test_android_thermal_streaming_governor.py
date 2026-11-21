@@ -44,6 +44,12 @@ class AndroidThermalStreamingTests(unittest.TestCase):
         self.assertIn('activity.Call<AndroidJavaObject>("getSystemService", "power")', THERMAL)
         self.assertIn('powerManager.Call<int>("getCurrentThermalStatus")', THERMAL)
         self.assertIn("private const float SampleIntervalSeconds = 5f;", THERMAL)
+        self.assertIn("private const int HeadroomPollPeriod = 3;", THERMAL)
+        self.assertIn("supportsHeadroom = sdk >= 30;", THERMAL)
+        self.assertIn('powerManager.Call<float>("getThermalHeadroom", 15)', THERMAL)
+        self.assertIn("statusPolls++ % HeadroomPollPeriod == 0", THERMAL)
+        self.assertIn("float.IsNaN(headroom)", THERMAL)
+        self.assertIn("catch (AndroidJavaException)", THERMAL)
         self.assertIn("yield return delay;", THERMAL)
         for forbidden in ("void Update(", "void FixedUpdate(", "InvokeRepeating(", "AndroidJavaProxy"):
             self.assertNotIn(forbidden, THERMAL)
@@ -67,8 +73,8 @@ class AndroidThermalStreamingTests(unittest.TestCase):
         self.assertIn("private const int SevereStatus = 3;", THERMAL)
         self.assertIn("private const int CoolRecoverySamples = 3;", THERMAL)
         self.assertIn("if (status < 0 || status > 6) return;", THERMAL)
-        self.assertIn("if (status >= SevereStatus)", THERMAL)
-        self.assertIn("if (status >= 2)", THERMAL)
+        self.assertIn("if (status >= SevereStatus || ForecastThermalHeadroom >= 1f)", THERMAL)
+        self.assertIn("if (status >= 2 || ForecastThermalHeadroom >= 0.95f)", THERMAL)
         self.assertIn("++coolSamples >= CoolRecoverySamples", THERMAL)
         self.assertEqual(thermal_policy([0, 2, 3, 2, 1, 0, 1, 3, 0, 0, 0]),
                          [False, False, True, True, True, True, False, True, True, True, False])
@@ -107,6 +113,8 @@ class AndroidThermalStreamingTests(unittest.TestCase):
 
     def test_diagnostics_report_real_status_not_inferred_temperature(self):
         self.assertIn("public int androidThermalStatus = -1;", RUNTIME)
+        self.assertIn("public float androidForecastThermalHeadroom = -1f;", RUNTIME)
+        self.assertIn("s.androidForecastThermalHeadroom = AarisAndroidThermalGovernor.ForecastThermalHeadroom;", RUNTIME)
         self.assertIn("public bool speculativePrefetchSuspended, moderateThermalPressure;", RUNTIME)
         self.assertIn("s.androidThermalStatus = AarisAndroidThermalGovernor.ThermalStatus;", RUNTIME)
         self.assertIn("s.speculativePrefetchSuspended = AarisAndroidThermalGovernor.SuspendSpeculativePrefetch;", RUNTIME)
