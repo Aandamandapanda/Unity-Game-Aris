@@ -837,10 +837,17 @@ namespace Aaris.MapReview
         // without RaycastAll allocations when >20 cover hits overlap.
         private readonly RaycastHit[] crowdedSightHits = new RaycastHit[128];
         private float nextThink, nextAttack, verticalSpeed, turnOffset, visualBlend;
+        private Transform playerTarget;
+        private AarisOfflineHealth playerTargetHealth;
+        private GameObject visualRoot;
+        private bool visualBuilt;
+        private float nextVisualCheck, staggeredVisualDelay;
+        private int medkits = 1;
+        internal AarisOfflineHealth Health => health;
         // Outside the combat range, save mobile CPU by updating far capsules
         // at 10 Hz. Keep near opponents at full gameplay frame rate.
         private const float FarSimulationDistance = 90f;
-        private const float FarSimulationInterval = 0.10f;
+        private const float FarSimulationInterval = 0.35f;
         // Sparse far ticks can span two frames on a 15 FPS phone; do not
         // truncate ordinary 133 ms travel, but cap extreme app-resume hitches.
         private float nextFarSimulation, lastSimulationTime;
@@ -860,10 +867,13 @@ namespace Aaris.MapReview
         {
             owner = director;
             health = self;
-            target = victim;
-            targetHealth = victimHealth;
+            target = null;
+            targetHealth = null;
+            playerTarget = victim;
+            playerTargetHealth = victimHealth;
             capsule = GetComponent<CharacterController>();
             health.Died += OnDied;
+            health.Damaged += OnDamaged;
             turnOffset = UnityEngine.Random.Range(-12f, 12f);
             avoidanceHandedness = UnityEngine.Random.value < 0.5f ? 1f : -1f;
             lastSimulationTime = Time.time;
@@ -871,16 +881,19 @@ namespace Aaris.MapReview
 #if UNITY_ANDROID && !UNITY_EDITOR
             // Six authored rival slots at distinct phases of the same 100ms cycle.
             // No additional physics ticks, bots, timers or per-frame allocations.
-            farSimulationPhase = encounterSlot * (FarSimulationInterval / 6f);
+            farSimulationPhase = encounterSlot * (FarSimulationInterval / 100f);
 #endif
-            BuildVisual();
+            staggeredVisualDelay = Time.time + encounterSlot * 0.015f;
+            if ((transform.position - victim.position).sqrMagnitude < 100f * 100f)
+                BuildVisual();
         }
 
         private void BuildVisual()
         {
             // The bundled CC0 humanoid is shared by all rivals. Avoid six
             // full hero-quality tactical rigs on entry-level 2GB devices.
-            if (owner == null) return;
+            if (owner == null || visualBuilt) return;
+            visualBuilt = true;
             owner.ResolveRivalAssets(out GameObject prefab, out Avatar cachedAvatar,
                 out AnimationClip idle, out AnimationClip run);
             if (prefab == null)
@@ -896,6 +909,7 @@ namespace Aaris.MapReview
                 return;
             }
             visual.name = "Rival humanoid visual";
+            visualRoot = visual;
             foreach (var c in visual.GetComponentsInChildren<Collider>(true))
             { c.enabled = false; Destroy(c); }
             foreach (var body in visual.GetComponentsInChildren<Rigidbody>(true))
@@ -968,6 +982,7 @@ namespace Aaris.MapReview
             // bundled realistic models. It adds no secondary physics collider.
             var fallback = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             fallback.name = "Rival fallback silhouette";
+            visualRoot = fallback;
             fallback.transform.SetParent(transform, false);
             fallback.transform.localPosition = Vector3.up * .90f;
             fallback.transform.localScale = new Vector3(.62f, .9f, .62f);
@@ -999,36 +1014,74 @@ namespace Aaris.MapReview
         private void Update()
         {
             if (owner == null || !owner.CanEngage || !IsAlive ||
-                target == null || targetHealth == null || targetHealth.IsDead) return;
-            Vector3 diff = target.position - transform.position;
-            diff.y = 0f;
-            float distance = diff.magnitude;
-            // Distant rivals cannot see (42m) or attack (38m) the player.
-            // Keep collision, cover avoidance and zone retreat simulated,
-            // without paying for every far-away physics query each frame.
-            bool farSimulation = distance >= FarSimulationDistance;
-            if (farSimulation && Time.time < nextFarSimulation) return;
-            // Preserve the native-frame near response, including low-FPS pacing.
+                playerTarget == null || playerTargetHealth == null || playerTargetHealth.IsDead)
+                return;
+            float now = Time.time;
+            float playerDistance = Vector3.Distance(playerTarget.position, transform.position);
+            bool farSimulation = playerDistance >= FarSimulationDistance;
+            if (farSimulation && now < nextFarSimulation) return;
             float dt = Mathf.Min(Time.deltaTime, 0.12f);
             if (farSimulation)
-                dt = Mathf.Clamp(Time.time - lastSimulationTime, 0f, 0.22f);
-            lastSimulationTime = Time.time;
+                dt = Mathf.Clamp(now - lastSimulationTime, 0f, 0.46f);
+            lastSimulationTime = now;
             if (farSimulation)
             {
 #if UNITY_ANDROID && !UNITY_EDITOR
-                // Anchor to stable phase slots; scheduling relative to each
-                // observed tick allows bots to converge onto the same frame.
-                float nextTick = (Mathf.Floor((Time.time - farSimulationPhase) /
+                float nextTick = (Mathf.Floor((now - farSimulationPhase) /
                     FarSimulationInterval) + 1f) * FarSimulationInterval + farSimulationPhase;
-                // Float rounding at exact boundaries must not run a bot twice
-                // in consecutive frames and create a mini catch-up burst.
-                if (nextTick <= Time.time + 0.0001f)
-                    nextTick += FarSimulationInterval;
+                if (nextTick <= now + 0.0001f) nextTick += FarSimulationInterval;
                 nextFarSimulation = nextTick;
 #else
-                nextFarSimulation = Time.time + FarSimulationInterval;
+                nextFarSimulation = now + FarSimulationInterval;
 #endif
             }
+            // Only instantiate expensive humanoids for local encounters.
+            // Keep remote logical fighters alive and avoid imported visual spikes.
+            if (now >= nextVisualCheck && now >= staggeredVisualDelay)
+            {
+                nextVisualCheck = now + .55f;
+                if (!visualBuilt && playerDistance < 105f)
+                {
+                    bool permitted = true;
+#if UNITY_ANDROID && !UNITY_EDITOR
+                    permitted = AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild();
+#endif
+                    if (permitted) BuildVisual();
+                }
+                if (visualRoot != null)
+                {
+                    bool visible = playerDistance < 155f;
+                    if (visualRoot.activeSelf != visible)
+                        visualRoot.SetActive(visible);
+                }
+            }
+            if (now >= nextThink)
+            {
+                nextThink = now + .35f + UnityEngine.Random.Range(0f, .14f);
+                if (owner.MayAttackPlayer(this))
+                {
+                    target = playerTarget;
+                    targetHealth = playerTargetHealth;
+                }
+                else if (!owner.FindRivalOpponent(this, out target, out targetHealth))
+                {
+                    target = null;
+                    targetHealth = null;
+                }
+                canSee = target != null && targetHealth != null && !targetHealth.IsDead &&
+                    (target.position - transform.position).sqrMagnitude < 42f * 42f && HasSight();
+                if (!canSee) turnOffset += UnityEngine.Random.Range(-35f, 35f);
+                if (medkits > 0 && !canSee && health.CurrentHealth < 90f)
+                {
+                    medkits--;
+                    health.RestoreHealth(45f);
+                }
+            }
+            bool hasTarget = target != null && targetHealth != null && !targetHealth.IsDead;
+            Vector3 diff = hasTarget ? target.position - transform.position :
+                Quaternion.Euler(0f, turnOffset, 0f) * transform.forward * 25f;
+            diff.y = 0f;
+            float distance = diff.magnitude;
             Vector3 toward = distance > .01f ? diff / distance : transform.forward;
             if (Time.time >= nextThink)
             {
@@ -1093,7 +1146,8 @@ namespace Aaris.MapReview
                 float wanted = Mathf.Clamp01(groundSpeed / 2.9f);
                 UpdateAnimationBlend(wanted, dt);
             }
-            if (canSee && distance <= 38f &&
+            if (hasTarget && canSee && distance <= 38f &&
+                (target != playerTarget || owner.MayAttackPlayer(this)) &&
                 Vector3.Dot(transform.forward, toward) > .84f &&
                 Time.time >= nextAttack && HasSight())
             {
@@ -1154,6 +1208,13 @@ namespace Aaris.MapReview
             return closest != null && closest.transform.IsChildOf(target);
         }
 
+        private void OnDamaged(AarisOfflineHealth victim, float loss, GameObject attacker)
+        {
+            if (attacker == null || attacker == gameObject) return;
+            turnOffset += avoidanceHandedness * 65f;
+            nextThink = 0f;
+        }
+
         internal void TakeZoneDamage(float amount)
         {
             if (health != null && !health.IsDead) health.ApplyDamage(amount, null);
@@ -1168,7 +1229,11 @@ namespace Aaris.MapReview
 
         private void OnDestroy()
         {
-            if (health != null) health.Died -= OnDied;
+            if (health != null)
+            {
+                health.Died -= OnDied;
+                health.Damaged -= OnDamaged;
+            }
             if (graph.IsValid()) graph.Destroy();
         }
     }
