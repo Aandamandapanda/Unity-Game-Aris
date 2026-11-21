@@ -400,6 +400,33 @@ internal static class StreamingAdmissionTests
             "Subsystem reset retained manifest or parse reservation");
     }
 
+    private static void LootTeardownFence()
+    {
+        Configure(6144, "Adreno 610");
+        Frame(12);
+        AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Destroyed loot collided with optional model build");
+        Check(!AarisMobileStreamingFrameGate.TryClaimNonessentialDiagnosticFrame(),
+            "Destroyed loot collided with diagnostic snapshot");
+        Frame(13);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild() &&
+              !AarisMobileStreamingFrameGate.TryClaimNonessentialDiagnosticFrame(),
+            "Native loot teardown settle frame admitted optional work");
+        Frame(14);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Completed loot teardown starved nearby models");
+
+        Configure(8192, "Adreno 730");
+        Frame(12);
+        AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "High-end device unnecessarily throttled by teardown");
+        Configure(6144, "Adreno 610");
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Subsystem reset retained previous teardown reservation");
+    }
+
     private static void DiagnosticImportFence()
     {
         // This regression executes the actual production gate with controlled
@@ -666,7 +693,7 @@ internal static class StreamingAdmissionTests
     public static void Main()
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
-        Hardware(); ImportFence(); EssentialAudioFence(); AdditiveSceneFence(); DiagnosticImportFence(); EssentialWeaponFence(); EssentialLootAndJsonParseFence(); Pressure(); RefreshAwarePressure(); PhysicsCatchupAdmission(); CleanupRigAndReset();
+        Hardware(); ImportFence(); EssentialAudioFence(); AdditiveSceneFence(); DiagnosticImportFence(); EssentialWeaponFence(); EssentialLootAndJsonParseFence(); Pressure(); RefreshAwarePressure(); PhysicsCatchupAdmission(); CleanupRigAndReset(); LootTeardownFence();
         Console.WriteLine("STREAMING_ADMISSION_ANDROID_PASS checks=" + checks);
 #else
         Configure();

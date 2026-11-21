@@ -970,6 +970,12 @@ namespace Aaris.MapReview
                 DeleteDrop(id);
             pickup.CommitConsumed();
             active.Remove(pickup);
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // The pickup transaction is already committed. Defer only other
+            // OPTIONAL native models/snapshots during the floor visual's
+            // Destroy frame; never delay inventory or an essential gun.
+            AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
+#endif
             Destroy(pickup.gameObject);
             requestPickupUntil = 0f;
             HasPickupInRange = false;
@@ -1061,6 +1067,15 @@ namespace Aaris.MapReview
                         if (rec != null) rec.visible = null;
                     }
                     active.RemoveAt(i);
+#if UNITY_ANDROID && !UNITY_EDITOR
+                    // Retiring up to six imported gun hierarchies is native
+                    // teardown work. Reserve once before first Destroy so
+                    // optional new models/diagnostics avoid this render frame
+                    // and the following Unity reclamation frame.
+                    // Planned loot, pickup range and original art are unchanged.
+                    if (unloaded == 0)
+                        AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
+#endif
                     Destroy(pickup.gameObject);
                     unloaded++;
                     continue;
