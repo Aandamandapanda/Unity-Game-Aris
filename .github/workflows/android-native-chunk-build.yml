@@ -1,0 +1,35 @@
+name: Aaris Android authored additive scene build contracts
+on:
+  pull_request:
+    paths:
+      - 'Assets/AarisWorld/Editor/AarisExplorerBuild.cs'
+      - 'Assets/AarisWorld/Editor/AarisCodespaceAndroidBuild.cs'
+      - 'Tools/Codespaces/android_apk.sh'
+      - 'Tools/Validation/test_android_native_chunk_build_manifest.py'
+      - '.github/workflows/android-native-chunk-build.yml'
+      - 'ProjectSettings/EditorBuildSettings.asset'
+  push:
+    branches: [main]
+    paths:
+      - 'Assets/AarisWorld/Editor/AarisExplorerBuild.cs'
+      - 'Assets/AarisWorld/Editor/AarisCodespaceAndroidBuild.cs'
+      - 'Tools/Codespaces/android_apk.sh'
+      - 'Tools/Validation/test_android_native_chunk_build_manifest.py'
+      - 'ProjectSettings/EditorBuildSettings.asset'
+permissions:
+  contents: read
+jobs:
+  native-build-manifest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Verify native additive chunk scenes included in Android build
+        run: python3 Tools/Validation/test_android_native_chunk_build_manifest.py
+      - name: Validate production Codespaces APK builder shell syntax
+        run: bash -n Tools/Codespaces/android_apk.sh
+      - name: Preserve rooted native ForestLookout scene registration
+        run: python3 Tools/Validation/test_forestlookout_partition_pilot.py

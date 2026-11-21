@@ -31,6 +31,14 @@ namespace Aaris.MapReview.Editor
         {
             Configure();
             ValidateSavedScene();
+            // An Android build without the registered additive scenes silently
+            // renders only their persistent far-LOD proxies on the phone.
+            // Reject that failure even when called from a separate build tool.
+            if (options.target == BuildTarget.Android &&
+                (options.scenes == null ||
+                 !options.scenes.SequenceEqual(VerifiedBuildScenes(),
+                                               StringComparer.Ordinal)))
+                throw new BuildFailedException("ANDROID_ADDITIVE_SCENE_MANIFEST_NOT_INCLUDED");
             buildSceneValidated = true;
             try
             {
@@ -86,7 +94,36 @@ namespace Aaris.MapReview.Editor
                 var input = serialized.FindProperty("activeInputHandler");
                 if (input != null) { input.intValue = 0; serialized.ApplyModifiedPropertiesWithoutUndo(); }
             }
-            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+            // Do not erase authored additive scene cells during Configure.
+            // The prior single-scene assignment silently removed ForestLookout
+            // and made native district assets unavailable at runtime.
+            if (EditorBuildSettings.scenes == null ||
+                EditorBuildSettings.scenes.Length == 0)
+                EditorBuildSettings.scenes =
+                    new[] { new EditorBuildSettingsScene(ScenePath, true) };
+        }
+
+        internal static string[] VerifiedBuildScenes()
+        {
+            string[] paths = EditorBuildSettings.scenes
+                .Where(x => x.enabled).Select(x => x.path).ToArray();
+            if (paths.Length < 2 || paths[0] != ScenePath ||
+                !File.Exists(ScenePath) ||
+                paths.Distinct(StringComparer.Ordinal).Count() != paths.Length)
+                throw new BuildFailedException("NATIVE_CHUNK_BUILD_SCENE_MANIFEST_INVALID");
+            const string directory = "Assets/AarisWorld/Scenes/Chunks/";
+            const string forest = directory + "Aaris_ForestLookout_Detail.unity";
+            if (paths[1] != forest || !File.Exists(forest))
+                throw new BuildFailedException("FORESTLOOKOUT_CHUNK_NOT_REGISTERED");
+            for (int i = 2; i < paths.Length; i++)
+            {
+                string path = paths[i];
+                if (!path.StartsWith(directory + "Aaris_District_", StringComparison.Ordinal) ||
+                    !path.EndsWith("_Detail.unity", StringComparison.Ordinal) ||
+                    !File.Exists(path))
+                    throw new BuildFailedException("UNEXPECTED_ANDROID_WORLD_SCENE_" + i);
+            }
+            return paths;
         }
 
         public static void ValidateSavedScene()
@@ -167,7 +204,7 @@ namespace Aaris.MapReview.Editor
             Directory.CreateDirectory(target == BuildTarget.Android ? Path.GetDirectoryName(path) : path);
             BuildReport report = BuildValidatedPlayer(new BuildPlayerOptions
             {
-                scenes = new[] { ScenePath }, locationPathName = path, target = target, options = BuildOptions.None
+                scenes = VerifiedBuildScenes(), locationPathName = path, target = target, options = BuildOptions.None
             });
             if (report.summary.result != BuildResult.Succeeded)
                 throw new BuildFailedException("Map explorer build failed: " + report.summary.result);

@@ -102,12 +102,13 @@ namespace Aaris.MapReview.Editor
                 throw new InvalidOperationException("ANDROID_EDITOR_SCRIPT_SYMBOL_MISSING");
 #endif
 
-                var enabled = EditorBuildSettings.scenes
-                    .Where(x => x.enabled).Select(x => x.path).ToArray();
+                // Build *all* authored Unity additive scenes. A single
+                // TerrainDemoScene-only APK hides detailed structures forever,
+                // even though the Editor has their chunks and physics proxies.
+                var enabled = AarisExplorerBuild.VerifiedBuildScenes();
                 evidence.sceneCount = enabled.Length;
-                if (enabled.Length != 1 || enabled[0] != MainScene ||
-                    !File.Exists(MainScene))
-                    throw new InvalidOperationException("MAIN_SCENE_BUILD_SETTINGS_INVALID");
+                if (enabled.Length < 2 || enabled[0] != MainScene)
+                    throw new InvalidOperationException("ANDROID_SCENE_MANIFEST_INVALID");
 
                 EditorSceneManager.OpenScene(MainScene, OpenSceneMode.Single);
                 Terrain[] tiles = UnityEngine.Object.FindObjectsByType<Terrain>(
