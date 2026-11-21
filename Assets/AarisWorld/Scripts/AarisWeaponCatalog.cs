@@ -205,6 +205,7 @@ namespace Aaris.MapReview
                 "AarisWeapons/weapon_catalog");
             // Essential weapon definitions outrank optional environment art.
             definitionsRequest.priority = 0;
+            AarisMobileStreamingFrameGate.TrackEssentialWeaponLoad(definitionsRequest);
             yield return definitionsRequest;
             if (Ready) yield break;
             // Parse the small JSON catalog away from its native completion
@@ -225,6 +226,9 @@ namespace Aaris.MapReview
                 if (!modelCache.TryGetValue(spec.modelResource, out GameObject prefab) || prefab == null)
                 {
                     ResourceRequest request = Resources.LoadAsync<GameObject>(spec.modelResource);
+#if UNITY_ANDROID && !UNITY_EDITOR
+                    AarisMobileStreamingFrameGate.TrackEssentialWeaponLoad(request);
+#endif
                     yield return request;
                     if (Ready) yield break; // A synchronous caller completed the same catalog.
                     prefab = request.asset as GameObject;

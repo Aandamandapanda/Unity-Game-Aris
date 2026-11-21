@@ -64,6 +64,11 @@ namespace Aaris.MapReview
         private static ResourceRequest essentialAudioLoadInFlight;
         private static int essentialAudioCompletionFrame = -1;
         internal static int EssentialAudioDeferredAttempts { get; private set; }
+        // Weapon catalog definitions and 3D gun models load directly because
+        // gameplay must not wait for decorative vehicles/loot imports.
+        private static ResourceRequest essentialWeaponLoadInFlight;
+        private static int essentialWeaponCompletionFrame = -1;
+        internal static int EssentialWeaponDeferredAttempts { get; private set; }
         // Additive scene activation may consume native main-thread time after
         // asynchronous IO. Never pause allowSceneActivation (Unity's queue).
         // This persistent list allocates once and preserves overlapping streamers.
@@ -216,6 +221,41 @@ namespace Aaris.MapReview
             return false;
         }
 
+        // The match's sequential essential gun requests remain direct; only
+        // optional cosmetic work waits while their native data is integrating.
+        // Audio and weapon requests have independent fences when concurrent.
+        internal static void TrackEssentialWeaponLoad(ResourceRequest request)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (request == null || !IsConstrainedDevice()) return;
+            essentialWeaponLoadInFlight = request;
+            claimedFrame = Time.frameCount;
+#endif
+        }
+
+        private static bool IsEssentialWeaponImportBusy()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (!IsConstrainedDevice()) return false;
+            if (essentialWeaponLoadInFlight != null)
+            {
+                if (!essentialWeaponLoadInFlight.isDone)
+                {
+                    EssentialWeaponDeferredAttempts++;
+                    return true;
+                }
+                essentialWeaponLoadInFlight = null;
+                essentialWeaponCompletionFrame = Time.frameCount;
+            }
+            if (essentialWeaponCompletionFrame == Time.frameCount)
+            {
+                EssentialWeaponDeferredAttempts++;
+                return true;
+            }
+#endif
+            return false;
+        }
+
         // Unity's Android frame pacing uses integer divisors of display refresh.
         // A 60-FPS request on 90 Hz is effectively 45 FPS, not 60 FPS.
         // Sample display timing only every 120 frames or on a target-FPS change;
@@ -323,6 +363,9 @@ namespace Aaris.MapReview
             essentialAudioLoadInFlight = null;
             essentialAudioCompletionFrame = -1;
             EssentialAudioDeferredAttempts = 0;
+            essentialWeaponLoadInFlight = null;
+            essentialWeaponCompletionFrame = -1;
+            EssentialWeaponDeferredAttempts = 0;
             additiveLoads.Clear();
             additiveIntegrationFrame = -1;
             AdditiveSceneDeferredAttempts = 0;
@@ -479,6 +522,7 @@ namespace Aaris.MapReview
             if (IsNativeTeardownSettleFrame()) return false;
             if (IsAdditiveSceneLoadBusy()) return false;
             if (IsEssentialAudioImportBusy()) return false;
+            if (IsEssentialWeaponImportBusy()) return false;
             if (!IsConstrainedDevice()) return true;
             int frame = Time.frameCount;
             // An admitted hierarchy/import or an observed native completion
@@ -524,6 +568,7 @@ namespace Aaris.MapReview
                 return false;
             }
             if (IsEssentialAudioImportBusy()) return false;
+            if (IsEssentialWeaponImportBusy()) return false;
             if (IsConstrainedDevice())
             {
                 // Background IO can still finalize native objects on the
