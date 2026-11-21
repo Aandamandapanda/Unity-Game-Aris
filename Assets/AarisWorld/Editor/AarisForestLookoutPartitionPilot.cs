@@ -275,6 +275,17 @@ namespace Aaris.MapReview.Editor
                 "streaming_cells=1 source_world_position=" + originalWorldPosition);
         }
 
+        // Batchmode entrypoint: one Editor process owns the entire pilot
+        // migration + asset reopen verification. No second Unity process can
+        // race to import a half-authored world between Apply and Verify.
+        [MenuItem("Aaris/World/Apply and Verify ForestLookout Additive Pilot")]
+        public static void ApplyAndVerify()
+        {
+            Apply();
+            VerifyAuthoredPilot();
+            Debug.Log("AARIS_FORESTLOOKOUT_PILOT_APPLY_VERIFY_COMPLETE");
+        }
+
         [MenuItem("Aaris/World/Verify ForestLookout Additive Pilot")]
         public static void VerifyAuthoredPilot()
         {
