@@ -892,7 +892,9 @@ namespace Aaris.MapReview
         private int medkits = 1;
         private float nextLootAt;
         private AarisWeaponSpec carriedGun;
-        private int carriedMagazine;
+        private int carriedMagazine, carriedReserve;
+        private uint remoteLootSeed;
+        private bool remoteLoadoutGiven;
         private readonly Collider[] coverCandidates = new Collider[24];
         private Vector3 coverDestination;
         private float coverUntil, nextCoverQuery;
@@ -942,6 +944,7 @@ namespace Aaris.MapReview
 #endif
             staggeredVisualDelay = Time.time + encounterSlot * 0.015f;
             nextLootAt = Time.time + encounterSlot * 0.035f + 1f;
+            remoteLootSeed = 0x9E3779B9u ^ ((uint)encounterSlot + 1u);
             if ((transform.position - victim.position).sqrMagnitude < 100f * 100f)
                 BuildVisual();
         }
@@ -1082,16 +1085,25 @@ namespace Aaris.MapReview
             bool farSimulation = playerDistanceSqr >=
                 FarSimulationDistance * FarSimulationDistance;
             if (farSimulation && now < nextFarSimulation) return;
-            // A rival already carrying a functional weapon must not consume every
-            // nearby pickup on each scheduled loot tick. Leave real guns
-            // available for the player and still retry when unarmed.
-            if (carriedGun == null && playerDistanceSqr < 76f * 76f && now >= nextLootAt)
+            // Near the player use the actual shared floor pickup record.
+            // Off-screen guns are not streamed: simulate ONE bounded scavenge
+            // from the ready catalog without creating any distant gun meshes.
+            if (carriedGun == null && now >= nextLootAt)
             {
                 nextLootAt = now + 3.5f;
-                if (owner.TryLootForRival(transform.position, out AarisWeaponSpec found))
+                AarisWeaponSpec found = null;
+                if (playerDistanceSqr < 76f * 76f)
+                    owner.TryLootForRival(transform.position, out found);
+                else if (!remoteLoadoutGiven && AarisWeaponCatalog.Ready)
+                {
+                    remoteLoadoutGiven = true;
+                    found = AarisWeaponCatalog.Select(ref remoteLootSeed, false);
+                }
+                if (found != null)
                 {
                     carriedGun = found;
                     carriedMagazine = found.magazineSize;
+                    carriedReserve = found.reserveAmmo;
                 }
             }
             float dt = Mathf.Min(Time.deltaTime, 0.12f);
@@ -1246,8 +1258,19 @@ namespace Aaris.MapReview
                 // damage and gunshot sound; no runtime gun model clone required.
                 if (carriedGun != null && carriedMagazine == 0)
                 {
-                    carriedMagazine = carriedGun.magazineSize;
-                    nextAttack = Time.time + carriedGun.reloadSeconds;
+                    // Reserve ammunition is finite, as for the player.
+                    // Empty rivals revert to real melee or seek another pickup.
+                    if (carriedReserve <= 0)
+                    {
+                        carriedGun = null;
+                        nextLootAt = now + 1f;
+                        nextAttack = now + 0.7f;
+                        return;
+                    }
+                    int refill = Mathf.Min(carriedGun.magazineSize, carriedReserve);
+                    carriedMagazine = refill;
+                    carriedReserve -= refill;
+                    nextAttack = now + carriedGun.reloadSeconds;
                     return;
                 }
                 float fireInterval = carriedGun != null
