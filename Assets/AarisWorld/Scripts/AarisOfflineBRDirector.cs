@@ -26,6 +26,7 @@ namespace Aaris.MapReview
         private readonly AarisOfflineRival[] rivals = new AarisOfflineRival[RivalCount];
         private static AarisOfflineBRDirector activeDirector;
         private static RaycastHit[] assistHits = new RaycastHit[32];
+        private static RaycastHit[] muzzleAssistHits = new RaycastHit[48];
         private AarisOfflineRival attackerOne, attackerTwo;
         private AarisOfflineRival scanAttackerOne, scanAttackerTwo;
         private const int AttackerSelectionPerFrame = 12;
@@ -672,6 +673,45 @@ namespace Aaris.MapReview
             return victim != null;
         }
 
+        // A camera-visible enemy is not red-locked through a barrel-side wall.
+        // Match TryFire's stance eye-height and near-muzzle obstruction probe.
+        private static bool MuzzlePathOpenTo(Transform shooter, Transform victim,
+            Vector3 cameraImpact)
+        {
+            AarisBattleActions actions = shooter.GetComponent<AarisBattleActions>();
+            float height = actions != null
+                ? Mathf.Max(0.28f, actions.CameraEyeHeight - 0.15f) : 1.3f;
+            Vector3 anchor = shooter.position + Vector3.up * height;
+            if (FirstMuzzleExternalHit(new Ray(anchor, shooter.forward), 0.24f,
+                shooter, out Collider shortBlocker)) return false;
+            Vector3 muzzle = anchor + shooter.forward * 0.24f;
+            Vector3 to = cameraImpact - muzzle;
+            float distance = to.magnitude;
+            if (distance <= 0.025f) return false;
+            return FirstMuzzleExternalHit(new Ray(muzzle, to / distance),
+                distance + 0.05f, shooter, out Collider first) &&
+                first.transform.IsChildOf(victim);
+        }
+
+        private static bool FirstMuzzleExternalHit(Ray ray, float range,
+            Transform shooter, out Collider closest)
+        {
+            closest = null;
+            int count = AarisPhysicsHitBuffer.Raycast(ray, range,
+                Physics.DefaultRaycastLayers, ref muzzleAssistHits, 256,
+                out RaycastHit[] hits);
+            float nearest = float.PositiveInfinity;
+            for (int i = 0; i < count; i++)
+            {
+                Collider collider = hits[i].collider;
+                if (collider == null || collider.transform.IsChildOf(shooter) ||
+                    hits[i].distance >= nearest) continue;
+                nearest = hits[i].distance;
+                closest = collider;
+            }
+            return closest != null;
+        }
+
         internal static bool TryAcquireAimTarget(Camera camera, Transform shooter,
             float range, float coneDegrees, out Vector3 aimedDirection)
         {
@@ -718,14 +758,16 @@ namespace Aaris.MapReview
                     out RaycastHit[] hits);
                 float nearest = float.PositiveInfinity;
                 Collider closest = null;
+                Vector3 closestPoint = Vector3.zero;
                 for (int i = 0; i < count; i++)
                 {
                     Collider collider = hits[i].collider;
                     if (collider == null || collider.transform.IsChildOf(shooter)) continue;
                     if (hits[i].distance < nearest)
-                    { nearest = hits[i].distance; closest = collider; }
+                    { nearest = hits[i].distance; closest = collider; closestPoint = hits[i].point; }
                 }
-                if (closest != null && closest.transform.IsChildOf(candidate.transform))
+                if (closest != null && closest.transform.IsChildOf(candidate.transform) &&
+                    MuzzlePathOpenTo(shooter, candidate.transform, closestPoint))
                 {
                     aimedDirection = direction;
                     return true;
