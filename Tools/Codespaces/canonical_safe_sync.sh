@@ -21,6 +21,55 @@ echo "AARIS_SYNC_BEFORE_SHA=$BEFORE"
 if [[ "$MODE" == status ]]; then
   echo "AARIS_SYNC_TRACKED_CHANGES=$(git status --porcelain=v1 --untracked-files=no | wc -l | tr -d ' ')"
   echo "AARIS_SYNC_UNTRACKED_COUNT=$(git ls-files --others --exclude-standard | wc -l | tr -d ' ')"
+  # Report counts only: do not expose other agents' filenames or content.
+  python3 - <<'PY'
+import subprocess
+false_positives = {
+    'Assets/AarisWorld/Props/ClimbableTower/Geometry.asset',
+    'Assets/AarisWorld/Props/ClimbableTower/Geometry_LOD1.asset',
+    'Assets/AarisWorld/Props/ClimbableTower/Geometry_LOD2.asset',
+    'Assets/AarisWorld/Props/RockCover/Geometry.asset',
+    'Assets/AarisWorld/Props/RockCover/Geometry_LOD1.asset',
+    'Assets/AarisWorld/Props/RockCover/Geometry_LOD2.asset',
+    'Assets/AarisWorld/Props/Shared/rock_09_ARM.png',
+    'Assets/AarisWorld/Props/Shared/rusty_metal_02_ARM.png',
+    'Assets/AarisWorld/Props/StaticWreck/Geometry.asset',
+    'Assets/AarisWorld/Props/StaticWreck/Geometry_LOD1.asset',
+    'Assets/AarisWorld/Props/StaticWreck/Geometry_LOD2.asset',
+}
+entries = [x for x in subprocess.check_output([
+    'git','status','--porcelain=v1','--untracked-files=no','-z'
+]).split(b'\0') if x]
+known = 0
+unknown = 0
+worktree_only = 0
+staged = 0
+raw_matches = 0
+raw_mismatches = 0
+for entry in entries:
+    kind = entry[:2].decode('ascii', 'replace')
+    path = entry[3:].decode('utf-8', 'replace')
+    if path not in false_positives:
+        unknown += 1
+        continue
+    known += 1
+    if kind == ' M': worktree_only += 1
+    if kind != ' M': staged += 1
+    index_row = subprocess.check_output(['git','ls-files','-s','--',path],text=True)
+    if not index_row or '\t' not in index_row:
+        raw_mismatches += 1
+        continue
+    indexed = index_row.split('\t')[0].split()[1]
+    actual = subprocess.check_output(['git','hash-object','--no-filters','--',path],text=True).strip()
+    if indexed == actual: raw_matches += 1
+    else: raw_mismatches += 1
+for key,value in {
+    'KNOWN':known, 'UNKNOWN':unknown, 'WORKTREE_ONLY':worktree_only,
+    'STAGED_OR_OTHER':staged, 'RAW_MATCH':raw_matches,
+    'RAW_MISMATCH':raw_mismatches
+}.items():
+    print('AARIS_SYNC_AUDIT_' + key + '=' + str(value))
+PY
   echo AARIS_SYNC_STATUS_COMPLETE=yes
   exit 0
 fi
