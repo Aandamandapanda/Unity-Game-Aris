@@ -40,17 +40,28 @@ def check(native=False):
         prefab_checks.append(name)
     objects=documents(ROOT/SCENE);names={i:d['m_Name'] for c,i,n,d in objects if n=='GameObject'}
     transforms={names[d['m_GameObject']['fileID']]:d for c,i,n,d in objects if n=='Transform'}
-    detail_scene=ROOT/'Assets/AarisWorld/Scenes/Chunks/Aaris_ForestLookout_Detail.unity'
-    if detail_scene.exists():
-        detail=documents(detail_scene)
+    chunk_folder=ROOT/'Assets/AarisWorld/Scenes/Chunks'
+    detail_scene=chunk_folder/'Aaris_ForestLookout_Detail.unity'
+    district_cells=sorted(chunk_folder.glob('Aaris_District_*_Detail.unity'))
+    if district_cells:assert len(district_cells)==12,'Missing authored additive settlement cells'
+    all_cells=([detail_scene] if detail_scene.exists() else [])+district_cells
+    for cell_path in all_cells:
+        detail=documents(cell_path)
         detail_names={i:d['m_Name'] for c,i,n,d in detail if n=='GameObject'}
         detail_transforms={
             detail_names[d['m_GameObject']['fileID']]:d
             for c,i,n,d in detail if n=='Transform'
         }
-        assert set(transforms).isdisjoint(detail_transforms), 'Duplicate full-detail tower in bootstrap'
-        assert 'ForestLookout_watchtower_01' in detail_transforms, 'Expected full-detail tower missing'
-        assert len(detail_transforms)==3, 'Additive landmark contents changed unexpectedly'
+        assert set(transforms).isdisjoint(detail_transforms),\
+            ('Duplicate full-detail building in persistent/bootstrap or another chunk',cell_path)
+        if cell_path==detail_scene:
+            assert 'ForestLookout_watchtower_01' in detail_transforms,\
+                'Expected full-detail tower missing'
+            assert len(detail_transforms)==3,'Additive landmark contents changed unexpectedly'
+        else:
+            assert len(detail_transforms)>0,('Empty district chunk',cell_path)
+            assert sum(c==64 for c,i,n,d in detail)==0,\
+                ('Unexpected physical collider streamed out of bootstrap',cell_path)
         transforms.update(detail_transforms)
     for b in layout['buildings']:
         assert b['name'] in transforms, ('Missing authored building across scenes',b['name'])
