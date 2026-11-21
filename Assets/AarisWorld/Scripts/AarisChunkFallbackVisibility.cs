@@ -38,7 +38,12 @@ namespace Aaris.MapReview
 
         private void HandleSceneUnloaded(Scene scene)
         {
-            if (scene.path == chunkScenePath) Reconcile();
+            // Depending on native scene teardown order, Scene.path may no
+            // longer resolve after destruction. This event is rare; a single
+            // scene-presence lookup is safer than a blank distant landmark.
+            // Unrelated unloads are harmless: Reconcile retains the loaded
+            // original-detail state, without creating runtime meshes/objects.
+            Reconcile();
         }
 
         private void Reconcile()
