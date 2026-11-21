@@ -1407,11 +1407,23 @@ namespace Aaris.MapReview
                     obstacle.transform.IsChildOf(transform)) continue;
                 Bounds bounds = obstacle.bounds;
                 if (bounds.size.y < .9f || bounds.size.y > 18f) continue;
-                Vector3 candidate = bounds.center + away *
+                // Only the far side relative to the shooter is valid cover.
+                Vector3 coverAxis = bounds.center - attacker.transform.position;
+                coverAxis.y = 0f;
+                if (coverAxis.sqrMagnitude < .01f) continue;
+                Vector3 candidate = bounds.center + coverAxis.normalized *
                     (Mathf.Max(bounds.extents.x, bounds.extents.z) + 1.1f);
                 candidate.y = transform.position.y;
                 float cost = (candidate - transform.position).sqrMagnitude;
                 if (cost < 2f || cost > 160f || cost >= best) continue;
+                // A low obstacle must really stop a standing-height shot.
+                // Only queried on the existing 1.5s damage/cover cooldown.
+                Vector3 coverFrom = attacker.transform.position + Vector3.up * 1.25f;
+                Vector3 coverRay = candidate + Vector3.up - coverFrom;
+                float coverDistance = coverRay.magnitude;
+                if (coverDistance < .2f ||
+                    !obstacle.Raycast(new Ray(coverFrom, coverRay / coverDistance),
+                        out RaycastHit blocker, coverDistance)) continue;
                 best = cost;
                 coverDestination = candidate;
             }

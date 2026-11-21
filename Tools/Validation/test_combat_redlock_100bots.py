@@ -161,10 +161,28 @@ class CombatEndToEndContract(unittest.TestCase):
                          "pickup.CommitConsumed();", "active.RemoveAt(i);",
                          "Destroy(pickup.gameObject);"):
             self.assertIn(fragment, body)
-        self.assertIn("if (carriedGun == null && playerDistanceSqr < 76f * 76f && now >= nextLootAt)", BOTS)
-        self.assertIn("owner.TryLootForRival(transform.position, out AarisWeaponSpec found)", BOTS)
+        self.assertIn("if (carriedGun == null && now >= nextLootAt)", BOTS)
+        self.assertIn("if (playerDistanceSqr < 76f * 76f)", BOTS)
+        self.assertIn("owner.TryLootForRival(transform.position, out found)", BOTS)
+        self.assertIn("else if (!remoteLoadoutGiven && AarisWeaponCatalog.Ready)", BOTS)
+        self.assertIn("carriedReserve -= refill;", BOTS)
         self.assertIn("carriedMagazine = found.magazineSize", BOTS)
         self.assertIn("carriedGun.reloadSeconds", BOTS)
+
+    def test_wounded_bot_does_not_confuse_nearby_box_with_cover(self):
+        reaction = BOTS.split("private void OnDamaged(", 1)[1].split(
+            "internal void TakeZoneDamage", 1)[0]
+        for part in ("Vector3 coverAxis = bounds.center - attacker.transform.position;",
+                     "Vector3 candidate = bounds.center + coverAxis.normalized *",
+                     "!obstacle.Raycast(new Ray(coverFrom, coverRay / coverDistance),",
+                     "out RaycastHit blocker, coverDistance)"):
+            self.assertIn(part, reaction)
+        # The destination must be farther from the attacker than the
+        # chosen cover, irrespective of which side the bot started on.
+        for shooter, box in ((0.0, 10.0), (25.0, 10.0)):
+            axis = 1 if box > shooter else -1
+            destination = box + axis * 2.1
+            self.assertGreater(abs(destination - shooter), abs(box - shooter))
 
     def test_hp_math_and_armor_simulation(self):
         hp, helmet = 200.0, 75.0
