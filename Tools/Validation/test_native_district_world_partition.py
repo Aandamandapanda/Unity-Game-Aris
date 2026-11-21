@@ -73,8 +73,9 @@ class NativeDistrictPartitionTests(unittest.TestCase):
         s = PARTITIONER.read_text()
         self.assertEqual(len(DISTRICTS), 12)
         self.assertNotIn('"ForestLookout",', s)
+        manifest = s.split("private static readonly string[] Districts = {", 1)[1].split("};", 1)[0]
         for district in DISTRICTS:
-            self.assertEqual(s.count('"' + district + '"'), 1, district)
+            self.assertEqual(manifest.count('"' + district + '"'), 1, district)
         self.assertIn('private const string Prefix = "Aaris_District_";', s)
         self.assertIn("cells.arraySize += districts.Count;", s)
 
