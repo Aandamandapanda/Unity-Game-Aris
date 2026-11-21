@@ -137,12 +137,42 @@ namespace Aaris.MapReview.Editor
                 " tower_at=" + c.tower.transform.position);
         }
 
+        private static string BackupBeforeAssetMutation()
+        {
+            const string buildSettings = "ProjectSettings/EditorBuildSettings.asset";
+            Check(File.Exists(MainPath) && File.Exists(buildSettings),
+                  "snapshot-source-missing");
+            // A native Unity scene save changes fileIDs and references. Retain
+            // exact original bytes under /tmp so an unexpected import/scene
+            // error can be investigated and rolled back explicitly, without
+            // overwriting unrelated dirty work inside the live repository.
+            string directory = Path.Combine(Path.GetTempPath(),
+                "aaris-forestlookout-backup-" + DateTime.UtcNow.ToString("yyyyMMddTHHmmssfff") +
+                "-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            string originalCopy = Path.Combine(directory, "TerrainDemoScene.unity");
+            string settingsCopy = Path.Combine(directory, "EditorBuildSettings.asset");
+            File.Copy(MainPath, originalCopy);
+            File.Copy(buildSettings, settingsCopy);
+            Check(new FileInfo(originalCopy).Length == new FileInfo(MainPath).Length &&
+                  new FileInfo(settingsCopy).Length ==
+                    new FileInfo(buildSettings).Length,
+                  "snapshot-copy-incomplete");
+            File.WriteAllText(Path.Combine(directory, "RESTORE_MANUALLY.txt"),
+                "These are exact pre-migration Unity files. Do not overwrite the live " +
+                "workspace automatically. Stop Unity and reconcile other agents' " +
+                "changes before selectively restoring either file." + Environment.NewLine);
+            return directory;
+        }
+
         [MenuItem("Aaris/World/Apply ForestLookout Additive Pilot")]
         public static void Apply()
         {
             Check(Environment.GetEnvironmentVariable("AARIS_WORLD_PARTITION_APPLY") ==
                   "1", "explicit-environment-gate-required");
             Candidate c = Inspect();
+            string recoveryFolder = BackupBeforeAssetMutation();
+            Debug.Log("AARIS_FORESTLOOKOUT_PILOT_PREMIGRATION_BACKUP " + recoveryFolder);
             Transform source = c.tower.transform;
             Vector3 originalWorldPosition = source.position;
             var district = c.district.transform;
