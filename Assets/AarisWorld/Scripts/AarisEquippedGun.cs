@@ -650,8 +650,10 @@ namespace Aaris.MapReview
                 if (!muzzleBlocked && distance > 0.025f)
                 {
                     bool muzzleHitFound = FirstExternalHit(
-                        new Ray(muzzle, path / distance), distance,
+                        new Ray(muzzle, path / distance), distance + 0.05f,
                         owner.transform, out RaycastHit muzzleHit);
+                    // A camera-only ray hit must never award physical damage.
+                    targetFound = muzzleHitFound;
                     if (muzzleHitFound)
                     {
                         // Camera and muzzle can hit DIFFERENT heights on the same
@@ -661,6 +663,11 @@ namespace Aaris.MapReview
                         target = muzzleHit;
                         targetFound = true;
                     }
+                }
+                else if (!muzzleBlocked)
+                {
+                    // Degenerate convergence cannot authorize camera-only damage.
+                    targetFound = false;
                 }
                 // One tracer on a bolt/semi shot, every third automatic shot.
                 // Repeated pellets share the visual, rather than spawning 8 trails.
