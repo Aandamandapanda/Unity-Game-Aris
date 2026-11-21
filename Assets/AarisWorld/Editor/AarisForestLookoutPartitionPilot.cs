@@ -293,9 +293,20 @@ namespace Aaris.MapReview.Editor
             LODGroup authoredLod = originalTower.GetComponent<LODGroup>();
             Check(authoredLod != null && authoredLod.GetLODs().Length >= 2,
                   "authored-full-detail-lod-dropped");
+            // The authored visual MeshFilter may deliberately differ from the
+            // simplified physical MeshCollider mesh. Never compare those two
+            // unrelated assets: check the collider's actual serialized GUID and
+            // local subasset ID from the original persistent scene instead.
+            string colliderGuid;
+            long colliderLocalId;
+            Check(AssetDatabase.TryGetGUIDAndLocalFileIdentifier(
+                      proxy.sharedMesh, out colliderGuid, out colliderLocalId) &&
+                  colliderGuid == "6d0fe0e15b4c57e9ba9d921e437cc280" &&
+                  colliderLocalId == 4300000L,
+                  "persistent-collider-source-mesh-identity-changed");
             MeshFilter originalMesh = originalTower.GetComponent<MeshFilter>();
-            Check(originalMesh != null && originalMesh.sharedMesh == proxy.sharedMesh,
-                  "original-collision-mesh-changed");
+            Check(originalMesh != null && originalMesh.sharedMesh != null,
+                  "authored-tower-visual-mesh-missing");
             MeshFilter lastLodMesh = authoredLod.GetLODs()[
                 authoredLod.GetLODs().Length - 1].renderers[0]
                     .GetComponent<MeshFilter>();
