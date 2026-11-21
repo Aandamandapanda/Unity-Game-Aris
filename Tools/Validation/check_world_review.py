@@ -45,6 +45,7 @@ def check(native=False):
     district_cells=sorted(chunk_folder.glob('Aaris_District_*_Detail.unity'))
     if district_cells:assert len(district_cells)==12,'Missing authored additive settlement cells'
     all_cells=([detail_scene] if detail_scene.exists() else [])+district_cells
+    streamed_names=set()
     for cell_path in all_cells:
         detail=documents(cell_path)
         detail_names={i:d['m_Name'] for c,i,n,d in detail if n=='GameObject'}
@@ -60,6 +61,7 @@ def check(native=False):
             assert len(detail_transforms)==3,'Additive landmark contents changed unexpectedly'
         else:
             assert len(detail_transforms)>0,('Empty district chunk',cell_path)
+            streamed_names.update(detail_transforms)
             assert sum(c==64 for c,i,n,d in detail)==0,\
                 ('Unexpected physical collider streamed out of bootstrap',cell_path)
         transforms.update(detail_transforms)
@@ -77,8 +79,7 @@ def check(native=False):
             assert proxy in transforms, ('World-space reparent lost authored proxy',name)
             assert list(transforms[proxy]['m_LocalScale'].values())==b['scale'],\
                 ('Original authored district-relative scale changed',name)
-            assert any(name in {d['m_Name'] for c,i,n,d in documents(path)
-                                if n=='GameObject'} for path in district_cells),\
+            assert name in streamed_names,\
                 ('Reparented full detail missing from native cell',name)
     scene_spawn = transforms['AarisPlayer']['m_LocalPosition']
     reported_spawn = report['safe_spawn_m']
