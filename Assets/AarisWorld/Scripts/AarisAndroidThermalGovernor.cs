@@ -53,6 +53,16 @@ namespace Aaris.MapReview
             // No Java class lookup, binder call or extra work on the opening frame.
             var delay = new WaitForSecondsRealtime(SampleIntervalSeconds);
             yield return delay;
+            if (!InitializePowerManager()) yield break;
+            while (isActiveAndEnabled)
+            {
+                if (!SampleThermalStatus()) yield break;
+                yield return delay;
+            }
+        }
+
+        private bool InitializePowerManager()
+        {
             try
             {
                 using (var version = new AndroidJavaClass("android.os.Build$VERSION"))
@@ -60,7 +70,7 @@ namespace Aaris.MapReview
                     if (version.GetStatic<int>("SDK_INT") < 29)
                     {
                         enabled = false;
-                        yield break;
+                        return false;
                     }
                 }
                 using (var unity = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
@@ -70,27 +80,26 @@ namespace Aaris.MapReview
                     powerManager = activity.Call<AndroidJavaObject>("getSystemService", "power");
                     if (powerManager == null) throw new InvalidOperationException("no-power-manager");
                 }
+                return true;
             }
             catch (Exception ex)
             {
-                // Some OEMs expose no thermal service. Never punish world detail.
                 DisableUnsupported(ex);
-                yield break;
+                return false;
             }
+        }
 
-            while (isActiveAndEnabled)
+        private bool SampleThermalStatus()
+        {
+            try
             {
-                try
-                {
-                    int status = powerManager.Call<int>("getCurrentThermalStatus");
-                    ObserveStatus(status);
-                }
-                catch (Exception ex)
-                {
-                    DisableUnsupported(ex);
-                    yield break;
-                }
-                yield return delay;
+                ObserveStatus(powerManager.Call<int>("getCurrentThermalStatus"));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                DisableUnsupported(ex);
+                return false;
             }
         }
 
