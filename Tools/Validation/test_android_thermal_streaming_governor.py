@@ -9,6 +9,8 @@ THERMAL = (SRC / "AarisAndroidThermalGovernor.cs").read_text()
 RUNTIME = (SRC / "AarisMobileRuntime.cs").read_text()
 WORLD = (SRC / "AarisAdditiveChunkStreamer.cs").read_text()
 CARS = (SRC / "AarisVehicleWorld.cs").read_text()
+GATE = (SRC / "AarisMobileStreamingFrameGate.cs").read_text()
+ADMISSION_FIXTURE = (ROOT / "Tools/Validation/StreamingAdmissionTests.cs").read_text()
 META = (SRC / "AarisAndroidThermalGovernor.cs.meta").read_text()
 
 
@@ -120,6 +122,28 @@ class AndroidThermalStreamingTests(unittest.TestCase):
         self.assertIn("s.androidThermalStatus = AarisAndroidThermalGovernor.ThermalStatus;", RUNTIME)
         self.assertIn("s.speculativePrefetchSuspended = AarisAndroidThermalGovernor.SuspendSpeculativePrefetch;", RUNTIME)
         self.assertIn("s.moderateThermalPressure = AarisAndroidThermalGovernor.ModerateThermalPressure;", RUNTIME)
+
+    def test_shared_native_gate_uses_one_cached_os_thermal_decision(self):
+        admission = GATE.split("internal static bool TryClaimOptionalModelBuild()", 1)[1].split(
+            "internal static ResourceRequest TryStartOptionalLoadAsync", 1)[0]
+        self.assertIn("AarisAndroidThermalGovernor.SuspendSpeculativePrefetch", admission)
+        self.assertIn("AarisAndroidThermalGovernor.ModerateThermalPressure", admission)
+        self.assertIn("frame - lastThermalModelAdmissionFrame < thermalGap", admission)
+        self.assertIn("lastThermalModelAdmissionFrame = frame;", admission)
+        self.assertIn("ThermalSpacingDeferredAttempts++;", admission)
+        self.assertIn("ThermalSpacingDeferredAttempts = 0;", GATE)
+        self.assertIn("private static int lastThermalModelAdmissionFrame = -1;", GATE)
+        self.assertIn("private static void ThermalAdmissionSpacing()", ADMISSION_FIXTURE)
+        self.assertIn("ThermalAdmissionSpacing();", ADMISSION_FIXTURE)
+        self.assertIn("AarisAndroidThermalGovernor.SuspendSpeculativePrefetch = false;", ADMISSION_FIXTURE)
+        for forbidden in ("getCurrentThermalStatus", "getThermalHeadroom", "AndroidJavaClass",
+                          "Resources.UnloadUnusedAssets", "QualitySettings.", "Screen.SetResolution"):
+            self.assertNotIn(forbidden, admission)
+
+    def test_shared_thermal_pressure_is_diagnosable(self):
+        self.assertIn("public int optionalStreamThermalSpacingDeferrals;", RUNTIME)
+        self.assertIn("s.optionalStreamThermalSpacingDeferrals =", RUNTIME)
+        self.assertIn("AarisMobileStreamingFrameGate.ThermalSpacingDeferredAttempts;", RUNTIME)
 
     def test_no_visual_quality_or_terrain_mutations(self):
         for token in ("renderScale", "shadowDistance =", "treeDistance =",
