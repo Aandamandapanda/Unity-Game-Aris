@@ -28,6 +28,22 @@ class CombatRegression(unittest.TestCase):
         for tier in ("NO SCOPE ADS", "NORMAL ADS", "2X ADS", "4X ADS"):
             self.assertIn('"' + tier + '"', HUD)
 
+    def test_hp_readability_avoids_joystick_and_cutout(self):
+        build = HUD.split("private void Build()", 1)[1].split(
+            "private void RefreshHealthSafeArea", 1)[0]
+        self.assertIn('new GameObject("HP safe area"', build)
+        self.assertIn('Block(healthSafeRoot, "HP background", new Vector2(0f, 1f)', build)
+        self.assertIn('Label(healthSafeRoot, "Readable HP 200", new Vector2(0f, 1f)', build)
+        self.assertIn("RefreshHealthSafeArea(true);", build)
+        layout = HUD.split("private void RefreshHealthSafeArea", 1)[1].split(
+            "private void HealthChanged", 1)[0]
+        self.assertIn("Screen.safeArea", layout)
+        self.assertIn("Screen.width", layout)
+        self.assertIn("Screen.height", layout)
+        self.assertIn("lastHealthSafeArea", layout)
+        self.assertIn("nextHealthSafeCheck", layout)
+        self.assertIn("RefreshHealthSafeArea(false);", HUD)
+
     def test_single_scheduled_ai_decision(self):
         self.assertIn("nextThink = now + .35f + UnityEngine.Random.Range(0f, .14f);", BOTS)
         self.assertIn("(target.position - transform.position).sqrMagnitude < 81f", BOTS)
