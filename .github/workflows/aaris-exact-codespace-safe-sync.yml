@@ -1,0 +1,116 @@
+name: Aaris Exact Codespace Canonical Safe Sync
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/aaris-exact-codespace-safe-sync.yml'
+      - 'Tools/Codespaces/canonical_safe_sync.sh'
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse safe-sync shell and forbid destructive commands
+        run: |
+          set -euo pipefail
+          bash -n Tools/Codespaces/canonical_safe_sync.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path('Tools/Codespaces/canonical_safe_sync.sh').read_text()
+          for required in ('--ff-only', 'merge-base --is-ancestor',
+                           '--no-filters', 'tracked_local_changes_preserved',
+                           'FETCH_HEAD', 'CANONICAL=https://github.com/sundamunda289-art/Unity-Game-Aris.git'):
+              assert required in s, required
+          for forbidden in ('git reset', 'git clean', 'git stash', 'git worktree',
+                            'git checkout -f', 'git push'):
+              assert forbidden not in s.split('set -euo pipefail', 1)[1], forbidden
+          print('AARIS_SAFE_SYNC_STATIC_PASS')
+          PY
+
+  exact-sync:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.number == 77 &&
+      github.event.comment.user.login == 'sundamunda289-art' &&
+      (startsWith(github.event.comment.body, 'CS CANONICAL STATUS ') ||
+       startsWith(github.event.comment.body, 'CS CANONICAL SYNC '))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      issues: write
+    concurrency:
+      group: aaris-exact-codespace-safe-sync
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Select owner-named existing Codespace on authorized account
+        env:
+          GH_TOKEN: ${{ secrets.CODESPACE_PAT }}
+          REQUEST: ${{ github.event.comment.body }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$GH_TOKEN" ]] || { echo 'AARIS_SAFE_SYNC_TOKEN_NOT_CONFIGURED'; exit 11; }
+          [[ "$REQUEST" =~ ^CS[[:space:]]CANONICAL[[:space:]](STATUS|SYNC)[[:space:]](aaris-ai-[a-zA-Z0-9-]{3,110})$ ]] || {
+            echo 'AARIS_SAFE_SYNC_INVALID_REQUEST'; exit 12;
+          }
+          MODE="${BASH_REMATCH[1],,}"
+          MACHINE="${BASH_REMATCH[2]}"
+          # The Codespace can live in a fork. List the PAT owner's machines
+          # across all repos and require the exact Unity-Game-Aris suffix.
+          gh codespace list --json name,state,repository --limit 100 > "$RUNNER_TEMP/codespaces.json"
+          COUNT="$(jq --arg m "$MACHINE" '[.[] | select(.name==$m and
+            ((.repository // "") | endswith("/Unity-Game-Aris")))] | length' "$RUNNER_TEMP/codespaces.json")"
+          [[ "$COUNT" == 1 ]] || { echo 'AARIS_SAFE_SYNC_MACHINE_NOT_UNIQUE'; exit 13; }
+          STATE="$(jq -r --arg m "$MACHINE" '.[] | select(.name==$m) | .state' "$RUNNER_TEMP/codespaces.json")"
+          [[ "$STATE" == Available ]] || { echo "AARIS_SAFE_SYNC_MACHINE_NOT_RUNNING"; exit 14; }
+          echo "SAFE_MACHINE=$MACHINE" >> "$GITHUB_ENV"
+          echo "SAFE_MODE=$MODE" >> "$GITHUB_ENV"
+          echo AARIS_SAFE_SYNC_MACHINE_VERIFIED=yes
+      - name: Inspect or fast-forward canonical main without touching dirty files
+        env:
+          GH_TOKEN: ${{ secrets.CODESPACE_PAT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 420 gh codespace ssh -c "$SAFE_MACHINE" -- "bash -s -- $SAFE_MODE" \
+            < Tools/Codespaces/canonical_safe_sync.sh \
+            > "$RUNNER_TEMP/safe-sync-result.txt" 2> "$RUNNER_TEMP/safe-sync-private-errors.txt" || {
+              echo AARIS_SAFE_SYNC_REMOTE_REJECTED_OR_UNAVAILABLE
+              exit 15
+            }
+          echo AARIS_SAFE_SYNC_REMOTE_SCRIPT_COMPLETED=yes
+      - name: Report only sanitized nonsecret state to owner
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            echo '**AARIS CANONICAL CODESPACE SAFE SYNC**'
+            echo
+            echo '```text'
+            if [[ -s "$RUNNER_TEMP/safe-sync-result.txt" ]]; then
+              grep -E '^AARIS_SYNC_[A-Z0-9_]+=[a-zA-Z0-9_-]+$' \
+                "$RUNNER_TEMP/safe-sync-result.txt" | head -35 || true
+            else
+              echo 'AARIS_SYNC_RESULT=not_started_or_unavailable'
+            fi
+            echo '```'
+            echo 'All other tracked local changes are preserved; no reset/clean/stash/worktree.'
+            echo "[Run details](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+          } > "$RUNNER_TEMP/safe-sync-owner-reply.md"
+          gh issue comment 77 -R "$GITHUB_REPOSITORY" -F "$RUNNER_TEMP/safe-sync-owner-reply.md"
