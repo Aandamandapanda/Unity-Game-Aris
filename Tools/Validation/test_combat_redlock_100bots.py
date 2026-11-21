@@ -83,7 +83,12 @@ class CombatEndToEndContract(unittest.TestCase):
     def test_100_bots_locally_restrict_player_aggression(self):
         self.assertIn("private const int RivalCount = 100;", BOTS)
         self.assertIn("if (distance < first)", BOTS)
-        self.assertIn("attackerOne = attackerTwo = null;", BOTS)
+        self.assertIn("private const int AttackerSelectionPerFrame = 12;", BOTS)
+        self.assertIn("attackerScanFrame == Time.frameCount", BOTS)
+        self.assertIn("attackerOne = scanAttackerOne != null && scanAttackerOne.IsAlive", BOTS)
+        self.assertIn("attackerTwo = scanAttackerTwo != null && scanAttackerTwo.IsAlive", BOTS)
+        self.assertIn("RefreshPlayerAttackers();\n            if (!spawnComplete", BOTS)
+        self.assertEqual((100 + 12 - 1) // 12, 9)
         self.assertIn("return bot == attackerOne || bot == attackerTwo;", BOTS)
         self.assertIn("(target != playerTarget || owner.MayAttackPlayer(this))", BOTS)
         self.assertIn("owner.FindRivalOpponent(this, out target, out targetHealth)", BOTS)
