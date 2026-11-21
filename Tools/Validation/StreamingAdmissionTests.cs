@@ -823,6 +823,41 @@ internal static class StreamingAdmissionTests
         Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
             "Thermal-admission reset blocked first frame");
 
+        // A scene truly inside the player's load margin bypasses only
+        // thermal *spacing*: same-frame ownership and live native imports
+        // must still be fenced. This protects geometry on hot traversals.
+        Configure(6144, "Adreno 610");
+        AarisAndroidThermalGovernor.SuspendSpeculativePrefetch = true;
+        Frame(30);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Severe first model admission blocked");
+        Frame(31);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Predicted-only thermal work incorrectly bypassed spacing");
+        Check(AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad(),
+            "Player-near original detail waited for speculative thermal cooldown");
+        Check(!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad(),
+            "Urgent scene reused a same-frame native integration slot");
+        Frame(32);
+        Check(AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad(),
+            "Two adjacent urgent scene frames incorrectly lost normal admission");
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Optional task bypassed the urgent scene's native frame claim");
+        Configure(6144, "Adreno 610");
+        AarisAndroidThermalGovernor.SuspendSpeculativePrefetch = true;
+        ResourceRequest pendingSceneImport = Load("optional-prefetch");
+        Check(pendingSceneImport != null, "Optional import should launch initially");
+        Frame(2);
+        Check(!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad(),
+            "Urgent scene bypassed active native import fence");
+        pendingSceneImport.isDone = true;
+        Frame(3);
+        Check(!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad(),
+            "Urgent scene overlapped native import completion");
+        Frame(4);
+        Check(AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad(),
+            "Completed native import kept player-near authored detail blocked");
+
         // A fast Android GPU never enters the constrained native budget;
         // hot OS telemetry must not invent a new GPU-quality tier.
         Configure(8192, "Adreno 730");
