@@ -33,11 +33,27 @@ namespace Aaris.MapReview.Editor
 
         static AarisGunDoorLiveAudit() { EditorApplication.update += Tick; }
 
+        // Fast separate graphical modes avoid rendering the entire four-tile
+        // terrain for every gun view on CPU-only Unity/Xvfb test machines.
+        public static void RunGroundPhoto()
+        {
+            Run();
+            SessionState.SetBool(Key + "GroundOnly", true);
+        }
+
+        public static void RunGunPhotos()
+        {
+            Run();
+            SessionState.SetBool(Key + "GunOnly", true);
+        }
+
         [MenuItem("Aaris/CI/Native gun-door collision and grip Play Mode audit")]
         public static void Run()
         {
             Directory.CreateDirectory(Folder);
             SessionState.SetInt(Key, 0);
+            SessionState.SetBool(Key + "GroundOnly", false);
+            SessionState.SetBool(Key + "GunOnly", false);
             SessionState.SetString(Key + "Report", "UNITY=" + Application.unityVersion + "\n");
             SessionState.SetInt(Key + "LootSites", 0);
             SessionState.SetFloat(Key + "Deadline",
@@ -178,10 +194,81 @@ namespace Aaris.MapReview.Editor
             return found && bounds.size.sqrMagnitude > 0.000001f;
         }
 
+
+        // Real URP camera readback from an actual Play Mode scene. Images are
+        // written under /tmp only and never ship inside the Android player.
+        private static void CaptureAuditPhoto(
+            string label, Vector3 focus, Vector3 lookFrom, int subjectLayer)
+        {
+            Camera camera = Camera.main;
+            if (camera == null) { Note("PHOTO_" + label + "=NO_CAMERA"); return; }
+            const int width = 960, height = 540;
+            RenderTexture output = RenderTexture.GetTemporary(width, height, 24);
+            RenderTexture previousTarget = camera.targetTexture;
+            RenderTexture previousActive = RenderTexture.active;
+            Vector3 previousPosition = camera.transform.position;
+            Quaternion previousRotation = camera.transform.rotation;
+            int previousMask = camera.cullingMask;
+            CameraClearFlags previousClear = camera.clearFlags;
+            Color previousBackground = camera.backgroundColor;
+            float previousFov = camera.fieldOfView;
+            Texture2D pixels = null;
+            try
+            {
+                Vector3 orbit = lookFrom.sqrMagnitude > 0.01f
+                    ? lookFrom.normalized : Vector3.forward;
+                Vector3 viewpoint = focus + orbit * 2.25f + Vector3.up * 0.32f;
+                camera.transform.SetPositionAndRotation(
+                    viewpoint, Quaternion.LookRotation(focus - viewpoint, Vector3.up));
+                bool showTerrain = label.StartsWith("GroundLoot_", StringComparison.Ordinal);
+                if (showTerrain)
+                    camera.cullingMask |= 1 << subjectLayer;
+                else
+                {
+                    // Real player/held-gun meshes are on the saved Player
+                    // layer (8), explicitly included in URP RendererData's
+                    // Opaque/Transparent masks. Layer 30 is excluded by URP;
+                    // moving gun meshes there produced all-background JPEGs.
+                    // Keep the authored layers untouched and isolate only the
+                    // actual player's layer, excluding default-layer terrain.
+                    camera.cullingMask = 1 << subjectLayer;
+                    camera.clearFlags = CameraClearFlags.SolidColor;
+                    camera.backgroundColor = new Color(.12f, .16f, .19f, 1f);
+                }
+                camera.fieldOfView = 54f;
+                camera.targetTexture = output;
+                camera.Render();
+                RenderTexture.active = output;
+                pixels = new Texture2D(width, height, TextureFormat.RGB24, false);
+                pixels.ReadPixels(new Rect(0, 0, width, height), 0, 0, false);
+                pixels.Apply(false);
+                byte[] jpg = pixels.EncodeToJPG(86);
+                if (jpg.Length < 4000)
+                    throw new InvalidOperationException("EMPTY_NATIVE_CAMERA_FRAME");
+                string filename = Path.Combine(Folder, label + ".jpg");
+                File.WriteAllBytes(filename, jpg);
+                Note("PHOTO_" + label + "_bytes=" + jpg.Length);
+            }
+            finally
+            {
+                camera.transform.SetPositionAndRotation(
+                    previousPosition, previousRotation);
+                camera.cullingMask = previousMask;
+                camera.clearFlags = previousClear;
+                camera.backgroundColor = previousBackground;
+                camera.fieldOfView = previousFov;
+                camera.targetTexture = previousTarget;
+                RenderTexture.active = previousActive;
+                if (pixels != null) Object.DestroyImmediate(pixels);
+                RenderTexture.ReleaseTemporary(output);
+            }
+        }
+
         private static void CheckLootSite(int index, AarisThirdPersonPlayer player)
         {
             int active = 0, models = 0, nearby = 0, oversize = 0;
             float nearest = float.PositiveInfinity, longestNearby = 0f;
+            AarisWeaponPickup nearestPickup = null;
             foreach (var pickup in Object.FindObjectsByType<AarisWeaponPickup>(
                 FindObjectsSortMode.None))
             {
@@ -205,7 +292,7 @@ namespace Aaris.MapReview.Editor
                 if (visibleMesh && hasBounds) models++;
                 float dist = Vector3.Distance(player.transform.position,
                     pickup.transform.position);
-                nearest = Mathf.Min(nearest, dist);
+                if (dist < nearest) { nearest = dist; nearestPickup = pickup; }
                 if (dist < 50f && visibleMesh)
                 {
                     nearby++;
@@ -218,6 +305,30 @@ namespace Aaris.MapReview.Editor
             if (nearby > 0 && oversize == 0)
                 SessionState.SetInt(Key + "LootSites",
                     SessionState.GetInt(Key + "LootSites", 0) + 1);
+            if (nearby > 0 && nearestPickup != null)
+            {
+                // Same real authored gun, camera and angle in both frames.
+                // First temporarily reproduce the previous 4cm root lift
+                // (current outdoor 28cm lift minus 24cm), then restore
+                // production placement for a genuine comparative URP render.
+                Vector3 raisedPosition = nearestPickup.transform.position;
+                Vector3 fixedFocus = raisedPosition + Vector3.up * 0.14f;
+                try
+                {
+                    nearestPickup.transform.position =
+                        raisedPosition - Vector3.up * 0.24f;
+                    CaptureAuditPhoto("GroundLoot_Before_Site_" + index,
+                        fixedFocus, player.transform.forward,
+                        nearestPickup.gameObject.layer);
+                }
+                finally
+                {
+                    nearestPickup.transform.position = raisedPosition;
+                }
+                CaptureAuditPhoto("GroundLoot_After_Site_" + index,
+                    fixedFocus, player.transform.forward,
+                    nearestPickup.gameObject.layer);
+            }
             Note("SITE_" + index + "_PICKUPS active=" + active + " mesh=" +
                 models + " within50m=" + nearby + " invalidSize=" + oversize +
                 " longestNearby_m=" + longestNearby.ToString("F3") +
@@ -240,7 +351,7 @@ namespace Aaris.MapReview.Editor
             if (hand == null) { Note("HELD_GUN=NO_RIGHT_HAND"); return false; }
             bool success = true;
             foreach (string gunName in new[] { "SMG", "AssaultRifle", "BattleRifle",
-                         "Sniper", "Shotgun" })
+                         "Sniper", "Shotgun", "DMR" })
             {
                 AarisWeaponSpec spec = AarisWeaponCatalog.Get(gunName);
                 bool equipped = spec != null && inventory.TryPickup(
@@ -264,8 +375,127 @@ namespace Aaris.MapReview.Editor
                 Note("HELD_" + gunName + " hand_center_m=" + distance.ToString("F3") +
                     " body_longest_m=" + size.ToString("F3"));
                 if (distance > 0.90f || size < 0.15f || size > 1.7f) success = false;
+                Vector3 focus = measuredWorldCenter + Vector3.up * 0.03f;
+                CaptureAuditPhoto("Held_" + gunName + "_Front",
+                    focus, player.transform.forward, player.gameObject.layer);
+                CaptureAuditPhoto("Held_" + gunName + "_Side",
+                    focus, Quaternion.AngleAxis(78f, Vector3.up) *
+                    player.transform.forward, player.gameObject.layer);
+                bool fired = gun.TryFire(Camera.main, player.gameObject);
+                Note("FIRING_" + gunName + "=" + fired);
+                if (!fired) success = false;
+                else
+                {
+                    CaptureAuditPhoto("Firing_" + gunName,
+                        focus, player.transform.forward, player.gameObject.layer);
+                    bool reload = gun.BeginReload();
+                    Note("RELOAD_" + gunName + "=" + reload);
+                    if (!reload) success = false;
+                    CaptureAuditPhoto("ReloadState_" + gunName,
+                        focus, player.transform.forward, player.gameObject.layer);
+                }
             }
             return success;
+        }
+
+        // Unlike the single-frame geometry audit, visual proof must run
+        // after true PlayerLoop animation/IK and grip positioning have updated.
+        // Each equip receives several rendered frames before its photographs.
+        private static System.Collections.IEnumerator CaptureAnimatedWeaponPhotos(
+            AarisThirdPersonPlayer player)
+        {
+            var inventory = player.GetComponent<AarisWeaponInventory>();
+            var visual = player.GetComponent<AarisCharacterVisual>();
+            if (inventory == null || visual == null || !visual.HasWorkingHumanoid)
+            {
+                Note("PHOTO_GUN=NO_WORKING_HUMANOID");
+                Finish(1);
+                yield break;
+            }
+            Animator animator = visual.GetComponentInChildren<Animator>(true);
+            Transform hand = animator != null && animator.isHuman
+                ? animator.GetBoneTransform(HumanBodyBones.RightHand) : null;
+            if (hand == null)
+            {
+                Note("PHOTO_GUN=NO_RIGHT_HAND");
+                Finish(1);
+                yield break;
+            }
+
+            bool pass = true;
+            foreach (string gunName in new[] { "SMG", "AssaultRifle",
+                         "BattleRifle", "Sniper", "Shotgun", "DMR" })
+            {
+                AarisWeaponSpec weapon = AarisWeaponCatalog.Get(gunName);
+                if (weapon == null || !inventory.TryPickup(
+                    new AarisWeaponState(weapon, (uint)(44001 + gunName.Length)),
+                    out _))
+                {
+                    Note("PHOTO_EQUIP_" + gunName + "=FAIL");
+                    pass = false;
+                    continue;
+                }
+
+                // Real game Update/Animator/LateUpdate, not a synthetic
+                // manual LateUpdate invocation in the same equip frame.
+                for (int frame = 0; frame < 6; frame++)
+                    yield return null;
+
+                AarisEquippedGun gun = inventory.Current;
+                Renderer[] renderers = gun != null ?
+                    gun.GetComponentsInChildren<Renderer>(true) : null;
+                if (renderers == null ||
+                    !MeasureMeshes(gun.transform, renderers, out Bounds bounds))
+                {
+                    Note("PHOTO_" + gunName + "=NO_RENDERABLE_GUN");
+                    pass = false;
+                    continue;
+                }
+                int enabledCount = 0;
+                foreach (Renderer r in renderers)
+                    if (r != null && r.enabled && r.gameObject.activeInHierarchy)
+                        enabledCount++;
+                if (enabledCount == 0)
+                {
+                    Note("PHOTO_" + gunName + "=ALL_RENDERERS_DISABLED");
+                    pass = false;
+                    continue;
+                }
+                Vector3 center = gun.transform.TransformPoint(bounds.center);
+                Vector3 dimensions = Vector3.Scale(
+                    bounds.size, gun.transform.lossyScale);
+                float longest = Mathf.Max(Mathf.Abs(dimensions.x),
+                    Mathf.Abs(dimensions.y), Mathf.Abs(dimensions.z));
+                float handGap = Vector3.Distance(hand.position, center);
+                Note("PHOTO_GUN_" + gunName + " renderers=" + enabledCount +
+                    " hand_center_m=" + handGap.ToString("F3") +
+                    " longest_m=" + longest.ToString("F3"));
+                if (handGap > .9f || longest < .15f || longest > 1.7f)
+                    pass = false;
+
+                Vector3 focus = center + Vector3.up * .03f;
+                Vector3 front = Quaternion.AngleAxis(25f, Vector3.up) *
+                    player.transform.forward;
+                CaptureAuditPhoto("Held_" + gunName + "_Front",
+                    focus, front, player.gameObject.layer);
+                CaptureAuditPhoto("Held_" + gunName + "_Side",
+                    focus, Quaternion.AngleAxis(78f, Vector3.up) *
+                    player.transform.forward, player.gameObject.layer);
+
+                bool fired = gun.TryFire(Camera.main, player.gameObject);
+                Note("PHOTO_FIRING_" + gunName + "=" + fired);
+                if (!fired) { pass = false; continue; }
+                CaptureAuditPhoto("Firing_" + gunName,
+                    focus, front, player.gameObject.layer);
+                bool reload = gun.BeginReload();
+                Note("PHOTO_RELOAD_" + gunName + "=" + reload);
+                if (!reload) pass = false;
+                for (int frame = 0; frame < 5; frame++)
+                    yield return null;
+                CaptureAuditPhoto("ReloadState_" + gunName,
+                    focus, front, player.gameObject.layer);
+            }
+            Finish(pass ? 0 : 1);
         }
 
         private static void Tick()
@@ -305,10 +535,40 @@ namespace Aaris.MapReview.Editor
                         if (land == null) throw new MissingMethodException("AarisOfflineDrop.Land");
                         land.Invoke(drop, null);
                     }
+                    if (SessionState.GetBool(Key + "GroundOnly", false))
+                    {
+                        if (!StartSite(1, player)) { Abort("GROUND_SITE_NOT_FOUND"); return; }
+                        SessionState.SetInt(Key, 7);
+                        return;
+                    }
+                    if (SessionState.GetBool(Key + "GunOnly", false))
+                    {
+                        if (!StartSite(1, player)) { Abort("GUN_SITE_NOT_FOUND"); return; }
+                        SessionState.SetInt(Key, 8);
+                        return;
+                    }
                     if (!StartSite(0, player)) { Abort("SITE0_NOT_FOUND"); return; }
                     SessionState.SetInt(Key, 2);
                     return;
                 }
+                if (stage == 7 || stage == 8)
+                {
+                    float elapsed = (float)EditorApplication.timeSinceStartup -
+                        SessionState.GetFloat(Key + "SiteStart", 0);
+                    if (elapsed < (stage == 7 ? 8.5f : 3.0f)) return;
+                    if (stage == 7)
+                    {
+                        CheckLootSite(1, player);
+                        Finish(SessionState.GetInt(Key + "LootSites", 0) > 0 ? 0 : 1);
+                    }
+                    else
+                    {
+                        SessionState.SetInt(Key, 12);
+                        player.StartCoroutine(CaptureAnimatedWeaponPhotos(player));
+                    }
+                    return;
+                }
+                if (stage == 12) return; // Coroutine owns completion.
                 int index = stage - 2;
                 if (stage >= 2 && stage <= 4)
                 {

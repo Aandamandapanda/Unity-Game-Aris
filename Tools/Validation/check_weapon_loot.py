@@ -21,6 +21,7 @@ EXPECTED = {
     "BattleRifle": None,
     "Sniper": None,
     "Shotgun": None,
+    "DMR": None,
 }
 PBR_RESOURCES = {
     "SMG": ("GreaseGun", "Grease_Gun", "AarisWeapons/PBR/GreaseGun/Grease_Gun"),
@@ -28,6 +29,8 @@ PBR_RESOURCES = {
     "BattleRifle": ("BattleRifle", "BattleRifle", "AarisWeapons/PBR/BattleRifle/BattleRifle"),
     "Sniper": ("Sniper", "Sniper", "AarisWeapons/PBR/Sniper/Sniper"),
     "Shotgun": ("Shotgun", "Shotgun", "AarisWeapons/PBR/Shotgun/Shotgun"),
+    # Unique semi-auto handling, deliberately reusing the owned CC0 rifle mesh.
+    "DMR": ("BattleRifle", "BattleRifle", "AarisWeapons/PBR/BattleRifle/BattleRifle"),
 }
 PBR_FILES = {
     "AssaultRifle": {
@@ -80,11 +83,11 @@ def run():
     assert ids == list(EXPECTED), ids
     lengths = {gun["id"]: gun["presentationLengthMetres"] for gun in catalog["weapons"]}
     assert lengths == {"SMG": 0.65, "AssaultRifle": 0.91,
-                       "BattleRifle": 1.02, "Sniper": 1.23, "Shotgun": 1.03}
+                       "BattleRifle": 1.02, "Sniper": 1.23, "Shotgun": 1.03, "DMR": 1.02}
     assert lengths["SMG"] < lengths["AssaultRifle"] < lengths["Sniper"]
     handling_masses = {gun["id"]: gun["handlingMassKg"] for gun in catalog["weapons"]}
     assert handling_masses == {"SMG": 4.1, "AssaultRifle": 3.4,
-                               "BattleRifle": 4.4, "Sniper": 5.1, "Shotgun": 3.6}
+                               "BattleRifle": 4.4, "Sniper": 5.1, "Shotgun": 3.6, "DMR": 4.4}
     assert all(2.0 <= mass <= 8.0 for mass in handling_masses.values())
     # Loot probability remains authored separately; firearm inertia must never
     # consume these selection weights (42/27/15/8/8) as if they were kilograms.
@@ -184,6 +187,10 @@ def run():
     assert packed_meta.count("maxTextureSize: 512") >= 2
     assert catalog["weapons"][3]["automatic"] is False
     assert catalog["weapons"][4]["pellets"] > 1
+    dmr = catalog["weapons"][5]
+    assert dmr["category"] == "DMR" and dmr["automatic"] is False
+    assert dmr["magazineSize"] == 20 and dmr["adsFov"] == 26
+    assert dmr["modelResource"] == catalog["weapons"][2]["modelResource"]
     loot = json.loads((ROOT / "Assets/Resources/AarisWeapons/loot_candidates.json").read_text())
     assert loot["schema"] == 1 and loot["sizeMetres"] == 2000
     source = json.loads((ROOT / "Docs/MAP_LAYOUT.json").read_text())
@@ -216,6 +223,11 @@ def run():
 
     catalog_cs = (SCRIPTS / "AarisWeaponCatalog.cs").read_text()
     gun_cs = (SCRIPTS / "AarisEquippedGun.cs").read_text()
+    gun_photo_audit = (ROOT / "Assets/AarisWorld/Editor/AarisGunDoorLiveAudit.cs").read_text()
+    assert "camera.cullingMask = 1 << subjectLayer;" in gun_photo_audit
+    assert "camera.cullingMask = 1 << 30;" not in gun_photo_audit
+    assert "GroundLoot_Before_Site_" in gun_photo_audit
+    assert "GroundLoot_After_Site_" in gun_photo_audit
     inventory = (SCRIPTS / "AarisWeaponInventory.cs").read_text()
     pickup_cs = (SCRIPTS / "AarisWeaponPickup.cs").read_text()
     world = (SCRIPTS / "AarisWeaponLootWorld.cs").read_text()
@@ -254,10 +266,22 @@ def run():
     assert "muzzleFlashRenderer.enabled = false;" in gun_cs
     assert "muzzleFlashUntil = Time.time +" in gun_cs
     assert "TriggerMuzzleFlash();" in gun_cs
+    assert "private LineRenderer tracerRenderer;" in gun_cs
+    assert "private void EnsureTracer()" in gun_cs
+    assert "private void TriggerTracer(Vector3 muzzle, Vector3 impact)" in gun_cs
+    assert "private void TickTracer()" in gun_cs
+    assert "EnsureTracer();" in gun_cs
+    assert "if (tracerRenderer != null) tracerRenderer.enabled = false;" in gun_cs
+    assert "tracerRenderer.SetPosition(0, tracerStart + segment * tail);" in gun_cs
+    assert "tracerRenderer.SetPosition(1, tracerStart + segment * head);" in gun_cs
     fire_block = gun_cs.split("public bool TryFire(", 1)[1].split(
         "internal static void ApplyDamage", 1)[0]
     assert fire_block.index("magazine--;") < fire_block.index("TriggerMuzzleFlash();")
     assert "CreatePrimitive" not in fire_block
+    assert "TriggerTracer(muzzle, impactPoint);" in fire_block
+    assert "++tracerShotCounter % 3 == 0" in fire_block
+    assert "new LineRenderer" not in fire_block
+    assert "AddComponent<LineRenderer>" not in fire_block
     assert "new GameObject" not in fire_block
     assert "ParticleSystem" not in fire_block
     # One reusable, collider-free visual casing gives shell motion without
@@ -353,11 +377,16 @@ def run():
     assert "ModelFloorClearance - modelBounds.min.y * scale" in pickup_cs
     assert "ModelFloorClearance + (modelBounds.center.y - modelBounds.min.y) * scale" in pickup_cs
     assert "private const float LootRootFloorClearance = 0.04f;" in world
-    assert "spot = floor.point + Vector3.up * LootRootFloorClearance;" in world
-    assert "Vector3 candidate = hitPoint + Vector3.up * LootRootFloorClearance;" in world
+    assert "private const float OutdoorLootPresentationClearance = 0.28f;" in world
+    assert "(indoor ? LootRootFloorClearance : OutdoorLootPresentationClearance)" in world
+    assert "(floor is TerrainCollider ? OutdoorLootPresentationClearance :" in world
+    assert "LootRootFloorClearance);" in world
     # Measured visual floor clearance for both authored and dropped guns.
     # Small positive margin avoids z-fighting without 21cm arcade hovering.
+    # Indoor low-profile contact stays 6.5 cm; terrain grass presentation
+    # sits ~30.5 cm above ground to avoid fully hidden gun silhouettes.
     assert 0.05 < 0.04 + 0.025 < 0.08
+    assert abs((0.28 + 0.025) - 0.305) < 1e-6
     assert "(modelBounds.center.y - modelBounds.min.y) * scale" in pickup_cs
     assert "model.SetParent(visualPivot.transform, true);" in pickup_cs
     assert "meshFilter.sharedMesh.bounds" in pickup_cs
