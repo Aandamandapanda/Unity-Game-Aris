@@ -8,6 +8,7 @@ namespace UnityEngine
 {
     public class Object { }
     public class GameObject : Object { }
+    public class AudioClip : Object { }
     public class AsyncOperation { public bool isDone; public int priority; }
     public sealed class ResourceRequest : AsyncOperation { }
     public enum RuntimeInitializeLoadType { SubsystemRegistration }
@@ -190,6 +191,45 @@ internal static class StreamingAdmissionTests
             "Essential loader intercepted");
         Configure();
         Check(Load(null) == null && Load("") == null && Resources.requests == 0, "Invalid path imported");
+    }
+
+    private static void EssentialAudioFence()
+    {
+        // Actual production gate with mocked native Unity async completion.
+        Configure(6144, "Adreno (TM) 610");
+        ResourceRequest cue = Resources.LoadAsync<AudioClip>("SFX/ar_shot");
+        Check(cue != null && Resources.requests == 1,
+            "Direct gameplay audio was suppressed");
+        AarisMobileStreamingFrameGate.TrackEssentialAudioLoad(cue);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Optional model overlapped direct audio start");
+        for (int frame = 2; frame <= 4; frame++)
+        {
+            Frame(frame);
+            Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+                "Optional model overlapped essential audio in flight");
+            Check(!AarisMobileStreamingFrameGate.TryClaimNonessentialDiagnosticFrame(),
+                "Diagnostics overlapped essential audio in flight");
+            Check(Load() == null, "Optional import collided with audio");
+        }
+        cue.isDone = true;
+        Frame(5);
+        Check(!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Audio completion frame admitted optional model");
+        Frame(6);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Audio completion permanently blocked visuals");
+        Check(AarisMobileStreamingFrameGate.EssentialAudioDeferredAttempts >= 4,
+            "Missing essential audio deferral evidence");
+        Configure(6144, "Adreno 610");
+        Frame(7);
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "Scene reset retained old essential audio request");
+        Configure(8192, "Adreno 730");
+        AarisMobileStreamingFrameGate.TrackEssentialAudioLoad(
+            Resources.LoadAsync<AudioClip>("SFX/ar_shot"));
+        Check(AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild(),
+            "High-end Android was throttled by essential audio");
     }
 
     private static void AdditiveSceneFence()
@@ -503,7 +543,7 @@ internal static class StreamingAdmissionTests
     public static void Main()
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
-        Hardware(); ImportFence(); AdditiveSceneFence(); DiagnosticImportFence(); Pressure(); RefreshAwarePressure(); PhysicsCatchupAdmission(); CleanupRigAndReset();
+        Hardware(); ImportFence(); EssentialAudioFence(); AdditiveSceneFence(); DiagnosticImportFence(); Pressure(); RefreshAwarePressure(); PhysicsCatchupAdmission(); CleanupRigAndReset();
         Console.WriteLine("STREAMING_ADMISSION_ANDROID_PASS checks=" + checks);
 #else
         Configure();

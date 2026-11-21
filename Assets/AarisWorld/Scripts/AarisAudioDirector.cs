@@ -161,6 +161,9 @@ namespace Aaris.MapReview
                 if (IsImmediateStartupCue(key)) continue;
                 ResourceRequest request = Resources.LoadAsync<AudioClip>(
                     "SFX/" + key);
+                // Gameplay cues start without waiting for optional assets.
+                // Only cosmetic native integration yields to this import.
+                AarisMobileStreamingFrameGate.TrackEssentialAudioLoad(request);
                 yield return request;
                 clips[key] = request.asset as AudioClip;
                 yield return null; // bound native audio integration per frame
