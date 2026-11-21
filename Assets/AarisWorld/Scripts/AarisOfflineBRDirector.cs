@@ -27,6 +27,10 @@ namespace Aaris.MapReview
         private static AarisOfflineBRDirector activeDirector;
         private static RaycastHit[] assistHits = new RaycastHit[32];
         private AarisOfflineRival attackerOne, attackerTwo;
+        private AarisOfflineRival scanAttackerOne, scanAttackerTwo;
+        private const int AttackerSelectionPerFrame = 12;
+        private int attackerScanCursor = -1, attackerScanFrame = -1;
+        private float attackerScanFirst, attackerScanSecond;
         private float nextAttackerSelection;
         // Successfully populated slots stay claimed even if their rival
         // loses later: retry waves must never resurrect defeated opponents.
@@ -292,6 +296,9 @@ namespace Aaris.MapReview
             }
 
             float elapsed = Time.time - startedAt;
+            // Drive staged player-attacker selection once per rendered frame.
+            // Do not rely on individual bots' staggered 0.35s think ticks.
+            RefreshPlayerAttackers();
             if (!spawnComplete && Time.time >= nextSpawn &&
                 CanAttemptRivalSpawn())
             {
@@ -577,29 +584,53 @@ namespace Aaris.MapReview
 
         private void RefreshPlayerAttackers()
         {
-            if (Time.time < nextAttackerSelection) return;
-            nextAttackerSelection = Time.time + .3f;
-            attackerOne = attackerTwo = null;
-            float first = 42f * 42f, second = first;
-            for (int i = 0; i < rivals.Length; i++)
+            if (attackerScanCursor < 0)
+            {
+                if (Time.time < nextAttackerSelection) return;
+                // Build the new two-attacker set incrementally. Keep the last
+                // complete selection active until this sweep finishes.
+                attackerScanCursor = 0;
+                scanAttackerOne = scanAttackerTwo = null;
+                attackerScanFirst = attackerScanSecond = 42f * 42f;
+            }
+            // Multiple bots can ask for permission in the same Update frame.
+            // Run only one bounded LOS slice, regardless of caller count.
+            if (attackerScanFrame == Time.frameCount) return;
+            attackerScanFrame = Time.frameCount;
+            float first = attackerScanFirst, second = attackerScanSecond;
+            int end = Mathf.Min(attackerScanCursor + AttackerSelectionPerFrame,
+                rivals.Length);
+            for (int i = attackerScanCursor; i < end; i++)
             {
                 AarisOfflineRival bot = rivals[i];
                 if (bot == null || !bot.IsAlive) continue;
                 float distance = (bot.transform.position - player.position).sqrMagnitude;
-                // Do not let an occluded near rival reserve an attack slot.
-                // Distance gates bound the number of LOS rays on mobile.
+                // Reject distant targets before the expensive physical LOS ray.
+                // Only visible, unobstructed rivals may reserve either slot.
                 if (distance >= second || !bot.HasPlayerSightForSelection())
                     continue;
                 if (distance < first)
                 {
-                    attackerTwo = attackerOne; second = first;
-                    attackerOne = bot; first = distance;
+                    scanAttackerTwo = scanAttackerOne; second = first;
+                    scanAttackerOne = bot; first = distance;
                 }
                 else if (distance < second)
                 {
-                    attackerTwo = bot; second = distance;
+                    scanAttackerTwo = bot; second = distance;
                 }
             }
+            attackerScanFirst = first;
+            attackerScanSecond = second;
+            attackerScanCursor = end;
+            if (attackerScanCursor != rivals.Length) return;
+            // Commit both slots atomically; no partially-scanned rival can
+            // become a third player attacker while the scan is underway.
+            attackerOne = scanAttackerOne != null && scanAttackerOne.IsAlive
+                ? scanAttackerOne : null;
+            attackerTwo = scanAttackerTwo != null && scanAttackerTwo.IsAlive
+                ? scanAttackerTwo : null;
+            attackerScanCursor = -1;
+            nextAttackerSelection = Time.time + .3f;
         }
 
         internal bool MayAttackPlayer(AarisOfflineRival bot)
