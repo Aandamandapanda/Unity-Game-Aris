@@ -23,7 +23,9 @@ class StreamedRivalTargetGates(unittest.TestCase):
         selection = SOURCE.split("private void RefreshPlayerAttackers", 1)[1].split("internal bool MayAttackPlayer", 1)[0]
         los = SOURCE.split("internal bool HasPlayerSightForSelection", 1)[1].split("private bool HasSight()", 1)[0]
         self.assertIn("bot.HasPlayerSightForSelection()", selection)
-        self.assertIn("return HasVisibleBody && playerTarget != null", los)
+        self.assertIn("if (!HasVisibleBody || playerTarget == null || playerTargetHealth == null ||", los)
+        self.assertIn("playerTargetHealth.IsDead) return false;", los)
+        self.assertIn("return HasSightTo(playerTarget);", los)
         self.assertIn("return bot == attackerOne || bot == attackerTwo;", SOURCE)
         rivals = [(4, False, True), (6, True, False), (12, True, True), (18, True, True)]
         visible_in_sight = [d for d, visible, clear in rivals if d < 42 and visible and clear]
