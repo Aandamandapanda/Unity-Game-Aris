@@ -1,4 +1,4 @@
-name: Verify native Android v7 build identity
+name: Verify current native Android build identity
 on:
   pull_request:
     paths:
@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: false
-      - name: Static validation of native v7 build and fail-closed APK gate
+      - name: Verify current Android identity and fail-closed installability gate
         run: |
           set -Eeuo pipefail
           bash -n Tools/Codespaces/android_apk.sh
@@ -25,19 +25,25 @@ jobs:
           s=Path("ProjectSettings/ProjectSettings.asset").read_text()
           required=[
             'PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Android,',
-            '"com.aaris.game"', 'PlayerSettings.Android.bundleVersionCode = 7;',
+            '"com.aaris.game"', 'PlayerSettings.Android.bundleVersionCode = ExpectedVersionCode;',
             'PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel26;',
             'PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevel33;',
-            'ANDROID_V7_SETTINGS_NOT_APPLIED', 'BuildPipeline.BuildPlayer(request)',
+            'ANDROID_RELEASE_SETTINGS_NOT_APPLIED', 'BuildPipeline.BuildPlayer(request)',
           ]
           for x in required: assert x in c,x
           assert c.index('PlayerSettings.SetApplicationIdentifier(')<c.index('BuildPipeline.BuildPlayer(request)')
           assert c.index('PlayerSettings.Android.targetSdkVersion =')<c.index('BuildPipeline.BuildPlayer(request)')
-          for x in ('apk_target_sdk=33', "com[.]aaris[.]game", "versionCode='7'",
+          for x in ('apk_target_sdk=33', "com[.]aaris[.]game", "versionCode='$EXPECTED_VERSION_CODE'",
                     'APK_INSTALLABILITY_SIGNATURE_MANIFEST_API33_VERIFIED',
                     'APK_V2_SIGNATURE_MISSING', 'APK_ZIPALIGN_VERIFICATION_FAILED'):
               assert x in b,x
-          for x in ('Android: com.aaris.game','AndroidBundleVersionCode: 7','AndroidTargetSdkVersion: 33'):
+          import re
+          explorer=Path("Assets/AarisWorld/Editor/AarisExplorerBuild.cs").read_text()
+          match=re.search(r"AndroidVersionCode = (\\d+);",explorer)
+          assert match, "MISSING_CURRENT_VERSION_CODE"
+          expected_code=match.group(1)
+          assert 'ExpectedVersionCode = AarisExplorerBuild.AndroidVersionCode;' in c
+          for x in ('Android: com.aaris.game','AndroidBundleVersionCode: '+expected_code,'AndroidTargetSdkVersion: 33'):
               assert x in s,x
-          print("AARIS_NATIVE_ANDROID_V7_STATIC_GATE_PASS")
+          print("AARIS_NATIVE_ANDROID_CURRENT_STATIC_GATE_PASS")
           PY
