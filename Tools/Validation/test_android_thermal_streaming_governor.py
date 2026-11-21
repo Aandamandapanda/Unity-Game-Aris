@@ -39,7 +39,8 @@ class AndroidThermalStreamingTests(unittest.TestCase):
     def test_thermal_api_is_android_only_and_rate_limited(self):
         self.assertIn("#if UNITY_ANDROID && !UNITY_EDITOR", THERMAL)
         self.assertIn('new AndroidJavaClass("android.os.Build$VERSION")', THERMAL)
-        self.assertIn('version.GetStatic<int>("SDK_INT") < 29', THERMAL)
+        self.assertIn('int sdk = version.GetStatic<int>("SDK_INT");', THERMAL)
+        self.assertIn("if (sdk < 29)", THERMAL)
         self.assertIn('new AndroidJavaClass("com.unity3d.player.UnityPlayer")', THERMAL)
         self.assertIn('activity.Call<AndroidJavaObject>("getSystemService", "power")', THERMAL)
         self.assertIn('powerManager.Call<int>("getCurrentThermalStatus")', THERMAL)
@@ -104,8 +105,8 @@ class AndroidThermalStreamingTests(unittest.TestCase):
         self.assertIn("SceneManager.UnloadSceneAsync(path)", WORLD)
 
     def test_predicted_car_import_is_the_only_vehicle_path_modified(self):
-        self.assertIn("if (closestType < 0 && predictedPrewarmPosition != playerPosition &&\n"
-                      "                !AarisAndroidThermalGovernor.SuspendSpeculativePrefetch)", CARS)
+        self.assertIn("if (closestType < 0 && predictedPrewarmPosition != playerPosition)", CARS)
+        self.assertIn("if (!AarisAndroidThermalGovernor.SuspendSpeculativePrefetch)", CARS)
         self.assertIn("if (closestType >= 0) StartAuthoredBodyPrewarm(closestType);", CARS)
         self.assertIn("if (!Build(record, pos))", CARS)
         self.assertIn("TryResolvePlanned(record, out Vector3 pos)", CARS)
