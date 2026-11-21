@@ -119,12 +119,12 @@ namespace Aaris.MapReview
             var track = Block(root.transform, "HP track", new Vector2(0f, 0f),
                 new Vector2(220f, 10f), new Vector2(158f, 30f),
                 new Color(.23f, .21f, .22f, .95f));
-            healthFill = Block(track.transform, "HP fill", new Vector2(.5f, .5f),
+            healthFill = Block(track.transform, "HP fill", new Vector2(0f, .5f),
                 new Vector2(220f, 10f), Vector2.zero,
                 new Color(.20f, .92f, .42f, 1f));
-            healthFill.type = Image.Type.Filled;
-            healthFill.fillMethod = Image.FillMethod.Horizontal;
-            healthFill.fillOrigin = (int)Image.OriginHorizontal.Left;
+            // Plain uGUI images without a Sprite can ignore Image.fillAmount;
+            // use explicit geometry width so the bar always visually shrinks.
+            healthFill.rectTransform.pivot = new Vector2(0f, .5f);
             healthText = Label(root.transform, "Readable HP 200", Vector2.zero,
                 new Vector2(244f, 30f), new Vector2(158f, 54f),
                 21, TextAnchor.MiddleCenter);
@@ -169,8 +169,9 @@ namespace Aaris.MapReview
             {
                 lastHealth = current; lastMax = max;
                 healthText.text = "HP " + current + " / " + max;
-                healthFill.fillAmount = Mathf.Clamp01(changed.CurrentHealth /
-                    Mathf.Max(1f, changed.MaximumHealth));
+                healthFill.rectTransform.sizeDelta = new Vector2(220f *
+                    Mathf.Clamp01(changed.CurrentHealth /
+                        Mathf.Max(1f, changed.MaximumHealth)), 10f);
                 healthFill.color = current <= max * .25f
                     ? new Color(1f, .23f, .18f, 1f)
                     : new Color(.20f, .92f, .42f, 1f);
