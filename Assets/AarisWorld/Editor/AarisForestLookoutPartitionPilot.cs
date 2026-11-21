@@ -150,6 +150,10 @@ namespace Aaris.MapReview.Editor
             equivalent.convex = c.originalCollider.convex;
             equivalent.isTrigger = c.originalCollider.isTrigger;
             equivalent.contactOffset = c.originalCollider.contactOffset;
+            equivalent.includeLayers = c.originalCollider.includeLayers;
+            equivalent.excludeLayers = c.originalCollider.excludeLayers;
+            equivalent.layerOverridePriority = c.originalCollider.layerOverridePriority;
+            equivalent.providesContacts = c.originalCollider.providesContacts;
             equivalent.enabled = c.originalCollider.enabled;
 
             // Only the original authored last-LOD mesh/material. Do not
