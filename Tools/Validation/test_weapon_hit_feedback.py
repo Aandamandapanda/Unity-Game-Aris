@@ -14,7 +14,9 @@ class WeaponFeedbackContract(unittest.TestCase):
         fn = GUN.split("internal static void ApplyDamage(", 1)[1]
         self.assertIn("if (!(damageScratch[i] is IAarisDamageable damageable)) continue;", fn)
         self.assertIn("!health.IsDead", fn)
-        self.assertLess(fn.index("damageable.ApplyDamage(amount, attacker);"),
+        self.assertIn("victim.ApplyHitDamage(damage, attacker, headshot);", fn)
+        self.assertIn("else damageable.ApplyDamage(damage, attacker);", fn)
+        self.assertLess(fn.index("victim.ApplyHitDamage(damage, attacker, headshot);"),
                         fn.index("AarisWeaponHUD.NotifyHit(attacker);"))
         self.assertIn("!node.IsChildOf(attacker.transform)", fn)
 
