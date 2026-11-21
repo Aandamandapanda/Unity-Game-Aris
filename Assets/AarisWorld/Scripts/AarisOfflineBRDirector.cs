@@ -636,7 +636,11 @@ namespace Aaris.MapReview
 
         internal bool MayAttackPlayer(AarisOfflineRival bot)
         {
-            if (!CanEngage || bot == null) return false;
+            // The staged selection is intentionally reused for up to a few
+            // frames; it must not grant a now-dead or streamed-out rival
+            // permission to deal invisible damage in that interval.
+            if (!CanEngage || bot == null || !bot.IsAlive || !bot.HasVisibleBody)
+                return false;
             RefreshPlayerAttackers();
             return bot == attackerOne || bot == attackerTwo;
         }

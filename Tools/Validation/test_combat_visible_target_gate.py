@@ -19,6 +19,21 @@ class StreamedRivalTargetGates(unittest.TestCase):
         self.assertIn("!bot.HasVisibleBody", target_search)
         self.assertIn("closest.transform.IsChildOf(candidate.transform)", target_search)
 
+    def test_stale_slot_cannot_authorize_invisible_or_dead_attacker(self):
+        slot = SOURCE.split("internal bool MayAttackPlayer(", 1)[1].split(
+            "internal bool TryLootForRival(", 1)[0]
+        self.assertIn("!bot.IsAlive || !bot.HasVisibleBody", slot)
+        self.assertIn("return bot == attackerOne || bot == attackerTwo;", slot)
+        # A cached slot is necessary, but no longer sufficient if its body
+        # streamed out or death happened before the next full 100-rival scan.
+        for selected, alive, visible, allowed in (
+            (True, True, True, True),
+            (True, True, False, False),
+            (True, False, True, False),
+            (False, True, True, False),
+        ):
+            self.assertEqual(selected and alive and visible, allowed)
+
     def test_unseen_rivals_do_not_take_player_attack_slots(self):
         selection = SOURCE.split("private void RefreshPlayerAttackers", 1)[1].split("internal bool MayAttackPlayer", 1)[0]
         los = SOURCE.split("internal bool HasPlayerSightForSelection", 1)[1].split("private bool HasSight()", 1)[0]
