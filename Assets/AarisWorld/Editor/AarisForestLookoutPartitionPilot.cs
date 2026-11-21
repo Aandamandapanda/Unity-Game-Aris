@@ -232,6 +232,85 @@ namespace Aaris.MapReview.Editor
                 "persistent_physics_proxy=1 last_lod_proxy=1 " +
                 "streaming_cells=1 source_world_position=" + originalWorldPosition);
         }
+
+        [MenuItem("Aaris/World/Verify ForestLookout Additive Pilot")]
+        public static void VerifyAuthoredPilot()
+        {
+            Check(File.Exists(ChunkPath), "pilot-scene-not-saved");
+            Scene bootstrap = EditorSceneManager.OpenScene(MainPath, OpenSceneMode.Single);
+            GameObject district = GameObject.Find("ForestLookout");
+            GameObject player = GameObject.Find("AarisPlayer");
+            GameObject mobile = GameObject.Find("MobileRuntime");
+            Check(district != null && mobile != null && player != null,
+                  "persistent-world-missing");
+            Transform root = district.transform.Find("__AarisForestLookout_PersistentCover");
+            Check(root != null && root.gameObject.scene == bootstrap,
+                  "persistent-cover-missing");
+            MeshCollider proxy = root.GetComponent<MeshCollider>();
+            var fallback = root.GetComponent<AarisChunkFallbackVisibility>();
+            Check(proxy != null && proxy.sharedMesh != null && proxy.enabled &&
+                  fallback != null && !proxy.convex && !proxy.isTrigger,
+                  "persistent-physics-and-far-lod-missing");
+            var fallbackData = new SerializedObject(fallback);
+            Check(fallbackData.FindProperty("chunkScenePath").stringValue == ChunkPath,
+                  "far-silhouette-scene-path-mismatch");
+            var farData = fallbackData.FindProperty("silhouetteRenderers");
+            Check(farData.arraySize == 1 &&
+                  farData.GetArrayElementAtIndex(0).objectReferenceValue != null,
+                  "far-mesh-reference-missing");
+
+            var nearby = mobile.GetComponent<AarisNearbyColliders>();
+            Check(nearby != null, "nearby-collider-index-missing");
+            var nearbyData = new SerializedObject(nearby);
+            var obstacles = nearbyData.FindProperty("obstacles");
+            int matches = 0;
+            for (int i = 0; i < obstacles.arraySize; i++)
+                if (obstacles.GetArrayElementAtIndex(i).objectReferenceValue == proxy)
+                    matches++;
+            Check(matches == 1, "physical-proxy-not-rebound");
+            var streamer = mobile.GetComponent<AarisAdditiveChunkStreamer>();
+            Check(streamer != null, "additive-streamer-not-serialized");
+            var streamerData = new SerializedObject(streamer);
+            var chunks = streamerData.FindProperty("chunks");
+            Check(chunks.arraySize == 1 &&
+                  chunks.GetArrayElementAtIndex(0)
+                    .FindPropertyRelative("scenePath").stringValue == ChunkPath &&
+                  streamerData.FindProperty("player").objectReferenceValue ==
+                    player.transform, "additive-authority-not-wired");
+
+            int buildSceneMatches = 0;
+            foreach (var entry in EditorBuildSettings.scenes)
+                if (entry.path == ChunkPath && entry.enabled) buildSceneMatches++;
+            Check(buildSceneMatches == 1, "additive-scene-build-configuration");
+
+            Scene cell = EditorSceneManager.OpenScene(ChunkPath, OpenSceneMode.Additive);
+            GameObject originalTower = GameObject.Find("ForestLookout_watchtower_01");
+            Check(cell.IsValid() && cell.isLoaded && originalTower != null &&
+                  originalTower.scene == cell && originalTower.transform.parent == null,
+                  "authored-tower-not-in-cell");
+            Check(originalTower.GetComponent<MeshCollider>() == null,
+                  "duplicated-mesh-collision");
+            LODGroup authoredLod = originalTower.GetComponent<LODGroup>();
+            Check(authoredLod != null && authoredLod.GetLODs().Length >= 2,
+                  "authored-full-detail-lod-dropped");
+            MeshFilter originalMesh = originalTower.GetComponent<MeshFilter>();
+            Check(originalMesh != null && originalMesh.sharedMesh == proxy.sharedMesh,
+                  "original-collision-mesh-changed");
+            MeshFilter lastLodMesh = authoredLod.GetLODs()[
+                authoredLod.GetLODs().Length - 1].renderers[0]
+                    .GetComponent<MeshFilter>();
+            var proxyRenderer = farData.GetArrayElementAtIndex(0)
+                .objectReferenceValue as MeshRenderer;
+            Check(proxyRenderer != null &&
+                  proxyRenderer.GetComponent<MeshFilter>().sharedMesh ==
+                    lastLodMesh.sharedMesh,
+                  "persistent-silhouette-mesh-not-identical");
+            EditorSceneManager.CloseScene(cell, true);
+            Check(bootstrap.IsValid(), "persistent-scene-closed");
+            Debug.Log("AARIS_FORESTLOOKOUT_PILOT_VERIFY_PASS " +
+                "exact_colliders=1 original_lods=1 far_silhouettes=1 " +
+                "additive_build_scenes=1");
+        }
     }
 }
 #endif
