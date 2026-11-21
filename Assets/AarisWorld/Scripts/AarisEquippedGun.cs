@@ -728,7 +728,7 @@ namespace Aaris.MapReview
                             bounds.min.y + bounds.size.y * .79f;
                         if (headshot) damage *= 1.75f;
                         float before = victim.CurrentHealth;
-                        damageable.ApplyDamage(damage, attacker);
+                        victim.ApplyHitDamage(damage, attacker, headshot);
                         float actualLoss = Mathf.Max(0f, before - victim.CurrentHealth);
                         if (actualLoss > 0f && attacker != null &&
                             !node.IsChildOf(attacker.transform))
