@@ -64,8 +64,22 @@ def check(native=False):
                 ('Unexpected physical collider streamed out of bootstrap',cell_path)
         transforms.update(detail_transforms)
     for b in layout['buildings']:
-        assert b['name'] in transforms, ('Missing authored building across scenes',b['name'])
-        assert list(transforms[b['name']]['m_LocalScale'].values())==b['scale']
+        name=b['name']
+        assert name in transforms, ('Missing authored building across scenes',name)
+        observed=list(transforms[name]['m_LocalScale'].values())
+        if observed != b['scale']:
+            # Unity reparents migrated building roots into native additive
+            # scenes while preserving the actual world transform. The new
+            # root's local scale is its former *world* scale, not its
+            # district-relative authoring scale. Demand the original exact
+            # local scale on the persistent collision/far-LOD proxy instead.
+            proxy='__AarisPersistentCover_'+name
+            assert proxy in transforms, ('World-space reparent lost authored proxy',name)
+            assert list(transforms[proxy]['m_LocalScale'].values())==b['scale'],\
+                ('Original authored district-relative scale changed',name)
+            assert any(name in {d['m_Name'] for c,i,n,d in documents(path)
+                                if n=='GameObject'} for path in district_cells),\
+                ('Reparented full detail missing from native cell',name)
     scene_spawn = transforms['AarisPlayer']['m_LocalPosition']
     reported_spawn = report['safe_spawn_m']
     assert len(reported_spawn) == 3 and all(
