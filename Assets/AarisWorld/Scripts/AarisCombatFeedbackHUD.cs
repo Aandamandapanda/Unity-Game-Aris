@@ -23,7 +23,10 @@ namespace Aaris.MapReview
         private AarisOfflineDrop drop;
         private Camera aimCamera;
         private Canvas canvas;
-        private RectTransform canvasRect;
+        private RectTransform canvasRect, healthSafeRoot;
+        private Rect lastHealthSafeArea;
+        private Vector2 lastHealthScreen;
+        private float nextHealthSafeCheck;
         private Image healthFill, hitFlash, opticalRing;
         private Text healthText, scopeText, hitDirection;
         private float nextAimCheck, hitFadeUntil;
@@ -143,11 +146,20 @@ namespace Aaris.MapReview
             // Avoid a fullscreen transparent uGUI quad and canvas dirties in
             // idle play. Only a real incoming HP hit needs this overlay.
             hitFlash.gameObject.SetActive(false);
-            Block(root.transform, "HP background", new Vector2(0f, 0f),
-                new Vector2(258f, 51f), new Vector2(158f, 46f),
+            // The movement joystick occupies the lower-left corner. Keep HP
+            // above it and inside the device cutout-safe display rectangle.
+            var hpArea = new GameObject("HP safe area", typeof(RectTransform));
+            hpArea.transform.SetParent(root.transform, false);
+            healthSafeRoot = hpArea.GetComponent<RectTransform>();
+            healthSafeRoot.anchorMin = Vector2.zero;
+            healthSafeRoot.anchorMax = Vector2.one;
+            healthSafeRoot.offsetMin = healthSafeRoot.offsetMax = Vector2.zero;
+            RefreshHealthSafeArea(true);
+            Block(healthSafeRoot, "HP background", new Vector2(0f, 1f),
+                new Vector2(258f, 51f), new Vector2(160f, -90f),
                 new Color(.035f, .05f, .065f, .88f));
-            var track = Block(root.transform, "HP track", new Vector2(0f, 0f),
-                new Vector2(220f, 10f), new Vector2(158f, 30f),
+            var track = Block(healthSafeRoot, "HP track", new Vector2(0f, 1f),
+                new Vector2(220f, 10f), new Vector2(160f, -110f),
                 new Color(.23f, .21f, .22f, .95f));
             healthFill = Block(track.transform, "HP fill", new Vector2(0f, .5f),
                 new Vector2(220f, 10f), Vector2.zero,
@@ -155,8 +167,8 @@ namespace Aaris.MapReview
             // Plain uGUI images without a Sprite can ignore Image.fillAmount;
             // use explicit geometry width so the bar always visually shrinks.
             healthFill.rectTransform.pivot = new Vector2(0f, .5f);
-            healthText = Label(root.transform, "Readable HP 200", Vector2.zero,
-                new Vector2(244f, 30f), new Vector2(158f, 54f),
+            healthText = Label(healthSafeRoot, "Readable HP 200", new Vector2(0f, 1f),
+                new Vector2(244f, 30f), new Vector2(160f, -83f),
                 21, TextAnchor.MiddleCenter);
             healthText.fontStyle = FontStyle.Bold;
 
@@ -193,6 +205,24 @@ namespace Aaris.MapReview
                 numbers[i].gameObject.SetActive(false);
             }
             AarisHudGlyphs.ApplyCanvasShader(root.transform);
+        }
+
+        // Safe-area layout changes only after a rotation/cutout change;
+        // no per-frame RectTransform writes or strings in the HP hot path.
+        private void RefreshHealthSafeArea(bool force)
+        {
+            if (healthSafeRoot == null || Screen.width <= 0 || Screen.height <= 0 ||
+                (!force && Time.unscaledTime < nextHealthSafeCheck)) return;
+            nextHealthSafeCheck = Time.unscaledTime + 0.4f;
+            Rect safe = Screen.safeArea;
+            Vector2 size = new Vector2(Screen.width, Screen.height);
+            if (!force && size == lastHealthScreen && safe == lastHealthSafeArea)
+                return;
+            lastHealthScreen = size;
+            lastHealthSafeArea = safe;
+            healthSafeRoot.anchorMin = new Vector2(safe.xMin / size.x, safe.yMin / size.y);
+            healthSafeRoot.anchorMax = new Vector2(safe.xMax / size.x, safe.yMax / size.y);
+            healthSafeRoot.offsetMin = healthSafeRoot.offsetMax = Vector2.zero;
         }
 
         private void HealthChanged(AarisOfflineHealth changed)
@@ -279,6 +309,7 @@ namespace Aaris.MapReview
         private void LateUpdate()
         {
             if (canvas == null) return;
+            RefreshHealthSafeArea(false);
             float now = Time.unscaledTime;
             if (hitFlash != null && hitFlash.gameObject.activeSelf)
             {
