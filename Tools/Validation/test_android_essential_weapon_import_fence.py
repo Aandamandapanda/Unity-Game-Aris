@@ -38,7 +38,7 @@ class EssentialWeaponImportFence(unittest.TestCase):
         self.assertIn("if (!essentialWeaponLoadInFlight.isDone)", GATE)
         self.assertIn("essentialWeaponCompletionFrame = Time.frameCount;", GATE)
         self.assertEqual(GATE.count("bool essentialWeaponBusy = IsEssentialWeaponImportBusy();"), 2)
-        self.assertEqual(GATE.count("if (essentialAudioBusy || essentialWeaponBusy) return false;"), 2)
+        self.assertEqual(GATE.count("if (essentialAudioBusy || essentialWeaponBusy || essentialLootBusy) return false;"), 2)
         self.assertIn("essentialWeaponLoadInFlight = null;", GATE)
         self.assertIn("essentialWeaponCompletionFrame = -1;", GATE)
         self.assertIn("EssentialWeaponDeferredAttempts = 0;", GATE)

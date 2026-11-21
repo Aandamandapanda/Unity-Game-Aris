@@ -48,9 +48,11 @@ namespace Aaris.MapReview
             // Authored loot is gameplay-critical, unlike optional scenery.
             // Do not downgrade this small JSON import below model streams.
             request.priority = 0;
+            AarisMobileStreamingFrameGate.TrackEssentialLootManifestLoad(request);
             yield return request;
             // Avoid parsing JSON in the same rendered frame as native
             // ResourceRequest completion or the weapon catalog import.
+            AarisMobileStreamingFrameGate.ReserveNextFrameForEssentialJsonParse();
             yield return null;
             TextAsset source = request.asset as TextAsset;
             if (source != null)

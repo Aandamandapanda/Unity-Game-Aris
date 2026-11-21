@@ -210,6 +210,7 @@ namespace Aaris.MapReview
             if (Ready) yield break;
             // Parse the small JSON catalog away from its native completion
             // and the first heavy weapon prefab import frame.
+            AarisMobileStreamingFrameGate.ReserveNextFrameForEssentialJsonParse();
             yield return null;
             double parseStarted = Time.realtimeSinceStartupAsDouble;
             var definitions = ReadDefinitions(
