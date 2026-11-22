@@ -62,6 +62,27 @@ mkdir -p "$WORK/project/Assets/Editor" "$WORK/project/Packages" \
 )
 cp "$SOURCE/ProjectSettings/ProjectVersion.txt" "$WORK/project/ProjectSettings/ProjectVersion.txt"
 cp "$SOURCE/Packages/manifest.json" "$WORK/project/Packages/manifest.json"
+# This is a C# source-only check, not an import/build of the shipping asset set.
+# On the headless Linux Editor, unused Visual Effect Graph's PNG importer can
+# crash Unity in native Crunch semaphore/TLS code before C# is even compiled.
+# Omit VFX only from this /tmp manifest, and only if copied C# does not use it.
+# Future VFX-using scripts keep their actual dependency for compilation.
+if grep -R --include='*.cs' -Eq 'UnityEngine[.]VFX|UnityEditor[.]VFX|\bVisualEffect\b|\bVisualEffectAsset\b|\bVFXEventAttribute\b' "$WORK/project/Assets"; then
+  echo AARIS_NATIVE_COMPILE_TEMP_VFX=retained_csharp_references
+else
+  python3 - "$WORK/project/Packages/manifest.json" <<'PYVFX'
+import json
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+manifest = json.loads(path.read_text())
+version = manifest.get("dependencies", {}).pop("com.unity.visualeffectgraph", None)
+if version is not None:
+    path.write_text(json.dumps(manifest, indent=2) + "\n")
+print("AARIS_NATIVE_COMPILE_TEMP_VFX=" +
+      ("omitted_unused_package" if version else "not_declared"))
+PYVFX
+fi
 # The same installed Editor passed an exact full-manifest package import
 # when Unity generated its own temporary lock, while a previous temporary
 # project importing the preexisting repository lock failed before C#.
@@ -90,12 +111,12 @@ CS
 LOG="$WORK/unity-editor.private.log"
 rc=0
 echo AARIS_NATIVE_COMPILE_BACKEND=xvfb_software_gl
-# Real A/B on this Codespace: nested TMPDIR="$WORK/UnityTemp" crashed
-# Unity with exit 255, whereas parent TMPDIR="$WORK" compiled all 94
-# scripts, ran the Editor method and exited 0. Keep every other input equal.
+# Keep TMPDIR at the verified project parent and cap native importer workers.
+# Both changes affect the /tmp C# gate only, not the actual Unity project.
+# The extra VFX omission above prevents a native importer crash unrelated to C#.
 timeout --kill-after=10s 490s env TMPDIR="$WORK" LIBGL_ALWAYS_SOFTWARE=1 \
   xvfb-run -a -s '-screen 0 1280x720x24' \
-  "$EDITOR" -batchmode -force-glcore -quit \
+  "$EDITOR" -batchmode -force-glcore -job-worker-count 2 -quit \
   -projectPath "$WORK/project" \
   -executeMethod AarisNativeSourceCompileGate.Run \
   -logFile "$LOG" > "$WORK/editor-stdout.private" \
