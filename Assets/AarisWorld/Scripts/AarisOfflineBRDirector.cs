@@ -440,13 +440,8 @@ namespace Aaris.MapReview
                 var actor = new GameObject("Aaris Offline Rival " + (index + 1));
                 actor.transform.SetPositionAndRotation(point,
                     Quaternion.Euler(0f, (float)random.NextDouble() * 360f, 0f));
-                var capsule = actor.AddComponent<CharacterController>();
-                capsule.height = 1.8f;
-                capsule.radius = 0.31f;
-                capsule.center = new Vector3(0f, 0.9f, 0f);
-                capsule.stepOffset = 0.28f;
-                capsule.skinWidth = 0.05f;
-                capsule.slopeLimit = 43f;
+                // Far-away logical opponents need no native capsule at spawn.
+                // Initialize materializes it only for actual nearby combat.
                 var health = actor.AddComponent<AarisOfflineHealth>();
                 var rival = actor.AddComponent<AarisOfflineRival>();
                 rival.Initialize(this, health, player, playerHealth, index);
@@ -1269,6 +1264,10 @@ namespace Aaris.MapReview
         private AarisOfflineHealth health, targetHealth;
         private Transform target;
         private CharacterController capsule;
+#if UNITY_ANDROID && !UNITY_EDITOR
+        // Avoid bulk native PhysX allocations when the camera turns.
+        private static int lastReceiverBuildFrame = -1;
+#endif
         private RaycastHit[] sightHits;
         // Kept per rival: retain correct closest-visible-target selection
         // without RaycastAll allocations when >20 cover hits overlap.
@@ -1380,11 +1379,11 @@ namespace Aaris.MapReview
             if (spawnDistanceSqr >= 185f * 185f)
             {
                 virtualBody = true;
-                capsule.enabled = false;
+                if (capsule != null) capsule.enabled = false;
             }
             else
             {
-                // Only physical encounters need raycast and cover buffers.
+                EnsurePhysicalReceiver();
                 EnsurePhysicalCombatBuffers();
             }
             // A 55-100m unseen spawn must not instantiate a skinned Humanoid
@@ -1394,6 +1393,21 @@ namespace Aaris.MapReview
                 (spawnDistanceSqr < 100f * 100f &&
                  owner.IsDistantRivalOnScreen(transform.position)))
                 BuildVisual();
+        }
+
+        // Retain a native collision body only once an actor is physically
+        // nearby or camera-visible within the scoped rifle hit range.
+        private CharacterController EnsurePhysicalReceiver()
+        {
+            if (capsule != null) return capsule;
+            capsule = gameObject.AddComponent<CharacterController>();
+            capsule.height = 1.8f;
+            capsule.radius = 0.31f;
+            capsule.center = new Vector3(0f, 0.9f, 0f);
+            capsule.stepOffset = 0.28f;
+            capsule.skinWidth = 0.05f;
+            capsule.slopeLimit = 43f;
+            return capsule;
         }
 
         private void EnsurePhysicalCombatBuffers()
@@ -1812,13 +1826,28 @@ namespace Aaris.MapReview
             bool needsPhysicalReceiver = !virtualBody ||
                 (cameraRelevant && HasVisibleBody &&
                  playerDistanceSqr < FarVisualDistance * FarVisualDistance);
-            if (capsule.enabled != needsPhysicalReceiver)
+            if (needsPhysicalReceiver && capsule == null)
+            {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                // One new native receiver per frame; remote math still ticks.
+                if (lastReceiverBuildFrame != Time.frameCount)
+                {
+                    lastReceiverBuildFrame = Time.frameCount;
+                    EnsurePhysicalReceiver();
+                }
+#else
+                EnsurePhysicalReceiver();
+#endif
+            }
+            if (capsule != null && capsule.enabled != needsPhysicalReceiver)
                 capsule.enabled = needsPhysicalReceiver;
             if (virtualBody)
             {
                 TickVirtualCombat(now, dt);
                 return;
             }
+            // A new on-camera actor may wait one frame for native admission.
+            if (capsule == null) return;
             // Prewarm physical arrays when approaching 165m, before LOS.
             EnsurePhysicalCombatBuffers();
             if (now >= nextThink)
