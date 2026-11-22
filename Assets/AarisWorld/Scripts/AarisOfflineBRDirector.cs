@@ -1538,7 +1538,14 @@ namespace Aaris.MapReview
 
         private bool HasSightTo(Transform victim)
         {
-            return TryGetSightHit(victim, out RaycastHit ignored);
+            // The long eye ray starts 48 cm in front of the rival. A thin
+            // nearby wall can sit completely behind that ray origin. Apply
+            // the same short muzzle obstruction to target acquisition, not
+            // only to the final shot: otherwise an occluded bot can reserve
+            // one of just two player-attack slots and freeze behind cover.
+            // The short RaycastNonAlloc reuses this bot's existing hit array.
+            return victim != null && MuzzlePathClear(victim) &&
+                TryGetSightHit(victim, out RaycastHit ignored);
         }
 
         private bool TryGetSightHit(Transform victim, out RaycastHit shotHit)
