@@ -7,7 +7,7 @@ namespace Aaris.MapReview
     /// Uses the existing gun/grenade IAarisDamageable path, not network messages.
     /// </summary>
     [DisallowMultipleComponent]
-    public sealed class AarisBreakablePanel : MonoBehaviour, IAarisDamageable
+    public sealed class AarisBreakablePanel : MonoBehaviour, IAarisDamageableWithHealth
     {
         private const float NearRadius = 3.2f;
         private const float NearFloorTolerance = 1.8f;
@@ -24,6 +24,7 @@ namespace Aaris.MapReview
         private readonly Collider[] crowdedBlockers = new Collider[64];
 
         public bool IsBroken => destroyed;
+        public float CurrentHealth => Mathf.Max(0f, health);
         public bool IsOpen => isDoor && (destroyed || Mathf.Abs(currentAngle) > 80f);
 
         public void Configure(Transform panel, Collider panelCollider,
@@ -157,7 +158,8 @@ namespace Aaris.MapReview
 
         public void ApplyDamage(float amount, GameObject attacker)
         {
-            if (destroyed || float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0f)
+            if (destroyed || health <= 0f || float.IsNaN(amount) ||
+                float.IsInfinity(amount) || amount <= 0f)
                 return;
             health -= amount;
             if (health > 0f) return;

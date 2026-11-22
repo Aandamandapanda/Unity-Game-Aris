@@ -725,15 +725,15 @@ namespace Aaris.MapReview
             return false;
         }
 
-        internal static void ApplyDamage(Collider collider, float amount, GameObject attacker)
+        internal static bool ApplyDamage(Collider collider, float amount, GameObject attacker)
         {
-            ApplyDamage(collider, amount, attacker, null);
+            return ApplyDamage(collider, amount, attacker, null);
         }
 
-        internal static void ApplyDamage(Collider collider, float amount, GameObject attacker,
+        internal static bool ApplyDamage(Collider collider, float amount, GameObject attacker,
             Vector3? hitPosition)
         {
-            if (collider == null) return;
+            if (collider == null) return false;
             for (Transform node = collider.transform; node != null; node = node.parent)
             {
                 // GetComponents<T>(List<T>) fills the reusable list without
@@ -776,19 +776,34 @@ namespace Aaris.MapReview
                             AarisCombatFeedbackHUD.NotifyOutgoingDamage(attacker, actualLoss, headshot,
                                 hitPosition ?? collider.bounds.center);
                     }
-                    else damageable.ApplyDamage(damage, attacker);
+                    else
+                    {
+                        // Confirm only real HP loss for Gloo Walls and panels.
+                        IAarisDamageableWithHealth tracked =
+                            damageable as IAarisDamageableWithHealth;
+                        float before = tracked != null ? tracked.CurrentHealth : 0f;
+                        damageable.ApplyDamage(damage, attacker);
+                        if (tracked != null) canRegister = tracked.CurrentHealth < before;
+                    }
                     if (canRegister && attacker != null &&
                         !node.IsChildOf(attacker.transform))
                         AarisWeaponHUD.NotifyHit(attacker);
-                    return;
+                    return canRegister;
                 }
             }
             damageScratch.Clear();
+            return false;
         }
     }
 
     public interface IAarisDamageable
     {
         void ApplyDamage(float amount, GameObject attacker);
+    }
+
+    // Optional authoritative HP feedback; legacy damageables still work.
+    public interface IAarisDamageableWithHealth : IAarisDamageable
+    {
+        float CurrentHealth { get; }
     }
 }
