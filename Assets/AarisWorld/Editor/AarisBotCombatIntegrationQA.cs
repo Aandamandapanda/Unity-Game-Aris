@@ -291,6 +291,38 @@ namespace Aaris.MapReview.Editor
                 Check(muzzle != null, "Bot close-muzzle guard present", report);
                 Check((bool)muzzle.Invoke(bots[1], new object[] { player.transform }),
                     "Bot muzzle clear in open terrain", report);
+                // More than the 20-slot small ray buffer can be filled entirely
+                // by harmless colliders owned by this shooter. Full does not
+                // mean physically blocked: retry with the retained larger buffer.
+                var denseSelf = new GameObject("Dense shooter-owned muzzle fragments");
+                denseSelf.transform.SetParent(bots[1].transform, false);
+                for (int fragmentIndex = 0; fragmentIndex < 25; fragmentIndex++)
+                {
+                    var fragment = new GameObject("Shooter-owned attachment");
+                    fragment.transform.SetParent(denseSelf.transform, false);
+                    fragment.transform.localPosition = new Vector3(
+                        0f, 1.28f, 0.04f + fragmentIndex * .017f);
+                    fragment.AddComponent<BoxCollider>().size =
+                        new Vector3(.05f, .05f, .006f);
+                }
+                Physics.SyncTransforms();
+                Check((bool)muzzle.Invoke(bots[1], new object[] { player.transform }),
+                    "Dense own colliders do not fake a blocked bot muzzle", report);
+                var denseCover = new GameObject("Real blocker among owned muzzle hits");
+                denseCover.transform.SetParent(root.transform, false);
+                denseCover.transform.position = bots[1].transform.position +
+                    bots[1].transform.forward * .37f + Vector3.up * 1.28f;
+                denseCover.AddComponent<BoxCollider>().size =
+                    new Vector3(.1f, .1f, .02f);
+                Physics.SyncTransforms();
+                Check(!(bool)muzzle.Invoke(bots[1], new object[] { player.transform }),
+                    "Dense own hits cannot hide a real short-muzzle wall", report);
+                Object.DestroyImmediate(denseCover);
+                Physics.SyncTransforms();
+                Check((bool)muzzle.Invoke(bots[1], new object[] { player.transform }),
+                    "Dense muzzle clears again after solid cover removal", report);
+                Object.DestroyImmediate(denseSelf);
+                Physics.SyncTransforms();
                 var cover = new GameObject("Bot muzzle obstruction");
                 cover.transform.SetParent(root.transform, false);
                 cover.transform.position = Origin + new Vector3(0f, 1.28f, 6.77f);
