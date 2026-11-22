@@ -964,6 +964,12 @@ namespace Aaris.MapReview
         // Cache stance-aware collision bodies; do not GetComponent in LOS ray hot paths.
         private CharacterController playerTargetCapsule, targetCapsule;
         private GameObject visualRoot;
+        // A separate low-triangle visual keeps 4x targets visible beyond 155 m
+        // without loading distant Humanoid rigs or changing close-up quality.
+        private GameObject farVisualRoot;
+        private static Mesh sharedFarVisualMesh;
+        private static Material sharedFarVisualMaterial;
+        private const float FarVisualDistance = 485f;
         private bool visualBuilt;
         private float nextVisualCheck, staggeredVisualDelay;
         private int medkits = 1;
@@ -995,7 +1001,9 @@ namespace Aaris.MapReview
         public bool IsAlive => health != null && !health.IsDead;
         // The physical collider may spawn before its streamed visual. Do not
         // permit invisible opponents to claim player attack slots or Red-Lock.
-        internal bool HasVisibleBody => visualRoot != null && visualRoot.activeInHierarchy;
+        internal bool HasVisibleBody =>
+            (visualRoot != null && visualRoot.activeInHierarchy) ||
+            (farVisualRoot != null && farVisualRoot.activeInHierarchy);
 
         internal void Initialize(AarisOfflineBRDirector director, AarisOfflineHealth self,
             Transform victim, AarisOfflineHealth victimHealth, int encounterSlot)
@@ -1114,6 +1122,97 @@ namespace Aaris.MapReview
             hasAnimations = true;
         }
 
+        // Built only once per domain. Seven small cuboids yield one shared
+        // humanoid silhouette mesh: no skinning, Animator, extra physics,
+        // texture import, material clones or per-frame managed allocations.
+        private static void AppendFarBox(List<Vector3> vertices, List<int> indices,
+            Vector3 center, Vector3 half)
+        {
+            int start = vertices.Count;
+            vertices.Add(center + new Vector3(-half.x, -half.y, -half.z));
+            vertices.Add(center + new Vector3( half.x, -half.y, -half.z));
+            vertices.Add(center + new Vector3( half.x,  half.y, -half.z));
+            vertices.Add(center + new Vector3(-half.x,  half.y, -half.z));
+            vertices.Add(center + new Vector3(-half.x, -half.y,  half.z));
+            vertices.Add(center + new Vector3( half.x, -half.y,  half.z));
+            vertices.Add(center + new Vector3( half.x,  half.y,  half.z));
+            vertices.Add(center + new Vector3(-half.x,  half.y,  half.z));
+            // All six faces wound outward. No collider is added to the LOD.
+            int[] cube = {
+                4,5,6, 4,6,7, 1,0,3, 1,3,2,
+                0,4,7, 0,7,3, 5,1,2, 5,2,6,
+                3,7,6, 3,6,2, 0,1,5, 0,5,4
+            };
+            for (int i = 0; i < cube.Length; i++)
+                indices.Add(start + cube[i]);
+        }
+
+        private static Mesh DistantRivalMesh()
+        {
+            if (sharedFarVisualMesh != null) return sharedFarVisualMesh;
+            var vertices = new List<Vector3>(56);
+            var indices = new List<int>(252);
+            AppendFarBox(vertices, indices, new Vector3(0f, 1.13f, 0f),
+                new Vector3(.27f, .38f, .16f)); // chest
+            AppendFarBox(vertices, indices, new Vector3(0f, 1.65f, 0f),
+                new Vector3(.155f, .17f, .15f)); // head
+            AppendFarBox(vertices, indices, new Vector3(0f, 1.81f, 0f),
+                new Vector3(.20f, .075f, .18f)); // helmet
+            AppendFarBox(vertices, indices, new Vector3(-.375f, 1.13f, 0f),
+                new Vector3(.105f, .34f, .13f)); // left arm
+            AppendFarBox(vertices, indices, new Vector3(.375f, 1.13f, 0f),
+                new Vector3(.105f, .34f, .13f)); // right arm
+            AppendFarBox(vertices, indices, new Vector3(-.145f, .40f, 0f),
+                new Vector3(.12f, .40f, .13f)); // left leg
+            AppendFarBox(vertices, indices, new Vector3(.145f, .40f, 0f),
+                new Vector3(.12f, .40f, .13f)); // right leg
+            var mesh = new Mesh { name = "Aaris shared 4x distant rival LOD" };
+            mesh.SetVertices(vertices);
+            mesh.SetTriangles(indices, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            mesh.UploadMeshData(true);
+            sharedFarVisualMesh = mesh;
+            return mesh;
+        }
+
+        private static Material DistantRivalMaterial()
+        {
+            if (sharedFarVisualMaterial != null) return sharedFarVisualMaterial;
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null) shader = Shader.Find("Unlit/Color");
+            if (shader == null) return null;
+            var material = new Material(shader)
+            {
+                name = "Aaris shared distant rival olive",
+                enableInstancing = true
+            };
+            Color color = new Color(.35f, .41f, .33f, 1f);
+            if (material.HasProperty("_BaseColor"))
+                material.SetColor("_BaseColor", color);
+            if (material.HasProperty("_Color"))
+                material.SetColor("_Color", color);
+            sharedFarVisualMaterial = material;
+            return material;
+        }
+
+        private void BuildDistantVisual()
+        {
+            if (farVisualRoot != null) return;
+            Material material = DistantRivalMaterial();
+            if (material == null) return;
+            var distant = new GameObject("Shared distant rival LOD",
+                typeof(MeshFilter), typeof(MeshRenderer));
+            distant.layer = gameObject.layer;
+            distant.transform.SetParent(transform, false);
+            distant.GetComponent<MeshFilter>().sharedMesh = DistantRivalMesh();
+            var renderer = distant.GetComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            farVisualRoot = distant;
+        }
+
         private void BuildFallbackSilhouette()
         {
             // This is a visible last resort, not a replacement for the
@@ -1217,6 +1316,24 @@ namespace Aaris.MapReview
                     if (visualRoot.activeSelf != visible)
                         visualRoot.SetActive(visible);
                 }
+                // The real rig is never replaced inside its current 155 m
+                // quality band. Beyond it, a single shared unskinned mesh
+                // remains visible within the longest 480 m 4x rifle range.
+                // Keep this check on the existing 0.55 s staggered visual tick.
+                bool farBand = playerDistanceSqr < FarVisualDistance * FarVisualDistance &&
+                    (visualRoot == null || !visualRoot.activeSelf);
+                if (farBand && farVisualRoot == null)
+                {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                    // Never contend with an essential loot/player native build.
+                    if (AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild())
+                        BuildDistantVisual();
+#else
+                    BuildDistantVisual();
+#endif
+                }
+                if (farVisualRoot != null && farVisualRoot.activeSelf != farBand)
+                    farVisualRoot.SetActive(farBand);
             }
             if (now >= nextThink)
             {
