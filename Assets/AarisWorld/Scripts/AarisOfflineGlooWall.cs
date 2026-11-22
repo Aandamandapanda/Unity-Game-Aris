@@ -374,7 +374,7 @@ namespace Aaris.MapReview
     }
 
     [DisallowMultipleComponent]
-    public sealed class AarisGlooWallHealth : MonoBehaviour, IAarisDamageable
+    public sealed class AarisGlooWallHealth : MonoBehaviour, IAarisDamageableWithHealth
     {
         private float health, maximum, expiry;
         private Transform visual;
@@ -409,7 +409,8 @@ namespace Aaris.MapReview
 
         public void ApplyDamage(float amount, GameObject attacker)
         {
-            if (!initialized || float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0f) return;
+            if (!initialized || health <= 0f || float.IsNaN(amount) ||
+                float.IsInfinity(amount) || amount <= 0f) return;
             health = Mathf.Max(0f, health - amount);
             // Preserve the authored ice and frost submaterials even after damage.
             // Damage shifts each existing layer independently toward cracked ice.
