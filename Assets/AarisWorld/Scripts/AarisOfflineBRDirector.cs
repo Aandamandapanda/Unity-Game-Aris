@@ -779,38 +779,54 @@ namespace Aaris.MapReview
             Vector3 cameraForward = camera.transform.forward;
             float maximumRangeSqr = range * range;
             float minimumDot = Mathf.Cos(coneDegrees * Mathf.Deg2Rad);
-            AarisOfflineRival rejectedFirst = null, rejectedSecond = null;
-            // The most centered rival may be hidden behind a wall.
-            // Search at most three candidates; never aim through cover or
-            // allocate a list on mobile HUD/weapon-fire hot paths.
+            // Find the three most centered visible bodies in ONE scan, not
+            // three full 100-rival scans on every 90ms HUD update/shot.
+            AarisOfflineRival first = null, second = null, third = null;
+            Vector3 d1 = Vector3.zero, d2 = Vector3.zero, d3 = Vector3.zero;
+            float r1 = 0f, r2 = 0f, r3 = 0f;
+            float a1 = minimumDot, a2 = minimumDot, a3 = minimumDot;
+            for (int i = 0; i < activeDirector.rivals.Length; i++)
+            {
+                AarisOfflineRival bot = activeDirector.rivals[i];
+                if (bot == null || !bot.IsAlive || !bot.HasVisibleBody) continue;
+                Vector3 delta = bot.transform.position + Vector3.up * 1.12f - origin;
+                float sqrDistance = delta.sqrMagnitude;
+                if (sqrDistance < 1f || sqrDistance > maximumRangeSqr) continue;
+                float projected = Vector3.Dot(cameraForward, delta);
+                float threshold = a3;
+                // Reject by squared cone before sqrt, preserving candidate order.
+                if (projected <= 0f ||
+                    projected * projected <= threshold * threshold * sqrDistance)
+                    continue;
+                float distance = Mathf.Sqrt(sqrDistance);
+                float alignment = projected / distance;
+                if (alignment <= threshold) continue;
+                Vector3 direction = delta / distance;
+                if (alignment > a1)
+                {
+                    third = second; d3 = d2; r3 = r2; a3 = a2;
+                    second = first; d2 = d1; r2 = r1; a2 = a1;
+                    first = bot; d1 = direction; r1 = distance; a1 = alignment;
+                }
+                else if (alignment > a2)
+                {
+                    third = second; d3 = d2; r3 = r2; a3 = a2;
+                    second = bot; d2 = direction; r2 = distance; a2 = alignment;
+                }
+                else
+                {
+                    third = bot; d3 = direction; r3 = distance; a3 = alignment;
+                }
+            }
+            // Best-first physical camera AND muzzle tests. An occluded first
+            // or second candidate must not block the next visible target.
             for (int attempt = 0; attempt < 3; attempt++)
             {
-                AarisOfflineRival candidate = null;
-                Vector3 direction = Vector3.zero;
-                float distance = 0f;
-                float threshold = minimumDot;
-                for (int i = 0; i < activeDirector.rivals.Length; i++)
-                {
-                    AarisOfflineRival bot = activeDirector.rivals[i];
-                    if (bot == null || !bot.IsAlive || !bot.HasVisibleBody ||
-                        bot == rejectedFirst || bot == rejectedSecond) continue;
-                    Vector3 delta = bot.transform.position + Vector3.up * 1.12f - origin;
-                    float sqrDistance = delta.sqrMagnitude;
-                    if (sqrDistance < 1f || sqrDistance > maximumRangeSqr) continue;
-                    // Most of the 100 rivals are outside this narrow aim cone.
-                    // Reject by dot product before any expensive square root.
-                    float projected = Vector3.Dot(cameraForward, delta);
-                    if (projected <= 0f ||
-                        projected * projected <= threshold * threshold * sqrDistance)
-                        continue;
-                    float d = Mathf.Sqrt(sqrDistance);
-                    float alignment = projected / d;
-                    if (alignment <= threshold) continue;
-                    Vector3 normalized = delta / d;
-                    candidate = bot; direction = normalized; distance = d;
-                    threshold = alignment;
-                }
-                if (candidate == null) return false;
+                AarisOfflineRival candidate = attempt == 0 ? first :
+                    attempt == 1 ? second : third;
+                if (candidate == null) break;
+                Vector3 direction = attempt == 0 ? d1 : attempt == 1 ? d2 : d3;
+                float distance = attempt == 0 ? r1 : attempt == 1 ? r2 : r3;
                 int count = AarisPhysicsHitBuffer.Raycast(new Ray(origin, direction),
                     distance + .5f, Physics.DefaultRaycastLayers, ref assistHits, 256,
                     out RaycastHit[] hits);
@@ -830,8 +846,6 @@ namespace Aaris.MapReview
                     aimedDirection = direction;
                     return true;
                 }
-                if (attempt == 0) rejectedFirst = candidate;
-                else rejectedSecond = candidate;
             }
             return false;
         }
