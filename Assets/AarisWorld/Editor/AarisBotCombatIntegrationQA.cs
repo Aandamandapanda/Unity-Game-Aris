@@ -54,6 +54,15 @@ namespace Aaris.MapReview.Editor
             Field(typeof(AarisOfflineHealth), "current", Instance).SetValue(hp, 200f);
             return hp;
         }
+        // In Edit Mode, CharacterController bodies are not reliably registered
+        // with PhysX until Play Mode. This query-only collider is an Editor
+        // surrogate; the actual game uses its CharacterController.
+        private static void QueryBody(GameObject actor)
+        {
+            var box = actor.AddComponent<BoxCollider>();
+            box.center = Vector3.up * .9f;
+            box.size = new Vector3(.62f, 1.8f, .62f);
+        }
         private static CharacterController Capsule(GameObject actor)
         {
             var c = actor.AddComponent<CharacterController>();
@@ -163,6 +172,7 @@ namespace Aaris.MapReview.Editor
                 player.transform.SetParent(root.transform, false);
                 player.transform.position = Origin;
                 var pBody = Capsule(player);
+                QueryBody(player);
                 var pHp = Health(player);
                 var end = player.AddComponent<AarisOfflineMatchEnd>();
                 var directorObj = new GameObject("Director");
@@ -193,6 +203,7 @@ namespace Aaris.MapReview.Editor
                     go.transform.position = Origin + offset;
                     go.transform.rotation = Quaternion.LookRotation(-offset.normalized);
                     Capsule(go);
+                    QueryBody(go);
                     health[i] = Health(go);
                     bots[i] = go.AddComponent(BotType);
                     Set(bots[i], "health", health[i]);
