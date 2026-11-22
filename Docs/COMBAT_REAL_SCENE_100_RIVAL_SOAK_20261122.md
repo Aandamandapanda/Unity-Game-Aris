@@ -27,6 +27,18 @@ The smoke gate requires: 100 successful real spawns, at least one active close-u
 | Unity Editor exit | 0 | 0 |
 | Script/runner result | PASS | PASS |
 
+### Final strengthened acceptance run (run 3)
+
+The final version of the actual checked-in test also requires **incoming HP damage events > 0**, so it cannot pass with decorative/inert opponents.
+
+- Real terrain spawn: **100 / 100**, first pass; alive after zone/bot combat: 98.
+- Active close-range Humanoid rigs: **7**; distant LODs: **12**; visible opponents: **19**.
+- Actual incoming player HP damage events: **16**.
+- Main Thread, baseline mean: **16.746 ms**; loaded mean: **16.666 ms** (frame-paced Editor measurements).
+- GC allocated, baseline mean: **150,119.0 B/frame**; loaded mean: **160,001.5 B/frame**.
+- Normal-speed combat sample: **4.683 seconds**; `RESULT=PASS` in Unity test report. No gameplay runtime exception logged.
+- The stronger acceptance path has no shipping-code side effects.
+
 **Important measurement limit:** Both baseline and loaded Editor samples clustered near 16.7 ms; this is a 60 Hz headless Editor frame-pacing/measurement ceiling, **not evidence that 100 bots have zero CPU cost or that the phone achieves 60 FPS**. Likewise, Unity Editor allocation counts include the Editor, IMGUI, development diagnostics, scene streaming, and unrelated runtime components; they are not a game-only per-system allocation attribution.
 
 The rival-CPU-only microbenchmark in `Docs/COMBAT_100_BOT_FRAME_BENCHMARK_20261122.md` remains the correct isolated scheduler comparison. The real-scene results instead establish that production terrain spawning, Humanoid models, distant shared mesh LODs, player health/damage callbacks, and combat can run together in the saved scene.
