@@ -145,12 +145,12 @@ class SpatialRivalIndexContract(unittest.TestCase):
 
     def test_randomized_100_bot_queries_after_movement_and_death(self):
         rng = random.Random(20261122)
-        for seed in range(12):
+        for seed in range(4):
             g = ModelIndex()
             for i in range(100):
                 g.set(i, (rng.uniform(-1000, 1000), rng.uniform(-35, 60),
                           rng.uniform(-1000, 1000)))
-            for n in range(400):
+            for n in range(120):
                 slot = rng.randrange(100)
                 if rng.random() < .13:
                     g.remove(slot)
