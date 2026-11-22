@@ -1446,7 +1446,8 @@ namespace Aaris.MapReview
                 distance <= (carriedGun == null ? 2.25f : 38f) &&
                 (target != playerTarget || owner.MayAttackPlayer(this)) &&
                 Vector3.Dot(transform.forward, toward) > .84f &&
-                Time.time >= nextAttack && TryGetSightHit(target, out RaycastHit shotHit))
+                Time.time >= nextAttack && TryGetSightHit(target, out RaycastHit shotHit) &&
+                MuzzlePathClear(target))
             {
                 // Physical loot changes the bot's magazine, fire interval,
                 // damage and gunshot sound; no runtime gun model clone required.
@@ -1598,6 +1599,28 @@ namespace Aaris.MapReview
                 }
             }
             return closest != null && closest.transform.IsChildOf(victim);
+        }
+
+        // The LOS origin may lie beyond a thin nearby wall. A scheduled shot
+        // must also clear the short body-to-muzzle path, not just the long ray.
+        // Reuse the per-bot hit buffer; no per-shot managed allocations.
+        private bool MuzzlePathClear(Transform intendedVictim)
+        {
+            Vector3 bodyEye = transform.position + Vector3.up * 1.28f;
+            int count = Physics.RaycastNonAlloc(
+                new Ray(bodyEye, transform.forward), sightHits, .48f,
+                Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+            // Full unordered queries cannot prove a clear muzzle.
+            if (count >= sightHits.Length) return false;
+            for (int i = 0; i < count; i++)
+            {
+                Collider hit = sightHits[i].collider;
+                if (hit != null && !hit.transform.IsChildOf(transform) &&
+                    (intendedVictim == null ||
+                     !hit.transform.IsChildOf(intendedVictim)))
+                    return false;
+            }
+            return true;
         }
 
         private void OnDamaged(AarisOfflineHealth victim, float loss, GameObject attacker)
