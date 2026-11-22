@@ -19,6 +19,7 @@ namespace Aaris.MapReview
         private readonly Vector2[] numberOrigin = new Vector2[10];
         private readonly Image[] crosshair = new Image[4];
         private AarisOfflineHealth health;
+        private AarisThirdPersonPlayer motor;
         private AarisWeaponInventory inventory;
         private AarisOfflineDrop drop;
         private Camera aimCamera;
@@ -79,6 +80,7 @@ namespace Aaris.MapReview
         {
             if (instance != null && instance != this) { enabled = false; return; }
             instance = this;
+            motor = GetComponent<AarisThirdPersonPlayer>();
             health = GetComponent<AarisOfflineHealth>();
             inventory = GetComponent<AarisWeaponInventory>();
             drop = GetComponent<AarisOfflineDrop>();
@@ -246,6 +248,15 @@ namespace Aaris.MapReview
             }
         }
 
+        // The weapon fires through the motor's authored camera, which need not
+        // have the MainCamera tag. The red reticle, incoming-hit direction and
+        // floating damage projection must use that same live camera reference.
+        // Never fall back to a different active camera when the motor is present.
+        private void RefreshAimCamera()
+        {
+            aimCamera = motor != null ? motor.AimCamera : null;
+        }
+
         private void Damaged(AarisOfflineHealth receiver, float amount, GameObject attacker)
         {
             if (receiver != health) return;
@@ -259,7 +270,7 @@ namespace Aaris.MapReview
             from.Normalize();
             // Camera-relative in independent look/strafe: screen FRONT
             // need not equal the player's body forward.
-            if (aimCamera == null) aimCamera = Camera.main;
+            RefreshAimCamera();
             Vector3 facing = aimCamera != null
                 ? aimCamera.transform.forward : transform.forward;
             facing.y = 0f;
@@ -292,7 +303,7 @@ namespace Aaris.MapReview
             Vector2 origin = new Vector2(((index % 5) - 2) * 22f, 21f + (index % 3) * 12f);
             // One projection per confirmed hit, not every frame per label.
             // Reuse the existing pooled UI and avoid managed allocations.
-            if (aimCamera == null) aimCamera = Camera.main;
+            RefreshAimCamera();
             if (aimCamera != null && canvasRect != null)
             {
                 Vector3 screen = aimCamera.WorldToScreenPoint(worldHitPosition);
@@ -338,7 +349,7 @@ namespace Aaris.MapReview
             // hide the optic without hiding the authoritative HP bar.
             bool armed = inventory != null && inventory.CanShowCombatReticle &&
                 (drop == null || drop.HasLanded);
-            if (aimCamera == null) aimCamera = Camera.main;
+            RefreshAimCamera();
             int scope = armed && inventory.Current != null && inventory.Current.Spec != null
                 ? inventory.Current.Spec.scopePower : 0;
             bool lockOn = armed && aimCamera != null &&
