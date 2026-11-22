@@ -451,6 +451,7 @@ namespace Aaris.MapReview
                 var rival = actor.AddComponent<AarisOfflineRival>();
                 rival.Initialize(this, health, player, playerHealth, index);
                 rivals[index] = rival;
+                TrackRivalPosition(index, rival, point);
                 populatedSlots[index] = true;
                 activeRivals++;
                 spawnedRivals++;
@@ -636,6 +637,8 @@ namespace Aaris.MapReview
 
         internal void RivalDefeated(AarisOfflineRival rival)
         {
+            if (rival != null)
+                UntrackRivalPosition(rival.SpatialSlot, rival);
             if (activeRivals > 0) activeRivals--;
             if (spawnComplete && spawnedRivals > 0 && activeRivals == 0 &&
                 playerHealth != null && !playerHealth.IsDead &&
@@ -797,6 +800,7 @@ namespace Aaris.MapReview
 
         private void BootstrapRivalSpatialIndex()
         {
+            PrepareRivalBuckets();
             // Supports Editor harnesses that populate rivals by reflection.
             if (indexedRivals != 0) return;
             for (int i = 0; i < rivals.Length; i++)
@@ -1329,6 +1333,8 @@ namespace Aaris.MapReview
         private float farSimulationPhase;
 #endif
         private float avoidanceHandedness;
+        private int spatialSlot = -1;
+        internal int SpatialSlot => spatialSlot;
         private bool canSee;
         private PlayableGraph graph;
         private AnimationMixerPlayable animations;
@@ -1344,6 +1350,7 @@ namespace Aaris.MapReview
             Transform victim, AarisOfflineHealth victimHealth, int encounterSlot)
         {
             owner = director;
+            spatialSlot = encounterSlot;
             health = self;
             target = null;
             targetHealth = null;
@@ -1942,6 +1949,7 @@ namespace Aaris.MapReview
             Vector3 beforeMove = transform.position;
             CollisionFlags hit = capsule.Move(displacement +
                 Vector3.up * (verticalSpeed * dt));
+            owner.TrackRivalPosition(spatialSlot, this, transform.position);
             if ((hit & CollisionFlags.Sides) != 0 && !canSee)
                 turnOffset = -turnOffset + UnityEngine.Random.Range(-28f, 28f);
 
@@ -2075,6 +2083,7 @@ namespace Aaris.MapReview
                 if (owner.TryVirtualGround(next.x, next.z, out float ground))
                     next.y = ground + 0.08f;
                 transform.position = next;
+                owner.TrackRivalPosition(spatialSlot, this, next);
                 if (direction.sqrMagnitude > 0.0001f)
                     transform.rotation = Quaternion.LookRotation(direction);
             }
@@ -2370,6 +2379,8 @@ namespace Aaris.MapReview
 
         private void OnDestroy()
         {
+            if (owner != null)
+                owner.UntrackRivalPosition(spatialSlot, this);
             if (health != null)
             {
                 health.Died -= OnDied;
