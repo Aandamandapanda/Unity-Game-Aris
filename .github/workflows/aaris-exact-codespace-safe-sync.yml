@@ -133,17 +133,7 @@ jobs:
             echo
             echo '```text'
             if [[ -s "$RUNNER_TEMP/safe-sync-result.txt" ]]; then
-              grep -E '^AARIS_SYNC_[A-Z0-9_]+=[a-zA-Z0-9_-]+$|^UNITY_COMPILER_(LOG_FOUND|LOG_NOT_FOUND|ERROR_COUNT_[0-9]+|ERRORS_NOT_IN_AVAILABLE_LOGS)$|^AARIS_EDITOR_STATUS_[A-Z0-9_]+=[a-zA-Z0-9_-]+ \
-                "$RUNNER_TEMP/safe-sync-result.txt" | head -35 || true
-            else
-              echo 'AARIS_SYNC_RESULT=not_started_or_unavailable'
-            fi
-            echo '```'
-            echo 'All other tracked local changes are preserved; no reset/clean/stash/worktree.'
-            echo "[Run details](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
-          } > "$RUNNER_TEMP/safe-sync-owner-reply.md"
-          gh issue comment 77 -R "$GITHUB_REPOSITORY" -F "$RUNNER_TEMP/safe-sync-owner-reply.md"
- \
+              grep -E '^AARIS_SYNC_[A-Z0-9_]+=[a-zA-Z0-9_-]+$|^UNITY_COMPILER_(LOG_FOUND|LOG_NOT_FOUND|ERROR_COUNT_[0-9]+|ERRORS_NOT_IN_AVAILABLE_LOGS)$|^AARIS_EDITOR_STATUS_[A-Z0-9_]+=[a-zA-Z0-9_-]+$' \
                 "$RUNNER_TEMP/safe-sync-result.txt" | head -35 || true
             else
               echo 'AARIS_SYNC_RESULT=not_started_or_unavailable'
