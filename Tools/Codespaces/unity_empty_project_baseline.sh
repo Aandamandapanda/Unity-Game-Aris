@@ -61,3 +61,44 @@ print("AARIS_UNITY_BASELINE_RESULT=" +
        else "empty_editor_failed"))
 raise SystemExit(21)
 PY
+# Next A/B control: pinned game packages, still NO game C# scripts or assets.
+PKG="$ROOT/PackageProject"
+mkdir -p "$PKG/Assets" "$PKG/Packages" "$PKG/ProjectSettings"
+cp "$ROOT/Project/ProjectSettings/ProjectVersion.txt" "$PKG/ProjectSettings/ProjectVersion.txt"
+cp "/workspaces/Unity-Game-Aris/Packages/manifest.json" "$PKG/Packages/manifest.json"
+if [[ -f /workspaces/Unity-Game-Aris/Packages/packages-lock.json ]]; then
+  cp /workspaces/Unity-Game-Aris/Packages/packages-lock.json "$PKG/Packages/packages-lock.json"
+fi
+echo AARIS_UNITY_BASELINE_PACKAGE_PROJECT_GAME_SCRIPTS=0
+package_rc=0
+timeout --kill-after=10s 240s env TMPDIR="$ROOT/UnityTemp" \
+  "$EDITOR" -batchmode -nographics -quit -projectPath "$PKG" \
+  -logFile "$ROOT/package-editor.private.log" \
+  > "$ROOT/package-stdout.private" 2> "$ROOT/package-stderr.private" || package_rc=$?
+echo "AARIS_UNITY_BASELINE_PACKAGE_EXIT=$package_rc"
+python3 - "$ROOT/package-editor.private.log" "$ROOT/package-stdout.private" \
+  "$ROOT/package-stderr.private" "$package_rc" <<'PY'
+from pathlib import Path
+import re
+import sys
+paths = [Path(s) for s in sys.argv[1:4]]
+rc = int(sys.argv[4])
+s = "\n".join(p.read_bytes()[-2500000:].decode("utf-8", "replace")
+              for p in paths if p.is_file())
+print("AARIS_UNITY_BASELINE_PACKAGE_LOG_FOUND=" +
+      ("yes" if paths[0].is_file() else "no"))
+errors = re.findall(r"\berror\s+CS\d{4}\s*:", s)
+print("AARIS_UNITY_BASELINE_PACKAGE_CSHARP_ERRORS=" + str(len(errors)))
+for name, pattern in {
+    "RESOLVE": r"failed to resolve packages|package manager.*(?:error|fail)|upm.*(?:error|fail)|unable to find package",
+    "LICENSE": r"no valid license|license.*(?:invalid|expired|not activated)|activation.*(?:fail|denied)",
+    "NATIVE_CRASH": r"segmentation fault|native crash|SIGSEGV",
+}.items():
+    print("AARIS_UNITY_BASELINE_PACKAGE_SIGNAL_" + name + "=" +
+          ("yes" if re.search(pattern, s, re.I) else "no"))
+result = ("pass" if rc == 0 and not errors else
+          "timeout" if rc == 124 else
+          "compiler_error" if errors else "package_or_import_failure")
+print("AARIS_UNITY_BASELINE_PACKAGE_RESULT=" + result)
+raise SystemExit(0 if result == "pass" else 22)
+PY

@@ -55,6 +55,7 @@ jobs:
           assert 'mktemp -d /tmp/aaris-unity-empty.' in baseline
           assert 'AARIS_UNITY_BASELINE_RESULT=empty_editor_pass' in baseline
           assert '-batchmode -nographics -quit' in baseline
+          assert 'AARIS_UNITY_BASELINE_PACKAGE_PROJECT_GAME_SCRIPTS=0' in baseline
           assert 'git reset' not in baseline and 'git worktree' not in baseline
           print('AARIS_SAFE_SYNC_STATIC_PASS')
           PY
@@ -139,7 +140,7 @@ jobs:
               }
           elif [[ "$SAFE_MODE" == unity_baseline ]]; then
             # Independent empty project under /tmp; no game source or Editor session changed.
-            timeout 250 gh codespace ssh -c "$SAFE_MACHINE" -- "bash -s" \
+            timeout 550 gh codespace ssh -c "$SAFE_MACHINE" -- "bash -s" \
               < Tools/Codespaces/unity_empty_project_baseline.sh \
               > "$RUNNER_TEMP/safe-sync-result.txt" 2> "$RUNNER_TEMP/safe-sync-private-errors.txt" || {
                 echo AARIS_SAFE_SYNC_UNITY_BASELINE_FAILED
