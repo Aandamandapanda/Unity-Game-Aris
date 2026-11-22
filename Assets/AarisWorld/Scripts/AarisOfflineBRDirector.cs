@@ -741,7 +741,14 @@ namespace Aaris.MapReview
                 ? Mathf.Max(0.28f, actions.CameraEyeHeight - 0.15f) : 1.3f;
             Vector3 anchor = shooter.position + Vector3.up * height;
             if (FirstMuzzleExternalHit(new Ray(anchor, shooter.forward), 0.24f,
-                shooter, out Collider shortBlocker)) return false;
+                shooter, out Collider shortBlocker))
+            {
+                // At contact range the first muzzle hit can be the visible
+                // target itself. Reject real cover, not the enemy the shot
+                // will physically hit; the camera LOS was checked separately.
+                return shortBlocker != null &&
+                    shortBlocker.transform.IsChildOf(victim);
+            }
             Vector3 muzzle = anchor + shooter.forward * 0.24f;
             Vector3 to = cameraImpact - muzzle;
             float distance = to.magnitude;
@@ -791,7 +798,7 @@ namespace Aaris.MapReview
                 if (bot == null || !bot.IsAlive || !bot.HasVisibleBody) continue;
                 Vector3 delta = bot.transform.position + Vector3.up * 1.12f - origin;
                 float sqrDistance = delta.sqrMagnitude;
-                if (sqrDistance < 1f || sqrDistance > maximumRangeSqr) continue;
+                if (sqrDistance < .0625f || sqrDistance > maximumRangeSqr) continue;
                 float projected = Vector3.Dot(cameraForward, delta);
                 float threshold = a3;
                 // Reject by squared cone before sqrt, preserving candidate order.
