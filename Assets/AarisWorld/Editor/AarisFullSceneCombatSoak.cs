@@ -225,6 +225,26 @@ namespace Aaris.MapReview.Editor
             stage = 2;
         }
 
+        // The authored terrain can rise/fall sharply over a few metres. The
+        // six real rivals in this temporary QA encounter must remain above
+        // actual ground instead of spawning underneath a nearby slope.
+        // This only relocates Play Mode actors, never edits terrain assets.
+        private static Vector3 OnTestTerrain(Vector3 worldPosition)
+        {
+            foreach (Terrain terrain in Terrain.activeTerrains)
+            {
+                if (terrain == null || terrain.terrainData == null) continue;
+                Vector3 origin = terrain.transform.position;
+                Vector3 size = terrain.terrainData.size;
+                if (worldPosition.x < origin.x || worldPosition.z < origin.z ||
+                    worldPosition.x > origin.x + size.x ||
+                    worldPosition.z > origin.z + size.z) continue;
+                worldPosition.y = terrain.SampleHeight(worldPosition) + 0.20f;
+                return worldPosition;
+            }
+            return worldPosition;
+        }
+
         private static void SpawnAll()
         {
             if ((Time.frameCount % 20) != 0) return;
@@ -249,7 +269,8 @@ namespace Aaris.MapReview.Editor
             }
             if (first == null) throw new InvalidOperationException("NO_ALIVE_RIVAL");
             Vector3 center = first.transform.position;
-            player.transform.position = center + new Vector3(0f, 0.15f, -17f);
+            player.transform.position = OnTestTerrain(
+                center + new Vector3(0f, 0f, -11f));
             int near = 0;
             for (int i = 0; i < rivals.Length && near < 6; i++)
             {
@@ -258,10 +279,17 @@ namespace Aaris.MapReview.Editor
                 if (near > 0)
                 {
                     float angle = near * Mathf.PI * 2f / 6f;
-                    bot.transform.position = center +
-                        new Vector3(Mathf.Sin(angle) * 11f, .15f,
-                            Mathf.Cos(angle) * 11f);
+                    bot.transform.position = OnTestTerrain(center +
+                        new Vector3(Mathf.Sin(angle) * 8f, 0f,
+                            Mathf.Cos(angle) * 8f));
                 }
+                // 12-42m AI vision requires its frontal cone. The runtime
+                // originally spawns these six actors facing unrelated roads;
+                // looking away at the only local player is not a combat QA.
+                Vector3 facing = player.transform.position - bot.transform.position;
+                facing.y = 0f;
+                if (facing.sqrMagnitude > 0.01f)
+                    bot.transform.rotation = Quaternion.LookRotation(facing);
                 near++;
             }
             Physics.SyncTransforms();
@@ -312,13 +340,17 @@ namespace Aaris.MapReview.Editor
                 " PEAK_CLOSE_RIGS=" + peakCloseRigs +
                 " PEAK_VISIBLE=" + peakVisibleBodies +
                 " VISUAL_SAMPLES=" + visualSampleFrames);
+            // Capture the organic encounter before the deterministic damage
+            // overlay test below adds its own synthetic 25-HP demonstration.
+            int realEncounterDamageEvents = damageEvents;
+            Note("LIVE_ENCOUNTER_PLAYER_DAMAGE_EVENTS=" + realEncounterDamageEvents);
             VerifyScopedCombatHudOnRealActors();
             // A high-quality actor that is visible but never fights is not
             // an end-to-end combat smoke pass. At least one genuine player
             // HP-loss event must come through the authoritative receiver.
             bool pass = peakSpawned == 100 && (humanoids > 0 || peakCloseRigs > 0) &&
                 (visible > 0 || peakVisibleBodies > 0) &&
-                damageEvents > 0 && !hadRuntimeError;
+                realEncounterDamageEvents > 0 && !hadRuntimeError;
             if (!pass)
             {
                 Note("RESULT=FAIL expected_100_spawns_visible_rigs_and_incoming_damage");
@@ -447,15 +479,17 @@ namespace Aaris.MapReview.Editor
             Camera camera = player.AimCamera;
             if (inventory == null || hud == null || camera == null)
                 throw new InvalidOperationException("LIVE_SCOPE_PLAYER_HUD_MISSING");
-            Component victim = null;
+            Component victim = null, survivingFallback = null;
             for (int i = 0; i < rivals.Length; i++)
             {
                 var candidate = rivals.GetValue(i) as Component;
-                if (candidate != null && IsAlive(candidate) && HasVisibleBody(candidate))
-                { victim = candidate; break; }
+                if (candidate == null || !IsAlive(candidate)) continue;
+                if (survivingFallback == null) survivingFallback = candidate;
+                if (HasVisibleBody(candidate)) { victim = candidate; break; }
             }
+            if (victim == null) victim = survivingFallback;
             if (victim == null)
-                throw new InvalidOperationException("NO_VISIBLE_LIVE_RIVAL_FOR_SCOPE");
+                throw new InvalidOperationException("NO_LIVE_RIVAL_FOR_SCOPE");
             var victimHp = victim.GetComponent<AarisOfflineHealth>();
             var victimCapsule = victim.GetComponent<CharacterController>();
             var playerCapsule = player.GetComponent<CharacterController>();
@@ -469,6 +503,23 @@ namespace Aaris.MapReview.Editor
             victim.transform.SetPositionAndRotation(
                 calibration + new Vector3(0f, 0f, 16f), Quaternion.identity);
             victimCapsule.enabled = true;
+            // The real 100-bot roam may naturally retire every nearby rig by
+            // the end of a 15-25s soak. Recover an original surviving bot's
+            // authored visual in this temporary open-air calibration scene;
+            // do not let an unrelated LOD tick make scopes untestable.
+            GameObject victimVisual = (GameObject)Read(victim, "visualRoot");
+            if (victimVisual == null)
+            {
+                MethodInfo build = victim.GetType().GetMethod("BuildVisual", Private);
+                if (build == null)
+                    throw new InvalidOperationException("REAL_RIVAL_VISUAL_BUILDER_MISSING");
+                build.Invoke(victim, null);
+                victimVisual = (GameObject)Read(victim, "visualRoot");
+            }
+            if (victimVisual != null && !victimVisual.activeSelf)
+                victimVisual.SetActive(true);
+            if (!HasVisibleBody(victim))
+                throw new InvalidOperationException("REAL_RIVAL_VISUAL_RESTORE_FAILED");
             camera.transform.position = calibration + Vector3.up * 1.45f;
             camera.transform.LookAt(victim.transform.position + Vector3.up * 1.12f);
             Physics.SyncTransforms();
