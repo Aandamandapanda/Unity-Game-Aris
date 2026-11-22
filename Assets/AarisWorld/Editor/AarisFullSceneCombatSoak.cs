@@ -390,6 +390,58 @@ namespace Aaris.MapReview.Editor
                 verified++;
             }
 
+            // Stance-specific camera/muzzle parity. The real on-foot
+            // CharacterController needs a physical support before prone.
+            // The fixture floor is temporary and never saved to the scene.
+            var stanceFloor = new GameObject("Temporary stance QA support");
+            stanceFloor.transform.position = calibration + Vector3.down * .5f;
+            stanceFloor.AddComponent<BoxCollider>().size =
+                new Vector3(60f, 1f, 60f);
+            Physics.SyncTransforms();
+            playerCapsule.Move(Vector3.down * .12f);
+            victimCapsule.Move(Vector3.down * .12f);
+            var actions = player.GetComponent<AarisBattleActions>();
+            if (actions == null || !playerCapsule.isGrounded)
+                throw new InvalidOperationException("STANCE_QA_PLAYER_NOT_GROUNDED");
+            var arSpec = AarisWeaponCatalog.Get("AssaultRifle");
+            var poses = new[] {
+                AarisBattleActions.PlayerStance.Crouching,
+                AarisBattleActions.PlayerStance.Prone,
+                AarisBattleActions.PlayerStance.Standing
+            };
+            foreach (var pose in poses)
+            {
+                if (!actions.TrySetStance(pose) || actions.Stance != pose)
+                    throw new InvalidOperationException("STANCE_TRANSITION_REJECTED_" + pose);
+                // After resizing the capsule the next Move resolves the
+                // grounded flag before a crouch-to-prone transition.
+                playerCapsule.Move(Vector3.down * .08f);
+                AarisWeaponState outgoing;
+                if (!inventory.TryPickup(new AarisWeaponState(arSpec,
+                    (uint)(550 + (int)pose)), out outgoing))
+                    throw new InvalidOperationException("STANCE_RIFLE_EQUIP_FAILED_" + pose);
+                inventory.ToggleAim();
+                victimHp.RestoreHealth(200f);
+                camera.transform.position = player.transform.position +
+                    Vector3.up * actions.CameraEyeHeight;
+                camera.transform.LookAt(victim.transform.position + Vector3.up * 1.12f);
+                Physics.SyncTransforms();
+                ForceHudAimRefresh(hud);
+                if (!(bool)Read(hud, "lastLock") ||
+                    scopeLabel.text != "2X ADS")
+                    throw new InvalidOperationException("STANCE_RED_LOCK_FAILED_" + pose);
+                int beforeAmmo = inventory.Current.Magazine;
+                float priorHealth = victimHp.CurrentHealth;
+                if (!inventory.Current.TryFire(camera, player.gameObject) ||
+                    inventory.Current.Magazine != beforeAmmo - 1 ||
+                    victimHp.CurrentHealth >= priorHealth)
+                    throw new InvalidOperationException("STANCE_REAL_SHOT_FAILED_" + pose);
+                Note("PASS " + pose + " 2X Red-Lock plus real physical shot");
+            }
+            if (actions.Stance != AarisBattleActions.PlayerStance.Standing)
+                throw new InvalidOperationException("STANCE_NOT_RESTORED");
+            Object.Destroy(stanceFloor);
+
             // Reticle must never offer a red lock through solid cover; the
             // real camera and gun must not damage the now-occluded rival.
             var wall = new GameObject("Temporary real-scope LOS blocker");
