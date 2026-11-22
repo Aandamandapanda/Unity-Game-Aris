@@ -1787,14 +1787,25 @@ namespace Aaris.MapReview
         private bool MuzzlePathClear(Transform intendedVictim)
         {
             Vector3 bodyEye = transform.position + Vector3.up * 1.28f;
-            int count = Physics.RaycastNonAlloc(
-                new Ray(bodyEye, transform.forward), sightHits, .48f,
+            Ray ray = new Ray(bodyEye, transform.forward);
+            int count = Physics.RaycastNonAlloc(ray, sightHits, .48f,
                 Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
-            // Full unordered queries cannot prove a clear muzzle.
-            if (count >= sightHits.Length) return false;
+            RaycastHit[] hits = sightHits;
+            if (count >= sightHits.Length)
+            {
+                // A full NonAlloc result is unordered, not necessarily blocked:
+                // it can contain only the shooter's own weapon/rig colliders.
+                // Retry with the already-owned larger buffer on rare dense rays.
+                hits = crowdedSightHits;
+                count = Physics.RaycastNonAlloc(ray, crowdedSightHits, .48f,
+                    Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+                // Still saturated? Fail closed; do not let any missing wall
+                // permit damage or reserve a player attacker slot.
+                if (count >= crowdedSightHits.Length) return false;
+            }
             for (int i = 0; i < count; i++)
             {
-                Collider hit = sightHits[i].collider;
+                Collider hit = hits[i].collider;
                 if (hit != null && !hit.transform.IsChildOf(transform) &&
                     (intendedVictim == null ||
                      !hit.transform.IsChildOf(intendedVictim)))
