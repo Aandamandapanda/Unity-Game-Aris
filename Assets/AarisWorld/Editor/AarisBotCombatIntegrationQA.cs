@@ -187,6 +187,14 @@ namespace Aaris.MapReview.Editor
                     "Both remote combatants fought without physical capsules", report);
                 Check(playerHP.CurrentHealth == 200f,
                     "Virtual rival combat never damages distant player", report);
+                // No terrain exists under the remote synthetic fixture. A
+                // wandering logical rival must not teleport across voids.
+                Set(alphaBot, "target", null);
+                Set(alphaBot, "targetHealth", null);
+                Vector3 beforeVoid = alpha.transform.position;
+                Call(alphaBot, "TickVirtualCombat", 500f, 0.35f);
+                Check((alpha.transform.position - beforeVoid).sqrMagnitude < 0.0001f,
+                    "Remote rival refuses movement across missing terrain", report);
             }
             finally { Object.DestroyImmediate(root); }
         }
