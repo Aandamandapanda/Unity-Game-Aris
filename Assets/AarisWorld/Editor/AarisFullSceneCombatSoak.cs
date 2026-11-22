@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using Unity.Profiling;
@@ -27,8 +28,21 @@ namespace Aaris.MapReview.Editor
             Path.Combine(Path.GetTempPath(), "aaris-full-scene-combat-soak");
         private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
         private const int BaselineSamples = 200;
-        private const int LoadedSamplesMinimum = 200;
-        private const float LoadedSecondsMinimum = 1.30f;
+        // Keep the usual CI smoke fast. Set AARIS_FULLSCENE_SOAK_SECONDS=25
+        // to sample sustained real-scene combat without editing scene assets.
+        // Read once per Editor domain load, not per PlayMode frame.
+        private static readonly float LoadedSecondsMinimum = ReadLoadedSecondsMinimum();
+        private static readonly int LoadedSamplesMinimum =
+            Mathf.Max(200, Mathf.CeilToInt(LoadedSecondsMinimum * 48f));
+
+        private static float ReadLoadedSecondsMinimum()
+        {
+            string value = Environment.GetEnvironmentVariable("AARIS_FULLSCENE_SOAK_SECONDS");
+            if (!float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture,
+                    out float seconds) || float.IsNaN(seconds) || float.IsInfinity(seconds))
+                return 1.30f;
+            return Mathf.Clamp(seconds, 1.30f, 60f);
+        }
         private static AarisOfflineBRDirector director;
         private static AarisOfflineDrop drop;
         private static AarisOfflineHealth health;
@@ -66,6 +80,8 @@ namespace Aaris.MapReview.Editor
             File.WriteAllText(Path.Combine(DirectoryPath, "result.txt"),
                 "UNITY " + Application.unityVersion +
                 "\nSCENE " + Scene +
+                "\nTARGET_LOADED_SECONDS=" + LoadedSecondsMinimum.ToString("F2", CultureInfo.InvariantCulture) +
+                "\nTARGET_LOADED_MIN_FRAMES=" + LoadedSamplesMinimum +
                 "\nLIMIT=Linux headless Editor only; not Android device FPS\n");
             SessionState.SetBool(Session, false);
             SessionState.SetBool(Session + "Start", true);
