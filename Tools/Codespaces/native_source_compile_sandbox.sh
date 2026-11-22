@@ -29,6 +29,20 @@ if [[ ! "$available" =~ ^[0-9]+$ ]] || ((available < 4194304)); then
   echo AARIS_NATIVE_COMPILE_PREFLIGHT=tmp_disk_low
   exit 24
 fi
+# The installed Linux Unity Editor has a native graphics crash during some
+# -nographics source imports even with a valid license. Native C# import was
+# independently verified with xvfb-run + software OpenGL on this machine.
+# This affects ONLY the disposable CI project; never change game graphics.
+if ! command -v xvfb-run >/dev/null 2>&1 ||
+   ! command -v Xvfb >/dev/null 2>&1; then
+  echo AARIS_NATIVE_COMPILE_PREFLIGHT=xvfb_missing
+  exit 28
+fi
+# Do not compete with another agent's temporary Unity import either.
+if pgrep -f '[E]ditor/Unity' >/dev/null 2>&1; then
+  echo AARIS_NATIVE_COMPILE_PREFLIGHT=other_editor_busy
+  exit 29
+fi
 BASE=/tmp/aaris-native-csharp
 mkdir -p "$BASE"
 WORK="$(mktemp -d "$BASE/compile.XXXXXXXX")"
@@ -75,8 +89,10 @@ public static class AarisNativeSourceCompileGate
 CS
 LOG="$WORK/unity-editor.private.log"
 rc=0
-timeout --kill-after=10s 490s env TMPDIR="$WORK/UnityTemp" \
-  "$EDITOR" -batchmode -nographics -quit \
+echo AARIS_NATIVE_COMPILE_BACKEND=xvfb_software_gl
+timeout --kill-after=10s 490s env TMPDIR="$WORK/UnityTemp" LIBGL_ALWAYS_SOFTWARE=1 \
+  xvfb-run -a -s '-screen 0 1280x720x24' \
+  "$EDITOR" -batchmode -force-glcore -quit \
   -projectPath "$WORK/project" \
   -executeMethod AarisNativeSourceCompileGate.Run \
   -logFile "$LOG" > "$WORK/editor-stdout.private" \
