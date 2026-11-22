@@ -5,7 +5,8 @@ s=(Path(__file__).resolve().parents[2]/"Assets/AarisWorld/Scripts/AarisOfflineBR
 required=(
     "private const int RivalCount = 100;",
     "return bot == attackerOne || bot == attackerTwo;",
-    "owner.TryLootForRival(transform.position, out found);",
+    "owner.TryLootForRival(transform, out found);",
+    "rivalLootWorld.TryTakeForRival(rival, out weapon);",
     "else if (!remoteLoadoutGiven && AarisWeaponCatalog.Ready)",
     "AarisWeaponCatalog.Select(ref remoteLootSeed, false)",
     "carriedMagazine = found.magazineSize;",
@@ -28,4 +29,4 @@ for capacity in (1,5,30,100):
             available-=refill
             rounds+=refill
         assert rounds==capacity+reserve
-print("PASS: 100 bots, 2-player cap, remote+ground loadout, finite magazine reserves")
+print("PASS: 100 bots, 2-player cap, LOS-protected ground loot, finite magazine reserves")
