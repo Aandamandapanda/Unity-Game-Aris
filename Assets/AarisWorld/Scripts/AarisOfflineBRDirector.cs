@@ -815,15 +815,36 @@ namespace Aaris.MapReview
             out Transform victim, out AarisOfflineHealth victimHealth)
         {
             victim = null; victimHealth = null;
+            if (self == null) return false;
+            BootstrapRivalSpatialIndex();
+            Vector3 origin = self.transform.position;
+            // The requester can have been teleported by an external script.
+            TrackRivalPosition(self.SpatialSlot, self, origin);
+            int cx = RivalCell(origin.x), cz = RivalCell(origin.z);
             float nearest = RivalHuntRadius * RivalHuntRadius;
-            for (int i = 0; i < rivals.Length; i++)
-            {
-                AarisOfflineRival bot = rivals[i];
-                if (bot == null || bot == self || !bot.IsAlive) continue;
-                float d = (bot.transform.position - self.transform.position).sqrMagnitude;
-                if (d >= nearest) continue;
-                nearest = d; victim = bot.transform; victimHealth = bot.Health;
-            }
+            int nearestIndex = RivalCount;
+            for (int x = cx - 1; x <= cx + 1; x++)
+                for (int z = cz - 1; z <= cz + 1; z++)
+                {
+                    long key = RivalCellKey(x, z);
+                    int bucket = RivalBucket(x, z);
+                    for (int i = rivalBucketHeads[bucket]; i >= 0;
+                         i = rivalSpatialNext[i])
+                    {
+                        if (rivalSpatialKeys[i] != key) continue;
+                        AarisOfflineRival bot = rivals[i];
+                        if (bot == null || bot == self || !bot.IsAlive) continue;
+                        float d = (bot.transform.position - origin).sqrMagnitude;
+                        // Preserve strict 110m range and old slot-order ties.
+                        if (d >= RivalHuntRadius * RivalHuntRadius ||
+                            d > nearest || (d == nearest && i >= nearestIndex))
+                            continue;
+                        nearest = d;
+                        nearestIndex = i;
+                        victim = bot.transform;
+                        victimHealth = bot.Health;
+                    }
+                }
             return victim != null;
         }
 
