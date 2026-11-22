@@ -529,6 +529,14 @@ namespace Aaris.MapReview.Editor
                 hunter.transform.SetPositionAndRotation(arena, Quaternion.identity);
                 blockedRival.transform.position = arena + Vector3.forward * 9f;
                 visibleRival.transform.position = arena + Vector3.right * 14f;
+                // Register every authored slot before the QA manually moves
+                // actors; otherwise the partial index could mask regressions.
+                Call(director, "BootstrapRivalSpatialIndex");
+                // QA teleports directly; production movement keeps these
+                // three spatial entries synchronized after every move.
+                for (int slot = 30; slot <= 32; slot++)
+                    Call(director, "TrackRivalPosition", slot, bots[slot],
+                        bots[slot].transform.position);
                 Physics.SyncTransforms();
                 object[] nearestArgs = { hunter, null, null };
                 Check((bool)Call(director, "FindRivalOpponent", nearestArgs) &&
@@ -609,6 +617,9 @@ namespace Aaris.MapReview.Editor
                     bots[41 + i].transform.position = crowd +
                         new Vector3((i - 2) * .5f, 0f, 9f + i);
                 bots[46].transform.position = crowd + new Vector3(8f, 0f, 20f);
+                for (int slot = 40; slot <= 46; slot++)
+                    Call(director, "TrackRivalPosition", slot, bots[slot],
+                        bots[slot].transform.position);
                 var crowdWall = new GameObject("QA dense rival cover");
                 crowdWall.transform.SetParent(root.transform, false);
                 crowdWall.transform.position = crowd + new Vector3(0f, 1.2f, 4.5f);
@@ -622,6 +633,28 @@ namespace Aaris.MapReview.Editor
                     "Six-slot fallback finds open rival past four blocked targets", report);
                 Object.DestroyImmediate(crowdWall);
                 Physics.SyncTransforms();
+                // The hash insertion order is opposite to roster order,
+                // so deterministic tie-breaking must be explicit.
+                bots[47].transform.position = crowd + new Vector3(12f, 0f, 0f);
+                bots[48].transform.position = crowd + new Vector3(-12f, 0f, 0f);
+                for (int slot = 47; slot <= 48; slot++)
+                    Call(director, "TrackRivalPosition", slot, bots[slot],
+                        bots[slot].transform.position);
+                Physics.SyncTransforms();
+                // Restore the crowd fixture before testing ties: its other
+                // opponents would otherwise legitimately rank closer.
+                for (int slot = 41; slot <= 46; slot++)
+                {
+                    bots[slot].transform.position = Origin +
+                        new Vector3(900f + slot * 3f, 0f, 900f);
+                    Call(director, "TrackRivalPosition", slot, bots[slot],
+                        bots[slot].transform.position);
+                }
+                Physics.SyncTransforms();
+                object[] equalDistance = { crowdHunter, null, null, null };
+                Check((bool)Call(director, "TryFindVisibleRivalAlternative", equalDistance) &&
+                    (Transform)equalDistance[2] == bots[47].transform,
+                    "Spatial fallback preserves roster-index tie ordering", report);
                 // Three centered scope targets behind thin solid cover may
                 // eclipse a less-centered but physically hittable fourth.
                 Quaternion oldCameraRotation = camera.transform.rotation;
