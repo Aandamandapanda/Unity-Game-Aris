@@ -97,6 +97,7 @@ namespace Aaris.MapReview.Editor
                 }
                 VerifyDamage(report);
                 VerifyBots(report, active);
+                VerifyBotLootCover(report);
             }
             catch (Exception ex)
             {
@@ -120,6 +121,38 @@ namespace Aaris.MapReview.Editor
             File.WriteAllText(Path.Combine(directory, "report.txt"), report.ToString());
             Debug.Log(report.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(failures == 0 ? 0 : 1);
+        }
+
+        // Actual PhysX cover validation of the shared bot/player pickup ray.
+        private static void VerifyBotLootCover(StringBuilder report)
+        {
+            var root = new GameObject("Temporary bot ground-loot LOS audit");
+            try
+            {
+                var actor = new GameObject("Looter with own collision");
+                actor.transform.SetParent(root.transform, false);
+                actor.transform.position = Origin + new Vector3(300f, 0f, 300f);
+                QueryBody(actor);
+                var world = root.AddComponent<AarisWeaponLootWorld>();
+                Vector3 pickup = actor.transform.position + Vector3.forward * 1.8f;
+                Physics.SyncTransforms();
+                Check((bool)Call(world, "HasClearPickupPath", actor.transform, pickup),
+                    "Bot can reach unobstructed nearby ground weapon", report);
+
+                var wall = new GameObject("Physical wall between bot and gun");
+                wall.transform.SetParent(root.transform, false);
+                wall.transform.position = actor.transform.position +
+                    new Vector3(0f, 0.85f, 0.9f);
+                wall.AddComponent<BoxCollider>().size = new Vector3(1f, 2f, .15f);
+                Physics.SyncTransforms();
+                Check(!(bool)Call(world, "HasClearPickupPath", actor.transform, pickup),
+                    "Bot cannot loot through solid wall", report);
+                Object.DestroyImmediate(wall);
+                Physics.SyncTransforms();
+                Check((bool)Call(world, "HasClearPickupPath", actor.transform, pickup),
+                    "Bot can reacquire ground weapon after cover clears", report);
+            }
+            finally { Object.DestroyImmediate(root); }
         }
 
         private static void VerifyDamage(StringBuilder report)

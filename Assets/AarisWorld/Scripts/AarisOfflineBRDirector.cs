@@ -645,7 +645,7 @@ namespace Aaris.MapReview
             return bot == attackerOne || bot == attackerTwo;
         }
 
-        internal bool TryLootForRival(Vector3 position, out AarisWeaponSpec weapon)
+        internal bool TryLootForRival(Transform rival, out AarisWeaponSpec weapon)
         {
             weapon = null;
             if (rivalLootWorld == null && Time.time >= nextLootWorldLookup)
@@ -654,7 +654,7 @@ namespace Aaris.MapReview
                 rivalLootWorld = FindFirstObjectByType<AarisWeaponLootWorld>();
             }
             return rivalLootWorld != null &&
-                rivalLootWorld.TryTakeForRival(position, out weapon);
+                rivalLootWorld.TryTakeForRival(rival, out weapon);
         }
 
         // Distant opponents are strategic hunt targets, not shooting targets.
@@ -1323,7 +1323,7 @@ namespace Aaris.MapReview
                 nextLootAt = now + 3.5f;
                 AarisWeaponSpec found = null;
                 if (playerDistanceSqr < 76f * 76f)
-                    owner.TryLootForRival(transform.position, out found);
+                    owner.TryLootForRival(transform, out found);
                 else if (!remoteLoadoutGiven && AarisWeaponCatalog.Ready)
                 {
                     remoteLoadoutGiven = true;
