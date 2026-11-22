@@ -90,7 +90,10 @@ CS
 LOG="$WORK/unity-editor.private.log"
 rc=0
 echo AARIS_NATIVE_COMPILE_BACKEND=xvfb_software_gl
-timeout --kill-after=10s 490s env TMPDIR="$WORK/UnityTemp" LIBGL_ALWAYS_SOFTWARE=1 \
+# Real A/B on this Codespace: nested TMPDIR="$WORK/UnityTemp" crashed
+# Unity with exit 255, whereas parent TMPDIR="$WORK" compiled all 94
+# scripts, ran the Editor method and exited 0. Keep every other input equal.
+timeout --kill-after=10s 490s env TMPDIR="$WORK" LIBGL_ALWAYS_SOFTWARE=1 \
   xvfb-run -a -s '-screen 0 1280x720x24' \
   "$EDITOR" -batchmode -force-glcore -quit \
   -projectPath "$WORK/project" \
