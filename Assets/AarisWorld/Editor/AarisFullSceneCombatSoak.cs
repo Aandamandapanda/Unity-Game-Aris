@@ -411,6 +411,21 @@ namespace Aaris.MapReview.Editor
             if (rigRebuildTarget == null || rigsBeforeTravel < 2 ||
                 originalRigRenderers == 0)
                 throw new InvalidOperationException("RIG_RETIRE_FIXTURE_MISSING");
+            // Reproduce a real long-range scoped glance that allocated a
+            // native receiver, followed by leaving the area. The existing
+            // runtime update must retire this disabled native component.
+            CharacterController retained = rigRebuildTarget.GetComponent<CharacterController>();
+            if (retained == null)
+            {
+                MethodInfo factory = rigRebuildTarget.GetType().GetMethod(
+                    "EnsurePhysicalReceiver", Private);
+                if (factory == null)
+                    throw new InvalidOperationException("RECEIVER_FACTORY_MISSING");
+                retained = factory.Invoke(rigRebuildTarget, null) as CharacterController;
+            }
+            if (retained == null)
+                throw new InvalidOperationException("RECEIVER_RETIRE_FIXTURE_MISSING");
+            retained.enabled = false;
             director.enabled = false;
             health.RestoreHealth(200f);
             sampleStarted = Time.time;
@@ -438,6 +453,9 @@ namespace Aaris.MapReview.Editor
                 throw new InvalidOperationException("NO_RIG_RETIREMENT_OBSERVED");
             Note("PASS distant rig and PlayableGraph retired: " +
                 rigsBeforeTravel + " -> " + remaining);
+            if (rigRebuildTarget.GetComponent<CharacterController>() != null)
+                throw new InvalidOperationException("DISTANT_NATIVE_RECEIVER_STILL_RETAINED");
+            Note("PASS distant disabled native receiver retired after idle dwell");
             var capsule = player.GetComponent<CharacterController>();
             capsule.enabled = false;
             player.transform.position = rigRebuildTarget.transform.position +
@@ -457,6 +475,11 @@ namespace Aaris.MapReview.Editor
                 int renderers = rebuilt.GetComponentsInChildren<Renderer>(true).Length;
                 if (renderers != originalRigRenderers)
                     throw new InvalidOperationException("RIG_VISUAL_QUALITY_CHANGED");
+                CharacterController restored =
+                    rigRebuildTarget.GetComponent<CharacterController>();
+                if (restored == null || !restored.enabled)
+                    throw new InvalidOperationException("NATIVE_RECEIVER_NOT_RESTORED");
+                Note("PASS original native hit receiver restored on player return");
                 Note("PASS original humanoid rig restored with " +
                     renderers + " renderers");
                 Note("RESULT=" + (hadRuntimeError ? "FAIL runtime_error" : "PASS"));

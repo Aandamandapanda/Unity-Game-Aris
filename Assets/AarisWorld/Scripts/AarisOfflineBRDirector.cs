@@ -1268,6 +1268,12 @@ namespace Aaris.MapReview
         // Avoid bulk native PhysX allocations when the camera turns.
         private static int lastReceiverBuildFrame = -1;
 #endif
+        // Receivers admitted for one scoped glimpse must not accumulate
+        // for the entire two-kilometre match after their native body is idle.
+        private const float ReceiverRetireDistance = 190f;
+        private const float ReceiverRetireAfterSeconds = 6f;
+        private float receiverUnusedSince = -1f;
+        private static int lastReceiverRetireFrame = -1;
         private RaycastHit[] sightHits;
         // Kept per rival: retain correct closest-visible-target selection
         // without RaycastAll allocations when >20 cover hits overlap.
@@ -1408,6 +1414,32 @@ namespace Aaris.MapReview
             capsule.skinWidth = 0.05f;
             capsule.slopeLimit = 43f;
             return capsule;
+        }
+
+        // Destroy only a disabled, distant, off-camera hit receiver after
+        // a quiet dwell. Never retire local movement or camera-visible hits.
+        // One teardown per frame bounds native destruction spikes.
+        private void RetireUnusedPhysicalReceiver(float now, float playerDistanceSqr,
+            bool needsPhysicalReceiver)
+        {
+            if (capsule == null || needsPhysicalReceiver || !virtualBody ||
+                playerDistanceSqr < ReceiverRetireDistance * ReceiverRetireDistance)
+            {
+                receiverUnusedSince = -1f;
+                return;
+            }
+            if (capsule.enabled) { receiverUnusedSince = -1f; return; }
+            if (receiverUnusedSince < 0f) receiverUnusedSince = now;
+            if (now - receiverUnusedSince < ReceiverRetireAfterSeconds ||
+                lastReceiverRetireFrame == Time.frameCount) return;
+            lastReceiverRetireFrame = Time.frameCount;
+            CharacterController retired = capsule;
+            capsule = null;
+            receiverUnusedSince = -1f;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
+#endif
+            Destroy(retired);
         }
 
         private void EnsurePhysicalCombatBuffers()
@@ -1841,6 +1873,7 @@ namespace Aaris.MapReview
             }
             if (capsule != null && capsule.enabled != needsPhysicalReceiver)
                 capsule.enabled = needsPhysicalReceiver;
+            RetireUnusedPhysicalReceiver(now, playerDistanceSqr, needsPhysicalReceiver);
             if (virtualBody)
             {
                 TickVirtualCombat(now, dt);
@@ -2109,12 +2142,17 @@ namespace Aaris.MapReview
             if (movement.sqrMagnitude > 0.000001f)
             {
                 Vector3 next = transform.position + movement;
+                // Reject unplayable water/steep/ocean or missing terrain.
+                // A failed sample must never allow a bot to drift across
+                // the map at its previous Y while remaining a combatant.
                 if (owner.TryVirtualGround(next.x, next.z, out float ground))
+                {
                     next.y = ground + 0.08f;
-                transform.position = next;
-                owner.TrackRivalPosition(spatialSlot, this, next);
-                if (direction.sqrMagnitude > 0.0001f)
-                    transform.rotation = Quaternion.LookRotation(direction);
+                    transform.position = next;
+                    owner.TrackRivalPosition(spatialSlot, this, next);
+                    if (direction.sqrMagnitude > 0.0001f)
+                        transform.rotation = Quaternion.LookRotation(direction);
+                }
             }
             if (carriedGun != null && carriedMagazine == 0 && now >= nextAttack)
             {
