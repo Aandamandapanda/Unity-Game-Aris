@@ -493,8 +493,20 @@ namespace Aaris.MapReview.Editor
             var victimHp = victim.GetComponent<AarisOfflineHealth>();
             var victimCapsule = victim.GetComponent<CharacterController>();
             var playerCapsule = player.GetComponent<CharacterController>();
-            if (victimHp == null || victimCapsule == null || playerCapsule == null)
+            if (victimHp == null || playerCapsule == null)
                 throw new InvalidOperationException("LIVE_COMBAT_CAPSULE_MISSING");
+            // The real distant rival is math-only until its first physical hit.
+            if (victimCapsule == null)
+            {
+                MethodInfo factory = victim.GetType().GetMethod(
+                    "EnsurePhysicalReceiver", Private);
+                if (factory == null)
+                    throw new InvalidOperationException("RIVAL_RECEIVER_FACTORY_MISSING");
+                victimCapsule = factory.Invoke(victim, null) as CharacterController;
+                if (victimCapsule == null)
+                    throw new InvalidOperationException("RIVAL_RECEIVER_CREATION_FAILED");
+                Note("PASS distant rival physical hit receiver materialized on demand");
+            }
             Vector3 calibration = new Vector3(2600f, 1500f, 2600f);
             playerCapsule.enabled = false;
             player.transform.SetPositionAndRotation(calibration, Quaternion.identity);
