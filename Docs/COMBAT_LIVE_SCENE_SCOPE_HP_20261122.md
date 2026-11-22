@@ -36,6 +36,10 @@ The test first runs the existing **100 real terrain spawn + incoming damage + re
 
 The extended run measured 200 baseline scene frames and 200 loaded frames. It observed mean `GC Allocated In Frame` of **183,302 B/frame** before bots and **175,523 B/frame** during measured combat, including the Editor's allocations and other scene work. These counts are **not** causal attribution to bots or weapons; note that some unrelated scene streaming can be heavy. Frame timing clustered near **16.7 ms**, consistent with headless Editor frame pacing, and cannot establish mobile FPS.
 
+### Independent final repeat
+
+An independent, corrected-wrapper run of the **exact same final Editor source** again observed **100/100 authored terrain spawns** (first pass), **98 surviving rivals**, **6 close humanoid rigs**, **17 far LOD visuals**, and **13 incoming player-damage events**. The four optic tiers each passed the real gun/HP/damage-popup checks, and Standing/Crouching/Prone each delivered a genuine 2X scoped hit. Solid wall cover and HP 200→175 feedback checks remained PASS. The final result file says `RESULT=PASS` for a **5.012-second** loaded game-time sample; **Unity executable exit and wrapper-verification status are checked separately**. The Editor was again frame-paced near 16.7 ms; no mobile FPS inference is appropriate.
+
 ## Reproduce
 
 Run in a dedicated licensed Unity Codespace (no `-quit`; the test exits itself):
