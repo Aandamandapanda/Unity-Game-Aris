@@ -270,7 +270,15 @@ class CombatEndToEndContract(unittest.TestCase):
             self.assertIn(fragment, body)
         self.assertIn("if (carriedGun == null && now >= nextLootAt)", BOTS)
         self.assertIn("if (playerDistanceSqr < 76f * 76f)", BOTS)
-        self.assertIn("owner.TryLootForRival(transform.position, out found)", BOTS)
+        self.assertIn("owner.TryLootForRival(transform, out found)", BOTS)
+        # Bots pass their actual Transform so pickup LOS can exclude ONLY
+        # the looter's own colliders, never arbitrary player-layer walls.
+        self.assertIn("internal bool TryLootForRival(Transform rival", BOTS)
+        self.assertIn("rivalLootWorld.TryTakeForRival(rival, out weapon)", BOTS)
+        self.assertIn("if (!HasClearPickupPath(rival, pickup.transform.position)) continue;", body)
+        self.assertIn("private bool HasClearPickupPath(Transform looter, Vector3 position)", LOOT)
+        self.assertIn("collider.transform.IsChildOf(looter)", LOOT)
+        self.assertIn("hits = CompleteRaycastOverflow(sightLine, distance, out sightHits);", LOOT)
         self.assertIn("else if (!remoteLoadoutGiven && AarisWeaponCatalog.Ready)", BOTS)
         self.assertIn("carriedReserve -= refill;", BOTS)
         self.assertIn("carriedMagazine = found.magazineSize", BOTS)
