@@ -809,6 +809,7 @@ namespace Aaris.MapReview
         private const int AlternativeBudget = 6;
         private readonly AarisOfflineRival[] alternativeBots = new AarisOfflineRival[AlternativeBudget];
         private readonly float[] alternativeDistSq = new float[AlternativeBudget];
+        private readonly int[] alternativeSlots = new int[AlternativeBudget];
 
         internal bool FindRivalOpponent(AarisOfflineRival self,
             out Transform victim, out AarisOfflineHealth victimHealth)
@@ -857,31 +858,53 @@ namespace Aaris.MapReview
         {
             victim = null; victimHealth = null;
             if (hunter == null) return false;
+            // The 42m LOS band is entirely inside the hunter's 110m hash
+            // cell and its eight neighbours. Never scan the entire 100-bot
+            // roster on each blocked-shot think tick.
+            BootstrapRivalSpatialIndex();
             const float maxSqr = 42f * 42f;
             int used = 0;
             Vector3 origin = hunter.transform.position;
-            for (int i = 0; i < rivals.Length; i++)
-            {
-                AarisOfflineRival bot = rivals[i];
-                if (bot == null || bot == hunter || !bot.IsAlive ||
-                    bot.transform == blocked) continue;
-                float sqr = (bot.transform.position - origin).sqrMagnitude;
-                if (sqr >= maxSqr || (used == AlternativeBudget &&
-                    sqr >= alternativeDistSq[AlternativeBudget - 1])) continue;
-                int slot = 0;
-                while (slot < used && sqr >= alternativeDistSq[slot]) slot++;
-                if (slot >= AlternativeBudget) continue;
-                for (int j = Mathf.Min(used, AlternativeBudget - 1); j > slot; j--)
+            TrackRivalPosition(hunter.SpatialSlot, hunter, origin);
+            int cx = RivalCell(origin.x), cz = RivalCell(origin.z);
+            for (int x = cx - 1; x <= cx + 1; x++)
+                for (int z = cz - 1; z <= cz + 1; z++)
                 {
-                    alternativeBots[j] = alternativeBots[j - 1];
-                    alternativeDistSq[j] = alternativeDistSq[j - 1];
+                    long key = RivalCellKey(x, z);
+                    int bucket = RivalBucket(x, z);
+                    for (int i = rivalBucketHeads[bucket]; i >= 0;
+                         i = rivalSpatialNext[i])
+                    {
+                        // Hash collisions must never import remote cells.
+                        if (rivalSpatialKeys[i] != key) continue;
+                        AarisOfflineRival bot = rivals[i];
+                        if (bot == null || bot == hunter || !bot.IsAlive ||
+                            bot.transform == blocked) continue;
+                        float sqr = (bot.transform.position - origin).sqrMagnitude;
+                        if (sqr >= maxSqr) continue;
+                        // Hash chains are not slot-ordered. Preserve the
+                        // previous distance then roster-index tie ordering.
+                        int slot = 0;
+                        while (slot < used &&
+                            (sqr > alternativeDistSq[slot] ||
+                             (sqr == alternativeDistSq[slot] &&
+                              i >= alternativeSlots[slot]))) slot++;
+                        if (slot >= AlternativeBudget) continue;
+                        for (int j = Mathf.Min(used, AlternativeBudget - 1);
+                             j > slot; j--)
+                        {
+                            alternativeBots[j] = alternativeBots[j - 1];
+                            alternativeDistSq[j] = alternativeDistSq[j - 1];
+                            alternativeSlots[j] = alternativeSlots[j - 1];
+                        }
+                        alternativeBots[slot] = bot;
+                        alternativeDistSq[slot] = sqr;
+                        alternativeSlots[slot] = i;
+                        if (used < AlternativeBudget) used++;
+                    }
                 }
-                alternativeBots[slot] = bot;
-                alternativeDistSq[slot] = sqr;
-                if (used < AlternativeBudget) used++;
-            }
-            // A fourth or fifth clear combatant must not be masked by three
-            // nearer occluded rivals. Six nearest LOS tests maximum, no GC.
+            // Six closest candidates at most; only the survivors get real LOS.
+            // Preserve the original cover-aware fallback firing behavior.
             for (int i = 0; i < used; i++)
             {
                 AarisOfflineRival bot = alternativeBots[i];
