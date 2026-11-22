@@ -1174,6 +1174,12 @@ namespace Aaris.MapReview
         private bool virtualBody;
         private bool lastCameraRelevant;
         private float nextCameraProbe;
+        // Beyond 485m the bot has no render/receiver. Check proximity at
+        // 10Hz rather than fetching two Transforms on every rendered frame.
+        // Simulation ticks still take priority; no AI/kill-feed tick is lost.
+        private bool dormantOutOfVisualRange;
+        private float nextDormantProximityProbe;
+        private const float DormantProximityProbeInterval = 0.10f;
         // A separate low-triangle visual keeps 4x targets visible beyond 155 m
         // without loading distant Humanoid rigs or changing close-up quality.
         private GameObject farVisualRoot;
@@ -1540,14 +1546,24 @@ namespace Aaris.MapReview
 
         private void Update()
         {
+            float now = Time.time;
+            // A bot previously confirmed beyond the maximum visual distance
+            // has no visible body or hit receiver. Wake for its scheduled AI
+            // tick OR an earlier 100ms proximity check (including teleports).
+            // Close and potentially visible bots never enter this fast path.
+            if (dormantOutOfVisualRange && now < nextFarSimulation &&
+                now < nextDormantProximityProbe) return;
             if (owner == null || !owner.CanEngage || !IsAlive ||
                 playerTarget == null || playerTargetHealth == null || playerTargetHealth.IsDead)
                 return;
-            float now = Time.time;
             // Avoid 100 square roots each rendered frame on mobile. All
             // thresholds below are distances squared; the 90m policy is unchanged.
             float playerDistanceSqr =
                 (playerTarget.position - transform.position).sqrMagnitude;
+            dormantOutOfVisualRange =
+                playerDistanceSqr >= FarVisualDistance * FarVisualDistance;
+            if (dormantOutOfVisualRange)
+                nextDormantProximityProbe = now + DormantProximityProbeInterval;
             bool wasCameraRelevant = lastCameraRelevant;
             bool cameraRelevant = wasCameraRelevant;
             if (playerDistanceSqr < FarVisualDistance * FarVisualDistance)
