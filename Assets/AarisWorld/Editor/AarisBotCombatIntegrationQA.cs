@@ -98,6 +98,7 @@ namespace Aaris.MapReview.Editor
                 VerifyDamage(report);
                 VerifyDestructibleHitConfirmation(report);
                 VerifyBots(report, active);
+                VerifyVirtualCombat(report);
                 VerifyBotLootCover(report);
             }
             catch (Exception ex)
@@ -122,6 +123,72 @@ namespace Aaris.MapReview.Editor
             File.WriteAllText(Path.Combine(directory, "report.txt"), report.ToString());
             Debug.Log(report.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(failures == 0 ? 0 : 1);
+        }
+
+        // Offscreen opponents use the real health receiver and own ammo
+        // logic while both physical colliders stay disabled. This does not
+        // claim an Android FPS result or construct a fake gun/rig.
+        private static void VerifyVirtualCombat(StringBuilder report)
+        {
+            var root = new GameObject("Temporary remote 100-bot math combat QA");
+            try
+            {
+                var player = new GameObject("Virtual QA player");
+                player.transform.SetParent(root.transform, false);
+                player.transform.position = Origin;
+                var playerHP = Health(player);
+                var directorGo = new GameObject("Remote QA director");
+                directorGo.transform.SetParent(root.transform, false);
+                var director = directorGo.AddComponent<AarisOfflineBRDirector>();
+                director.enabled = false;
+                Set(director, "player", player.transform);
+                Set(director, "playerHealth", playerHP);
+                Set(director, "center", new Vector2(Origin.x, Origin.z));
+                Set(director, "radius", 100000f);
+                var alpha = new GameObject("Remote Alpha");
+                alpha.transform.SetParent(root.transform, false);
+                alpha.transform.position = Origin + Vector3.right * 500f;
+                var bravo = new GameObject("Remote Bravo");
+                bravo.transform.SetParent(root.transform, false);
+                bravo.transform.position = alpha.transform.position + Vector3.forward * 1.6f;
+                var alphaBody = Capsule(alpha);
+                var bravoBody = Capsule(bravo);
+                var alphaHP = Health(alpha);
+                var bravoHP = Health(bravo);
+                var alphaBot = alpha.AddComponent(BotType);
+                var bravoBot = bravo.AddComponent(BotType);
+                Set(alphaBot, "owner", director);
+                Set(alphaBot, "health", alphaHP);
+                Set(alphaBot, "capsule", alphaBody);
+                Set(alphaBot, "playerTarget", player.transform);
+                Set(alphaBot, "playerTargetHealth", playerHP);
+                Set(alphaBot, "target", bravo.transform);
+                Set(alphaBot, "targetHealth", bravoHP);
+                Set(alphaBot, "nextThink", 100000f);
+                Set(alphaBot, "nextAttack", 0f);
+                Set(alphaBot, "virtualBody", true);
+                Set(bravoBot, "virtualBody", true);
+                alphaBody.enabled = false;
+                bravoBody.enabled = false;
+                int remoteDeaths = 0;
+                GameObject lastAttacker = null;
+                bravoHP.Died += _ => remoteDeaths++;
+                bravoHP.Damaged += (_, loss, attacker) =>
+                {
+                    if (loss > 0f) lastAttacker = attacker;
+                };
+                for (int i = 0; i < 110 && !bravoHP.IsDead; i++)
+                    Call(alphaBot, "TickVirtualCombat", 20f + i * 1.5f, 0.35f);
+                Check(bravoHP.IsDead && remoteDeaths == 1,
+                    "Remote virtual combat eliminates actual rival exactly once", report);
+                Check(lastAttacker == alpha,
+                    "Remote damage retains actual rival attacker identity", report);
+                Check(!alphaBody.enabled && !bravoBody.enabled,
+                    "Both remote combatants fought without physical capsules", report);
+                Check(playerHP.CurrentHealth == 200f,
+                    "Virtual rival combat never damages distant player", report);
+            }
+            finally { Object.DestroyImmediate(root); }
         }
 
         // Actual PhysX cover validation of the shared bot/player pickup ray.

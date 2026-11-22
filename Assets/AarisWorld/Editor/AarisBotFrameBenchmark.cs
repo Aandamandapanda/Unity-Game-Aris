@@ -161,6 +161,10 @@ namespace Aaris.MapReview.Editor
             controller.radius = .31f;
             controller.center = Vector3.up * .9f;
             var hp = player.AddComponent<AarisOfflineHealth>();
+            var cameraRoot = new GameObject("QA main camera", typeof(Camera));
+            cameraRoot.transform.SetParent(player.transform, false);
+            cameraRoot.transform.localPosition = Vector3.up * 1.65f;
+            cameraRoot.tag = "MainCamera";
             var ending = player.AddComponent<AarisOfflineMatchEnd>();
             var root = new GameObject("QA director");
             root.transform.SetParent(temporaryRoot.transform, false);
@@ -280,6 +284,20 @@ namespace Aaris.MapReview.Editor
                     (botTransforms[i].position - initialPositions[i]).sqrMagnitude > .01f)
                     moved++;
             }
+            // Measure actual deactivation of far PhysX bodies rather than
+            // inferring virtualization from offscreen distance alone.
+            FieldInfo virtualField = BotType.GetField("virtualBody", Private);
+            int virtualized = 0;
+            if (virtualField == null) throw new InvalidOperationException("No virtualBody");
+            for (int i = 3; i < botTransforms.Length; i++)
+            {
+                if (botTransforms[i] != null)
+                {
+                    Component brain = botTransforms[i].GetComponent(BotType);
+                    if (brain != null && (bool)virtualField.GetValue(brain))
+                        virtualized++;
+                }
+            }
             string report = "RESULT=PASS\n" +
                 "ENV=Unity Editor Linux Xvfb, 4 logical CPUs; NOT on-device\n" +
                 "BASELINE_FRAME=" + Distribution(baseline) + "\n" +
@@ -289,6 +307,7 @@ namespace Aaris.MapReview.Editor
                 "BASELINE_GC=" + GcStats(baselineGc) + "\n" +
                 "100_BOT_GC=" + GcStats(loadedGc) + "\n" +
                 "BOTS_MOVED=" + moved + "/100\n" +
+                "REMOTE_VIRTUAL_BODIES=" + virtualized + "/97\n" +
                 "LOADED_GAME_SECONDS=" + gameSeconds.ToString("F3") + "\n" +
                 "NOTE=Includes Editor overhead; excludes Android GPU, humanoids, map and loot VFX\n";
             File.AppendAllText(Path.Combine(Folder, "result.txt"), report);
