@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/aaris-exact-codespace-safe-sync.yml'
       - 'Tools/Codespaces/canonical_safe_sync.sh'
+      - 'Tools/Codespaces/editor_status_readonly.sh'
   issue_comment:
     types: [created]
 
@@ -24,6 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           bash -n Tools/Codespaces/canonical_safe_sync.sh
+          bash -n Tools/Codespaces/editor_status_readonly.sh
           python3 - <<'PY'
           from pathlib import Path
           s = Path('Tools/Codespaces/canonical_safe_sync.sh').read_text()
@@ -34,6 +36,12 @@ jobs:
           for forbidden in ('git reset', 'git clean', 'git stash', 'git worktree',
                             'git checkout -f', 'git push'):
               assert forbidden not in s.split('set -euo pipefail', 1)[1], forbidden
+          diagnostic = Path('Tools/Codespaces/editor_status_readonly.sh').read_text()
+          assert 'AARIS_EDITOR_STATUS_NATIVE_COMPILE_PROVEN=no' in diagnostic
+          assert 'EDITOR_STATUS_PROJECT_PROCESS_COUNT' in diagnostic
+          for forbidden in ('git reset', 'git clean', 'git stash', 'git worktree',
+                            'Editor/Unity -batchmode', 'subprocess.run(', 'os.kill('):
+              assert forbidden not in diagnostic, forbidden
           print('AARIS_SAFE_SYNC_STATIC_PASS')
           PY
 
@@ -44,7 +52,8 @@ jobs:
       github.event.comment.user.login == 'sundamunda289-art' &&
       (startsWith(github.event.comment.body, 'AARIS CANONICAL STATUS ') ||
        startsWith(github.event.comment.body, 'AARIS CANONICAL SYNC ') ||
-       startsWith(github.event.comment.body, 'AARIS CANONICAL COMPILE '))
+       startsWith(github.event.comment.body, 'AARIS CANONICAL COMPILE ') ||
+       startsWith(github.event.comment.body, 'AARIS CANONICAL EDITOR_STATUS '))
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     permissions:
@@ -65,7 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ -n "$GH_TOKEN" ]] || { echo 'AARIS_SAFE_SYNC_TOKEN_NOT_CONFIGURED'; exit 11; }
-          [[ "$REQUEST" =~ ^AARIS[[:space:]]CANONICAL[[:space:]](STATUS|SYNC|COMPILE)[[:space:]](aaris-ai-[a-zA-Z0-9-]{3,110})$ ]] || {
+          [[ "$REQUEST" =~ ^AARIS[[:space:]]CANONICAL[[:space:]](STATUS|SYNC|COMPILE|EDITOR_STATUS)[[:space:]](aaris-ai-[a-zA-Z0-9-]{3,110})$ ]] || {
             echo 'AARIS_SAFE_SYNC_INVALID_REQUEST'; exit 12;
           }
           MODE="${BASH_REMATCH[1],,}"
@@ -96,6 +105,14 @@ jobs:
                 echo AARIS_SAFE_SYNC_COMPILER_REPORT_UNAVAILABLE
                 exit 15
               }
+          elif [[ "$SAFE_MODE" == editor_status ]]; then
+            # No project Editor launch or log contents exposed to the issue.
+            timeout 150 gh codespace ssh -c "$SAFE_MACHINE" -- "bash -s" \
+              < Tools/Codespaces/editor_status_readonly.sh \
+              > "$RUNNER_TEMP/safe-sync-result.txt" 2> "$RUNNER_TEMP/safe-sync-private-errors.txt" || {
+                echo AARIS_SAFE_SYNC_EDITOR_STATUS_UNAVAILABLE
+                exit 16
+              }
           else
             timeout 420 gh codespace ssh -c "$SAFE_MACHINE" -- "bash -s -- $SAFE_MODE" \
               < Tools/Codespaces/canonical_safe_sync.sh \
@@ -116,7 +133,17 @@ jobs:
             echo
             echo '```text'
             if [[ -s "$RUNNER_TEMP/safe-sync-result.txt" ]]; then
-              grep -E '^AARIS_SYNC_[A-Z0-9_]+=[a-zA-Z0-9_-]+$|^UNITY_COMPILER_(LOG_FOUND|LOG_NOT_FOUND|ERROR_COUNT_[0-9]+|ERRORS_NOT_IN_AVAILABLE_LOGS)$' \
+              grep -E '^AARIS_SYNC_[A-Z0-9_]+=[a-zA-Z0-9_-]+$|^UNITY_COMPILER_(LOG_FOUND|LOG_NOT_FOUND|ERROR_COUNT_[0-9]+|ERRORS_NOT_IN_AVAILABLE_LOGS)$|^AARIS_EDITOR_STATUS_[A-Z0-9_]+=[a-zA-Z0-9_-]+ \
+                "$RUNNER_TEMP/safe-sync-result.txt" | head -35 || true
+            else
+              echo 'AARIS_SYNC_RESULT=not_started_or_unavailable'
+            fi
+            echo '```'
+            echo 'All other tracked local changes are preserved; no reset/clean/stash/worktree.'
+            echo "[Run details](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+          } > "$RUNNER_TEMP/safe-sync-owner-reply.md"
+          gh issue comment 77 -R "$GITHUB_REPOSITORY" -F "$RUNNER_TEMP/safe-sync-owner-reply.md"
+ \
                 "$RUNNER_TEMP/safe-sync-result.txt" | head -35 || true
             else
               echo 'AARIS_SYNC_RESULT=not_started_or_unavailable'
