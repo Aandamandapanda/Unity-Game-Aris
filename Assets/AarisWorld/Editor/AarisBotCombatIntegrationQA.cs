@@ -322,6 +322,42 @@ namespace Aaris.MapReview.Editor
                 Check(gun.TryFire(camera, player) && gun.Magazine == 29 &&
                     health[1].CurrentHealth < 200f,
                     "Real 2x Red-Lock shot consumes ammo and damages bot", report);
+                // Real 100-roster bot-versus-bot combat regression. The
+                // closest opponent is hidden by a wall, while another
+                // opponent a little farther away is genuinely visible.
+                // Use existing rivals and their actual PhysX colliders.
+                var hunter = bots[30];
+                var blockedRival = bots[31];
+                var visibleRival = bots[32];
+                Vector3 arena = Origin + new Vector3(100f, 0f, 100f);
+                hunter.transform.SetPositionAndRotation(arena, Quaternion.identity);
+                blockedRival.transform.position = arena + Vector3.forward * 9f;
+                visibleRival.transform.position = arena + Vector3.right * 14f;
+                Physics.SyncTransforms();
+                object[] nearestArgs = { hunter, null, null };
+                Check((bool)Call(director, "FindRivalOpponent", nearestArgs) &&
+                    (Transform)nearestArgs[1] == blockedRival.transform,
+                    "Nearest rival is initially selected by distance", report);
+                var cover = new GameObject("QA bot-versus-bot occlusion wall");
+                cover.transform.SetParent(root.transform, false);
+                cover.transform.position = arena +
+                    new Vector3(0f, 1.20f, 4.5f);
+                cover.AddComponent<BoxCollider>().size =
+                    new Vector3(2.0f, 2.3f, .25f);
+                Physics.SyncTransforms();
+                Check(!(bool)Call(hunter, "HasSightToRival", blockedRival.transform),
+                    "Nearest bot is physically obscured by real cover", report);
+                Check((bool)Call(hunter, "HasSightToRival", visibleRival.transform),
+                    "Alternate bot has unobstructed physical LOS", report);
+                object[] fallback = { hunter, blockedRival.transform, null, null };
+                Check((bool)Call(director, "TryFindVisibleRivalAlternative", fallback) &&
+                    (Transform)fallback[2] == visibleRival.transform &&
+                    (AarisOfflineHealth)fallback[3] == health[32],
+                    "Cover-aware rival hunting chooses the visible second target", report);
+                Object.DestroyImmediate(cover);
+                Physics.SyncTransforms();
+                Check((bool)Call(hunter, "HasSightToRival", blockedRival.transform),
+                    "Nearest rival is visible again after cover removal", report);
             }
             finally { Object.DestroyImmediate(root); }
         }
