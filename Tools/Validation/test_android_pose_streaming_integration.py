@@ -67,7 +67,12 @@ class PoseAndStreamingIntegration(unittest.TestCase):
         self.assertIn("transitioningLowStance && authoredProne &&", low)
         self.assertIn("transitionKneeSideTurn = 80f *", low)
         self.assertIn("(crouching || prone) && kneeSideAxis.sqrMagnitude > 0.25f)", low)
-        self.assertIn("75f * movingLowStance * kneeTurnStability", low)
+        # Moving crouch can need up to 110 degrees for the anatomical knee
+        # circle; prone/crawl retain their previous 75-degree safety cap.
+        self.assertIn("float movingCrouchPoleCap = crouching && !prone &&", low)
+        self.assertIn("proneShare < 0.05f ? 110f : 75f;", low)
+        self.assertIn("movingCrouchPoleCap * movingLowStance *", low)
+        self.assertIn("kneeTurnStability);", low)
         self.assertIn("transitionKneeSideTurn = Mathf.Max(", low)
         self.assertEqual(VISUAL.count(
             "kneeSideAxis, 0.23f, transitionKneeSideTurn);"), 2)
@@ -83,7 +88,12 @@ class PoseAndStreamingIntegration(unittest.TestCase):
         self.assertIn("bodySkin.BakeMesh(posed);", VISUAL)
         self.assertIn("if (posed.vertexCount == 0) return false;", VISUAL)
         self.assertIn("Destroy(posed);", VISUAL)
-        self.assertIn("essentialRigFrame = Time.frameCount + 1;", GATE)
+        # Preserve the current-frame fence if another rig reserves the next
+        # frame; the previous slot is deliberately retained.
+        self.assertIn("int nextFrame = Time.frameCount + 1;", GATE)
+        self.assertIn("previousEssentialRigFrame = essentialRigFrame;", GATE)
+        self.assertIn("essentialRigFrame = nextFrame;", GATE)
+        self.assertIn("Time.frameCount == previousEssentialRigFrame", GATE)
         self.assertIn("if (IsEssentialRigFrame())", GATE)
         self.assertIn("RigReservedDeferredAttempts++;", GATE)
         self.assertIn("s.optionalStreamRigFrameDeferrals =", RUNTIME)
