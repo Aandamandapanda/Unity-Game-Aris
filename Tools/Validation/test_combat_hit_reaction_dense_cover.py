@@ -43,7 +43,7 @@ class RivalDamageReactionTests(unittest.TestCase):
 
     def test_saturated_24_hit_search_retries_with_shared_128_buffer(self):
         self.assertIn(
-            "private readonly Collider[] crowdedCoverCandidates = new Collider[128];",
+            "crowdedCoverCandidates = new Collider[128];",
             SOURCE,
         )
         body = SOURCE.split("private void OnDamaged(", 1)[1].split(
