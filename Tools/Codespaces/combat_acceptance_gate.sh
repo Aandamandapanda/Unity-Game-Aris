@@ -96,6 +96,26 @@ grep -Fqx 'PASS native player HP 200 text and full-width bar' "$TERRAIN_REPORT"
 grep -Fqx 'PASS real AssaultRifle no red-lock and no HP damage through wall' "$TERRAIN_REPORT"
 grep -Fqx 'PASS native HP 175 / 200, 87.5% bar, hit flash and HIT FRONT' "$TERRAIN_REPORT"
 grep -q '^PASS sustained 100-bot combat' "$TERRAIN_REPORT"
+
+# A long soak intentionally skips the distant Humanoid retirement/rebuild QA.
+# Run a second, short saved-scene pass to verify both the low-memory retirement
+# AND restoration of the original high-quality rig when the player returns.
+rig_started="$(date +%s)"
+run_checked rig env -u AARIS_FULLSCENE_SOAK_SECONDS \
+  timeout --kill-after=12s 350s xvfb-run -a -s '-screen 0 1280x720x24' \
+  "$EDITOR" -batchmode -projectPath "$ROOT" \
+  -executeMethod Aaris.MapReview.Editor.AarisFullSceneCombatSoak.Run \
+  -logFile "$LOG_DIR/rig.unity.log"
+[[ -f "$TERRAIN_REPORT" ]] && [[ "$(stat -c %Y "$TERRAIN_REPORT")" -ge "$rig_started" ]]
+grep -qx 'RESULT=PASS' "$TERRAIN_REPORT"
+grep -q '^SPAWNED_REAL_SCENE=100/100 ' "$TERRAIN_REPORT"
+grep -q '^PASS distant rig and PlayableGraph retired:' "$TERRAIN_REPORT"
+grep -Eq '^PASS original humanoid rig restored with [1-9][0-9]* renderers
+echo COMBAT_GATE_SCOPES=0,1,2,4
+echo COMBAT_GATE_NATIVE_DAMAGE=bidirectional
+echo COMBAT_GATE_ANDROID_FPS=not_measured
+ "$TERRAIN_REPORT"
+echo COMBAT_GATE_RIG_REBUILD=PASS
 echo COMBAT_GATE_SCENE_BOTS=100/100
 echo COMBAT_GATE_SCOPES=0,1,2,4
 echo COMBAT_GATE_NATIVE_DAMAGE=bidirectional
