@@ -279,10 +279,13 @@ namespace Aaris.MapReview.Editor
             Note("BASELINE_FRAME=" + Stats(baselineDelta));
             Note("100_BOT_FRAME=" + Stats(loadedDelta));
             Note("LOADED_SECONDS=" + (Time.time - sampleStarted).ToString("F3"));
+            // A high-quality actor that is visible but never fights is not
+            // an end-to-end combat smoke pass. At least one genuine player
+            // HP-loss event must come through the authoritative receiver.
             bool pass = peakSpawned == 100 && humanoids > 0 &&
-                visible > 0 && !hadRuntimeError;
+                visible > 0 && damageEvents > 0 && !hadRuntimeError;
             Note("RESULT=" + (pass ? "PASS" : "FAIL") +
-                (pass ? "" : " expected_100_spawns_and_visible_real_rigs"));
+                (pass ? "" : " expected_100_spawns_visible_rigs_and_incoming_damage"));
             Complete(pass ? 0 : 1);
         }
 
