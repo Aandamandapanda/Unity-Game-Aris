@@ -57,6 +57,10 @@ jobs:
               assert required in native, required
           assert 'git reset' not in native and 'git worktree' not in native
           assert 'AARIS_NATIVE_COMPILE_TEMP_PACKAGE_LOCK=omitted' in native
+          # Native Linux Unity A/B: subdirectory TMPDIR fails with exit 255,
+          # using the parent temporary root passes and executes the C# gate.
+          assert 'env TMPDIR="$WORK" LIBGL_ALWAYS_SOFTWARE=1' in native
+          assert 'env TMPDIR="$WORK/UnityTemp"' not in native
           assert 'cp "$SOURCE/Packages/packages-lock.json"' not in native
           baseline = Path('Tools/Codespaces/unity_empty_project_baseline.sh').read_text()
           assert 'mktemp -d /tmp/aaris-unity-empty.' in baseline
