@@ -1160,10 +1160,10 @@ namespace Aaris.MapReview
         private AarisOfflineHealth health, targetHealth;
         private Transform target;
         private CharacterController capsule;
-        private readonly RaycastHit[] sightHits = new RaycastHit[20];
+        private RaycastHit[] sightHits;
         // Kept per rival: retain correct closest-visible-target selection
         // without RaycastAll allocations when >20 cover hits overlap.
-        private readonly RaycastHit[] crowdedSightHits = new RaycastHit[128];
+        private RaycastHit[] crowdedSightHits;
         private float nextThink, nextAttack, verticalSpeed, turnOffset, visualBlend;
         private Transform playerTarget;
         private AarisOfflineHealth playerTargetHealth;
@@ -1195,10 +1195,10 @@ namespace Aaris.MapReview
         private int carriedMagazine, carriedReserve;
         private uint remoteLootSeed;
         private bool remoteLoadoutGiven;
-        private readonly Collider[] coverCandidates = new Collider[24];
+        private Collider[] coverCandidates;
         // Nearby settlements can fill the small unordered NonAlloc result.
         // Retry only saturated damage-triggered searches in a reusable buffer.
-        private readonly Collider[] crowdedCoverCandidates = new Collider[128];
+        private Collider[] crowdedCoverCandidates;
         private Vector3 coverDestination;
         private float coverUntil, nextCoverQuery, nextHitReaction;
         // Briefly remember the real rival who landed damage. This is bot-vs-bot
@@ -1264,6 +1264,11 @@ namespace Aaris.MapReview
                 virtualBody = true;
                 capsule.enabled = false;
             }
+            else
+            {
+                // Only physical encounters need raycast and cover buffers.
+                EnsurePhysicalCombatBuffers();
+            }
             // A 55-100m unseen spawn must not instantiate a skinned Humanoid
             // just because it was nearby when the slot was created. The
             // staggered visibility admission in Update builds it on entry.
@@ -1271,6 +1276,15 @@ namespace Aaris.MapReview
                 (spawnDistanceSqr < 100f * 100f &&
                  owner.IsDistantRivalOnScreen(transform.position)))
                 BuildVisual();
+        }
+
+        private void EnsurePhysicalCombatBuffers()
+        {
+            if (sightHits != null) return;
+            sightHits = new RaycastHit[20];
+            crowdedSightHits = new RaycastHit[128];
+            coverCandidates = new Collider[24];
+            crowdedCoverCandidates = new Collider[128];
         }
 
         private void BuildVisual()
@@ -1677,6 +1691,8 @@ namespace Aaris.MapReview
                 TickVirtualCombat(now, dt);
                 return;
             }
+            // Prewarm physical arrays when approaching 165m, before LOS.
+            EnsurePhysicalCombatBuffers();
             if (now >= nextThink)
             {
                 nextThink = now + .35f + UnityEngine.Random.Range(0f, .14f);
@@ -2047,6 +2063,7 @@ namespace Aaris.MapReview
         {
             shotHit = default(RaycastHit);
             if (victim == null) return false;
+            EnsurePhysicalCombatBuffers();
             Vector3 eye = transform.position + transform.forward * .48f + Vector3.up * 1.28f;
             CharacterController body = victim == playerTarget ? playerTargetCapsule :
                 victim == target ? targetCapsule : null;
@@ -2108,6 +2125,7 @@ namespace Aaris.MapReview
         // Reuse the per-bot hit buffer; no per-shot managed allocations.
         private bool MuzzlePathClear(Transform intendedVictim)
         {
+            EnsurePhysicalCombatBuffers();
             Vector3 bodyEye = transform.position + Vector3.up * 1.28f;
             Ray ray = new Ray(bodyEye, transform.forward);
             int count = Physics.RaycastNonAlloc(ray, sightHits, .48f,
@@ -2164,6 +2182,7 @@ namespace Aaris.MapReview
             // A cover search is more expensive: retain its 1.5 s cadence.
             // Remote abstract damage must never trigger a physics cover query.
             if (virtualBody || Time.time < nextCoverQuery) return;
+            EnsurePhysicalCombatBuffers();
             nextCoverQuery = Time.time + 1.5f;
             Vector3 away = transform.position - attacker.transform.position;
             away.y = 0f;

@@ -30,11 +30,13 @@ class RivalNonAllocOverflow(unittest.TestCase):
                         routine.index("hits = Physics.OverlapCapsule("))
 
     def test_los_reuses_crowded_buffer_before_single_nearest_fallback(self):
-        self.assertIn("private readonly RaycastHit[] sightHits = new RaycastHit[20];", RIVAL)
-        self.assertIn("private readonly RaycastHit[] crowdedSightHits = new RaycastHit[128];", RIVAL)
+        self.assertIn("private RaycastHit[] sightHits;", RIVAL)
+        self.assertIn("private RaycastHit[] crowdedSightHits;", RIVAL)
         routine = RIVAL.split("private bool HasSight()", 1)[1].split(
             "internal void TakeZoneDamage", 1
         )[0]
+        self.assertIn("sightHits = new RaycastHit[20];", RIVAL)
+        self.assertIn("crowdedSightHits = new RaycastHit[128];", RIVAL)
         self.assertIn("Physics.RaycastNonAlloc(ray, sightHits, distance,", routine)
         self.assertIn("hits = crowdedSightHits;", routine)
         self.assertIn("Physics.RaycastNonAlloc(ray, crowdedSightHits, distance,", routine)
