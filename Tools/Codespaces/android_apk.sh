@@ -399,6 +399,28 @@ if test "$MODE" = build_hud; then
   }
   echo APK_HUD_REVIEW_BRANCH_AND_SHADER_VERIFIED
 fi
+# Some minimal Codespace images include Xvfb but omit xdpyinfo. The actual
+# display then works, but start_screen.sh fails its X11 readiness probe.
+# Install the small official OS utility only when missing; never alter the
+# original Unity Editor, GUI project, user assets or license state.
+if ! command -v xdpyinfo >/dev/null 2>&1; then
+  if ! command -v sudo >/dev/null 2>&1 ||
+     ! sudo -n true >/dev/null 2>&1; then
+    echo APK_X11_PROBE_INSTALL_PRIVILEGE_MISSING
+    exit 28
+  fi
+  echo APK_X11_PROBE_INSTALL_START
+  if ! timeout 240 sudo -n env DEBIAN_FRONTEND=noninteractive \
+      apt-get install -y --no-install-recommends x11-utils \
+      >"$BASE/private-x11-probe-install.log" 2>&1; then
+    echo APK_X11_PROBE_INSTALL_FAILED
+    exit 28
+  fi
+  command -v xdpyinfo >/dev/null 2>&1 || {
+    echo APK_X11_PROBE_MISSING_AFTER_INSTALL; exit 28;
+  }
+  echo APK_X11_PROBE_INSTALLED
+fi
 bash .devcontainer/start_screen.sh >"$BASE/private-screen.log" 2>&1 || {
   echo APK_DISPLAY_START_FAILED; exit 28
 }
