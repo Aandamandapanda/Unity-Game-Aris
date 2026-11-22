@@ -8,6 +8,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
 namespace Aaris.MapReview.Editor
@@ -279,6 +280,7 @@ namespace Aaris.MapReview.Editor
             Note("BASELINE_FRAME=" + Stats(baselineDelta));
             Note("100_BOT_FRAME=" + Stats(loadedDelta));
             Note("LOADED_SECONDS=" + (Time.time - sampleStarted).ToString("F3"));
+            VerifyScopedCombatHudOnRealActors();
             // A high-quality actor that is visible but never fights is not
             // an end-to-end combat smoke pass. At least one genuine player
             // HP-loss event must come through the authoritative receiver.
@@ -287,6 +289,152 @@ namespace Aaris.MapReview.Editor
             Note("RESULT=" + (pass ? "PASS" : "FAIL") +
                 (pass ? "" : " expected_100_spawns_visible_rigs_and_incoming_damage"));
             Complete(pass ? 0 : 1);
+        }
+
+        // Runs against the live saved player, its real inventory, HUD, camera
+        // and one of the actual 100 rival health/capsule instances. Relocate
+        // temporarily above empty world space so map foliage cannot make a
+        // scope smoke test depend on random spawn geometry. This is Play Mode
+        // only: neither terrain nor authored scene is modified or saved.
+        private static void VerifyScopedCombatHudOnRealActors()
+        {
+            var inventory = player.GetComponent<AarisWeaponInventory>();
+            var hud = player.GetComponent<AarisCombatFeedbackHUD>();
+            Camera camera = player.AimCamera;
+            if (inventory == null || hud == null || camera == null)
+                throw new InvalidOperationException("LIVE_SCOPE_PLAYER_HUD_MISSING");
+            Component victim = null;
+            for (int i = 0; i < rivals.Length; i++)
+            {
+                var candidate = rivals.GetValue(i) as Component;
+                if (candidate != null && IsAlive(candidate) && HasVisibleBody(candidate))
+                { victim = candidate; break; }
+            }
+            if (victim == null)
+                throw new InvalidOperationException("NO_VISIBLE_LIVE_RIVAL_FOR_SCOPE");
+            var victimHp = victim.GetComponent<AarisOfflineHealth>();
+            var victimCapsule = victim.GetComponent<CharacterController>();
+            var playerCapsule = player.GetComponent<CharacterController>();
+            if (victimHp == null || victimCapsule == null || playerCapsule == null)
+                throw new InvalidOperationException("LIVE_COMBAT_CAPSULE_MISSING");
+            Vector3 calibration = new Vector3(2600f, 1500f, 2600f);
+            playerCapsule.enabled = false;
+            player.transform.SetPositionAndRotation(calibration, Quaternion.identity);
+            playerCapsule.enabled = true;
+            victimCapsule.enabled = false;
+            victim.transform.SetPositionAndRotation(
+                calibration + new Vector3(0f, 0f, 16f), Quaternion.identity);
+            victimCapsule.enabled = true;
+            camera.transform.position = calibration + Vector3.up * 1.45f;
+            camera.transform.LookAt(victim.transform.position + Vector3.up * 1.12f);
+            Physics.SyncTransforms();
+            health.RestoreHealth(200f);
+            victimHp.RestoreHealth(200f);
+            var healthLabel = (Text)Read(hud, "healthText");
+            var fill = (Image)Read(hud, "healthFill");
+            var scopeLabel = (Text)Read(hud, "scopeText");
+            var optic = (Image)Read(hud, "opticalRing");
+            var reticle = (Image[])Read(hud, "crosshair");
+            if (healthLabel == null || fill == null || scopeLabel == null ||
+                optic == null || reticle.Length != 4)
+                throw new InvalidOperationException("LIVE_COMBAT_HUD_WIDGET_MISSING");
+            if (healthLabel.text != "HP 200 / 200" ||
+                Mathf.Abs(fill.rectTransform.sizeDelta.x - 220f) > .1f)
+                throw new InvalidOperationException("HP200_LABEL_OR_BAR_NOT_FULL");
+            Note("PASS native player HP 200 text and full-width bar");
+
+            // Includes every authored optical category: no scope, normal,
+            // 2x and 4x. Real gun model must equip, actual reticle turn red,
+            // ammo decrease, and enemy HP decrease via a physical bullet.
+            string[] guns = { "Shotgun", "SMG", "AssaultRifle", "Sniper" };
+            string[] expected = {
+                "NO SCOPE ADS", "NORMAL ADS", "2X ADS", "4X ADS"
+            };
+            int verified = 0;
+            for (int i = 0; i < guns.Length; i++)
+            {
+                var spec = AarisWeaponCatalog.Get(guns[i]);
+                if (spec == null || spec.scopePower != (i == 0 ? 0 : i == 1 ? 1 : i == 2 ? 2 : 4))
+                    throw new InvalidOperationException("AUTHORED_SCOPE_MISSING_" + guns[i]);
+                AarisWeaponState dropped;
+                if (!inventory.TryPickup(new AarisWeaponState(spec, (uint)(100 + i)), out dropped) ||
+                    inventory.Current == null || !inventory.HasGun)
+                    throw new InvalidOperationException("REAL_GUN_EQUIP_FAILED_" + guns[i]);
+                if (inventory.Aiming) inventory.ToggleAim();
+                inventory.ToggleAim();
+                camera.transform.position = calibration + Vector3.up * 1.45f;
+                camera.transform.LookAt(victim.transform.position + Vector3.up * 1.12f);
+                Physics.SyncTransforms();
+                ForceHudAimRefresh(hud);
+                if (scopeLabel.text != expected[i] || !inventory.Aiming ||
+                    optic.gameObject.activeSelf != (spec.scopePower >= 2))
+                    throw new InvalidOperationException("HUD_SCOPE_LABEL_OR_OPTIC_FAILED_" + guns[i] +
+                        " label=" + scopeLabel.text);
+                bool locked = (bool)Read(hud, "lastLock");
+                if (!locked || reticle[0].color.r < .85f ||
+                    reticle[0].color.g > .4f)
+                    throw new InvalidOperationException("RED_LOCK_NOT_CONFIRMED_" + guns[i]);
+                victimHp.RestoreHealth(200f);
+                float before = victimHp.CurrentHealth;
+                int ammo = inventory.Current.Magazine;
+                int popupIndex = (int)Read(hud, "numberIndex");
+                bool fired = inventory.Current.TryFire(camera, player.gameObject);
+                if (!fired || inventory.Current.Magazine != ammo - 1 ||
+                    victimHp.CurrentHealth >= before ||
+                    (int)Read(hud, "numberIndex") <= popupIndex)
+                    throw new InvalidOperationException("REAL_SCOPE_SHOT_NOT_DAMAGING_" + guns[i] +
+                        " fired=" + fired + " ammo=" + inventory.Current.Magazine +
+                        " hp=" + victimHp.CurrentHealth);
+                Note("PASS " + guns[i] + " scope=" + spec.scopePower +
+                    " Red-Lock, " + expected[i] + ", physical bullet, HUD damage popup");
+                verified++;
+            }
+
+            // Reticle must never offer a red lock through solid cover; the
+            // real camera and gun must not damage the now-occluded rival.
+            var wall = new GameObject("Temporary real-scope LOS blocker");
+            wall.transform.position = calibration + new Vector3(0f, 1.20f, 8f);
+            wall.AddComponent<BoxCollider>().size = new Vector3(2.5f, 2.2f, .20f);
+            Physics.SyncTransforms();
+            var ar = AarisWeaponCatalog.Get("AssaultRifle");
+            AarisWeaponState ignored;
+            if (!inventory.TryPickup(new AarisWeaponState(ar, 878u), out ignored))
+                throw new InvalidOperationException("BLOCKED_SCOPE_EQUIP_FAILED");
+            inventory.ToggleAim();
+            camera.transform.position = calibration + Vector3.up * 1.45f;
+            camera.transform.LookAt(victim.transform.position + Vector3.up * 1.12f);
+            ForceHudAimRefresh(hud);
+            if ((bool)Read(hud, "lastLock") ||
+                reticle[0].color.g < .75f)
+                throw new InvalidOperationException("RED_LOCK_THROUGH_SOLID_WALL");
+            victimHp.RestoreHealth(200f);
+            float beforeWallShot = victimHp.CurrentHealth;
+            int beforeWallAmmo = inventory.Current.Magazine;
+            bool wallShot = inventory.Current.TryFire(camera, player.gameObject);
+            if (!wallShot || inventory.Current.Magazine != beforeWallAmmo - 1 ||
+                Mathf.Abs(victimHp.CurrentHealth - beforeWallShot) > .001f)
+                throw new InvalidOperationException("REAL_WALL_SHOT_PASSED_COVER");
+            Note("PASS real AssaultRifle no red-lock and no HP damage through wall");
+            Object.Destroy(wall);
+
+            // Incoming victim damage must update 200-HP text/bar AND flash.
+            health.ApplyDamage(25f, victim.gameObject);
+            if (healthLabel.text != "HP 175 / 200" ||
+                Mathf.Abs(fill.rectTransform.sizeDelta.x - 192.5f) > .2f ||
+                !((Image)Read(hud, "hitFlash")).gameObject.activeSelf)
+                throw new InvalidOperationException("HP175_BAR_OR_INCOMING_FLASH_FAILED");
+            Note("PASS native HP 175 / 200 text, 87.5% bar and incoming hit flash");
+            Note("SCOPE_TIERS_VERIFIED=" + verified + "/4");
+        }
+
+        private static void ForceHudAimRefresh(AarisCombatFeedbackHUD hud)
+        {
+            var field = hud.GetType().GetField("nextAimCheck", Private);
+            var update = hud.GetType().GetMethod("LateUpdate", Private);
+            if (field == null || update == null)
+                throw new InvalidOperationException("COMBAT_HUD_AIM_REFRESH_MISSING");
+            field.SetValue(hud, -1f);
+            update.Invoke(hud, null);
         }
 
         private static bool IsAlive(Component bot)
