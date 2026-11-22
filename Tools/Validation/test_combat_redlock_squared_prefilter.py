@@ -32,8 +32,8 @@ class RedLockSquaredPrefilterTests(unittest.TestCase):
                 dx, dy, dz = (rng.uniform(-200, 200) for _ in range(3))
                 sqr = dx*dx + dy*dy + dz*dz
                 d = math.sqrt(sqr)
-                legacy = 1 <= d <= 160 and dz/d > threshold
-                fast = 1 <= sqr <= 160**2 and dz > 0 and (
+                legacy = .25 <= d <= 160 and dz/d > threshold
+                fast = .25**2 <= sqr <= 160**2 and dz > 0 and (
                     dz*dz > threshold*threshold*sqr)
                 self.assertEqual(fast, legacy)
 
@@ -41,12 +41,12 @@ class RedLockSquaredPrefilterTests(unittest.TestCase):
         for cone in (1.4, 2.3, 3.7):
             c = math.cos(math.radians(cone))
             for angle in (0, cone/2, cone*1.15, 90, 179):
-                for length in (.75, 1.25, 80, 160, 170):
+                for length in (.15, .35, .75, 1.25, 80, 160, 170):
                     projection = length*math.cos(math.radians(angle))
                     sqr = length*length
-                    fast = (1 <= sqr <= 160**2 and projection > 0 and
+                    fast = (.25**2 <= sqr <= 160**2 and projection > 0 and
                             projection*projection > c*c*sqr)
-                    self.assertEqual(fast, 1 <= length <= 160 and angle < cone)
+                    self.assertEqual(fast, .25 <= length <= 160 and angle < cone)
 
 
 if __name__ == "__main__":
