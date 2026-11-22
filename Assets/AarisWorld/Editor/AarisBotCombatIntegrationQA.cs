@@ -354,6 +354,21 @@ namespace Aaris.MapReview.Editor
                     (Transform)fallback[2] == visibleRival.transform &&
                     (AarisOfflineHealth)fallback[3] == health[32],
                     "Cover-aware rival hunting chooses the visible second target", report);
+                // Verify the actual rival Update decision, not only a direct
+                // helper call: the hunter must acquire the second opponent
+                // and flag real physical sight in the same think tick.
+                Set(hunter, "owner", director);
+                Set(hunter, "capsule", hunter.GetComponent<CharacterController>());
+                Set(hunter, "nextVisualCheck", float.MaxValue);
+                Set(hunter, "staggeredVisualDelay", float.MaxValue);
+                Set(hunter, "nextLootAt", float.MaxValue);
+                Set(hunter, "nextThink", -1f);
+                Set(director, "center", new Vector2(arena.x, arena.z));
+                Set(director, "radius", 1080f);
+                Call(hunter, "Update");
+                Check((Transform)Get(hunter, "target") == visibleRival.transform &&
+                    (bool)Get(hunter, "canSee"),
+                    "Live bot think chooses and sees wall-clear rival", report);
                 Object.DestroyImmediate(rivalCover);
                 Physics.SyncTransforms();
                 Check((bool)Call(hunter, "HasSightToRival", blockedRival.transform),
