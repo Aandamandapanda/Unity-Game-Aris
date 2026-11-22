@@ -1,7 +1,6 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using Unity.Profiling;
@@ -58,12 +57,17 @@ namespace Aaris.MapReview.Editor
         [MenuItem("Aaris/CI/Profile 100-bot scheduler (Editor CPU)")]
         public static void Run()
         {
+            // A single-scene benchmark discards the currently open Editor scene.
+            // Only allow dedicated CI sessions; protect interactive user work.
+            if (!Application.isBatchMode)
+                throw new InvalidOperationException("CI_BATCHMODE_ONLY");
             if (EditorApplication.isPlayingOrWillChangePlaymode ||
                 EditorApplication.isCompiling)
                 throw new InvalidOperationException("EDITOR_BUSY");
             Directory.CreateDirectory(Folder);
             File.WriteAllText(Path.Combine(Folder, "result.txt"),
-                "Unity 6000.3; Editor CPU logical-actor benchmark, NOT Android FPS\n");
+                "Unity " + Application.unityVersion +
+                "; Editor CPU logical-actor benchmark, NOT Android FPS\n");
             SessionState.SetBool(Session, true);
             SessionState.SetBool(Session + "Finish", false);
             SessionState.SetInt(Session + "ExitCode", 0);
