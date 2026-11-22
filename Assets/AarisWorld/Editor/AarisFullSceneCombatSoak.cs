@@ -42,10 +42,9 @@ namespace Aaris.MapReview.Editor
         private static readonly List<float> loadedDelta = new List<float>(3500);
         private static int stage, lastFrame = -1, warmup, loadedFrames, damageEvents;
         private static float sampleStarted, previousTimeScale, previousFixedDelta;
-        private static bool sawRealRival, hadRuntimeError;
+        private static bool hadRuntimeError;
         private static int peakSpawned, peakActive;
         private static string errorFirst = "";
-        private static bool startedPlay;
         static AarisFullSceneCombatSoak()
         {
             EditorApplication.update += Tick;
@@ -72,7 +71,6 @@ namespace Aaris.MapReview.Editor
             SessionState.SetFloat(Session + "Deadline",
                 (float)EditorApplication.timeSinceStartup + 360f);
             stage = 0;
-            startedPlay = false;
             hadRuntimeError = false;
             errorFirst = "";
         }
@@ -160,7 +158,6 @@ namespace Aaris.MapReview.Editor
             director = Object.FindFirstObjectByType<AarisOfflineBRDirector>();
             if (player == null || director == null || player.AimCamera == null) return;
             // Wait for MonoBehaviour.Start to schedule the real async visual prewarm.
-            if ((bool)Read(director, "rivalVisualPrewarmComplete")) return;
             drop = player.GetComponent<AarisOfflineDrop>();
             health = player.GetComponent<AarisOfflineHealth>();
             if (drop == null || health == null)
@@ -219,11 +216,11 @@ namespace Aaris.MapReview.Editor
             // Real model import happens naturally on the next visual update.
             // Move the player to the first valid spawn and 5 other genuine
             // rivals into nearby sight range. This is transient Play Mode only.
-            AarisOfflineRival first = null;
+            Component first = null;
             for (int i = 0; i < rivals.Length; i++)
             {
-                first = rivals.GetValue(i) as AarisOfflineRival;
-                if (first != null && first.IsAlive) break;
+                first = rivals.GetValue(i) as Component;
+                if (first != null && IsAlive(first)) break;
             }
             if (first == null) throw new InvalidOperationException("NO_ALIVE_RIVAL");
             Vector3 center = first.transform.position;
@@ -231,8 +228,8 @@ namespace Aaris.MapReview.Editor
             int near = 0;
             for (int i = 0; i < rivals.Length && near < 6; i++)
             {
-                var bot = rivals.GetValue(i) as AarisOfflineRival;
-                if (bot == null || !bot.IsAlive) continue;
+                var bot = rivals.GetValue(i) as Component;
+                if (bot == null || !IsAlive(bot)) continue;
                 if (near > 0)
                 {
                     float angle = near * Mathf.PI * 2f / 6f;
@@ -264,9 +261,9 @@ namespace Aaris.MapReview.Editor
             int humanoids = 0, far = 0, visible = 0;
             for (int i = 0; i < rivals.Length; i++)
             {
-                var bot = rivals.GetValue(i) as AarisOfflineRival;
-                if (bot == null || !bot.IsAlive) continue;
-                if (bot.HasVisibleBody) visible++;
+                var bot = rivals.GetValue(i) as Component;
+                if (bot == null || !IsAlive(bot)) continue;
+                if (HasVisibleBody(bot)) visible++;
                 var close = (GameObject)Read(bot, "visualRoot");
                 var distant = (GameObject)Read(bot, "farVisualRoot");
                 if (close != null && close.activeInHierarchy) humanoids++;
@@ -287,6 +284,20 @@ namespace Aaris.MapReview.Editor
             Note("RESULT=" + (pass ? "PASS" : "FAIL") +
                 (pass ? "" : " expected_100_spawns_and_visible_real_rigs"));
             Complete(pass ? 0 : 1);
+        }
+
+        private static bool IsAlive(Component bot)
+        {
+            var property = bot.GetType().GetProperty("IsAlive",
+                BindingFlags.Instance | BindingFlags.Public);
+            return property != null && (bool)property.GetValue(bot);
+        }
+
+        private static bool HasVisibleBody(Component bot)
+        {
+            var property = bot.GetType().GetProperty("HasVisibleBody",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            return property != null && (bool)property.GetValue(bot);
         }
 
         private static void TrackDamage(AarisOfflineHealth receiver,
