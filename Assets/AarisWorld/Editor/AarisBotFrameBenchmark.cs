@@ -22,9 +22,11 @@ namespace Aaris.MapReview.Editor
     public static class AarisBotFrameBenchmark
     {
         private const string Session = "AarisBotFrameBenchmarkV1";
-        private const int BaselineFrames = 55;
-        private const int WarmupFrames = 30;
-        private const int LoadedFrames = 120;
+        private const int BaselineFrames = 200;
+        private const int BaselineWarmupFrames = 35;
+        private const int WarmupFrames = 55;
+        private const int MaximumLoadedFrames = 16000;
+        private const float MinimumLoadedGameSeconds = 1.3f;
         private static readonly string Folder =
             Path.Combine(Path.GetTempPath(), "aaris-bot-frame-benchmark");
         private static readonly BindingFlags Private =
@@ -34,17 +36,19 @@ namespace Aaris.MapReview.Editor
                 "Aaris.MapReview.AarisOfflineRival", true);
 
         private static readonly List<float> baseline = new List<float>(BaselineFrames);
-        private static readonly List<float> loaded = new List<float>(LoadedFrames);
+        private static readonly List<float> loaded = new List<float>(MaximumLoadedFrames);
         private static readonly List<float> baselineMain = new List<float>(BaselineFrames);
-        private static readonly List<float> loadedMain = new List<float>(LoadedFrames);
+        private static readonly List<float> loadedMain = new List<float>(MaximumLoadedFrames);
         private static readonly List<long> baselineGc = new List<long>(BaselineFrames);
-        private static readonly List<long> loadedGc = new List<long>(LoadedFrames);
+        private static readonly List<long> loadedGc = new List<long>(MaximumLoadedFrames);
         private static ProfilerRecorder mainRecorder, gcRecorder;
         private static Transform[] botTransforms;
         private static Vector3[] initialPositions;
         private static GameObject temporaryRoot;
         private static AarisOfflineBRDirector director;
         private static int phase, lastFrame = -1, warmCount, firstFrame;
+        private static int baselineWarmCount;
+        private static float loadedGameStart;
         private static bool failed;
         static AarisBotFrameBenchmark()
         {
@@ -102,6 +106,7 @@ namespace Aaris.MapReview.Editor
                 lastFrame = frame;
                 if (phase == 1)
                 {
+                    if (++baselineWarmCount <= BaselineWarmupFrames) return;
                     Capture(baseline, baselineMain, baselineGc);
                     if (baseline.Count >= BaselineFrames)
                     {
@@ -112,12 +117,19 @@ namespace Aaris.MapReview.Editor
                 }
                 else if (phase == 2)
                 {
-                    if (++warmCount >= WarmupFrames) phase = 3;
+                    if (++warmCount >= WarmupFrames)
+                    {
+                        loadedGameStart = Time.time;
+                        phase = 3;
+                    }
                 }
                 else if (phase == 3)
                 {
                     Capture(loaded, loadedMain, loadedGc);
-                    if (loaded.Count >= LoadedFrames) Complete();
+                    if (Time.time - loadedGameStart >= MinimumLoadedGameSeconds &&
+                        loaded.Count >= 600) Complete();
+                    else if (loaded.Count >= MaximumLoadedFrames)
+                        Fail("NOT_ENOUGH_GAME_TIME_IN_" + loaded.Count + "_FRAMES");
                 }
             }
             catch (Exception ex) { Fail(ex.GetType().Name + ": " + ex.Message); }
@@ -256,6 +268,7 @@ namespace Aaris.MapReview.Editor
 
         private static void Complete()
         {
+            float gameSeconds = Time.time - loadedGameStart;
             int moved = 0;
             for (int i = 0; i < botTransforms.Length; i++)
             {
@@ -272,6 +285,7 @@ namespace Aaris.MapReview.Editor
                 "BASELINE_GC=" + GcStats(baselineGc) + "\n" +
                 "100_BOT_GC=" + GcStats(loadedGc) + "\n" +
                 "BOTS_MOVED=" + moved + "/100\n" +
+                "LOADED_GAME_SECONDS=" + gameSeconds.ToString("F3") + "\n" +
                 "NOTE=Includes Editor overhead; excludes Android GPU, humanoids, map and loot VFX\n";
             File.AppendAllText(Path.Combine(Folder, "result.txt"), report);
             UnityEngine.Debug.Log("AARIS_BOT_FRAME_BENCHMARK " + report);
