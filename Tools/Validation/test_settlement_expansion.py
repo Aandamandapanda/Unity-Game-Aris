@@ -289,7 +289,11 @@ class ExpansionIntegrity(unittest.TestCase):
              "damageScratch[i] is IAarisDamageable damageable" in weapon),
             "damage application must discover IAarisDamageable without network state",
         )
-        self.assertIn("damageable.ApplyDamage(amount, attacker);", weapon)
+        # The non-health IAarisDamageable receiver (doors/windows) receives
+        # the already evaluated shot damage. Health/headshots use their
+        # dedicated receiver and UI notification path.
+        self.assertIn("float damage = amount;", weapon)
+        self.assertIn("else damageable.ApplyDamage(damage, attacker);", weapon)
         self.assertNotIn("Unity.Netcode", modular + panel)
         self.assertNotIn("NetworkBehaviour", modular + panel)
         # The original fused MeshCollider is never removed or turned off.
