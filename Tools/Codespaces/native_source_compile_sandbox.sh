@@ -48,9 +48,11 @@ mkdir -p "$WORK/project/Assets/Editor" "$WORK/project/Packages" \
 )
 cp "$SOURCE/ProjectSettings/ProjectVersion.txt" "$WORK/project/ProjectSettings/ProjectVersion.txt"
 cp "$SOURCE/Packages/manifest.json" "$WORK/project/Packages/manifest.json"
-if [[ -f "$SOURCE/Packages/packages-lock.json" ]]; then
-  cp "$SOURCE/Packages/packages-lock.json" "$WORK/project/Packages/packages-lock.json"
-fi
+# The same installed Editor passed an exact full-manifest package import
+# when Unity generated its own temporary lock, while a previous temporary
+# project importing the preexisting repository lock failed before C#.
+# Do not touch or rewrite the SOURCE lock: omit it only in /tmp.
+echo AARIS_NATIVE_COMPILE_TEMP_PACKAGE_LOCK=omitted
 count="$(find "$WORK/project/Assets" -type f -name '*.cs' | wc -l | tr -d ' ')"
 echo "AARIS_NATIVE_COMPILE_GAME_SCRIPTS=$count"
 if ((count < 90)); then
