@@ -338,11 +338,11 @@ namespace Aaris.MapReview.Editor
                 Check((bool)Call(director, "FindRivalOpponent", nearestArgs) &&
                     (Transform)nearestArgs[1] == blockedRival.transform,
                     "Nearest rival is initially selected by distance", report);
-                var cover = new GameObject("QA bot-versus-bot occlusion wall");
-                cover.transform.SetParent(root.transform, false);
-                cover.transform.position = arena +
+                var rivalCover = new GameObject("QA bot-versus-bot occlusion wall");
+                rivalCover.transform.SetParent(root.transform, false);
+                rivalCover.transform.position = arena +
                     new Vector3(0f, 1.20f, 4.5f);
-                cover.AddComponent<BoxCollider>().size =
+                rivalCover.AddComponent<BoxCollider>().size =
                     new Vector3(2.0f, 2.3f, .25f);
                 Physics.SyncTransforms();
                 Check(!(bool)Call(hunter, "HasSightToRival", blockedRival.transform),
@@ -354,7 +354,7 @@ namespace Aaris.MapReview.Editor
                     (Transform)fallback[2] == visibleRival.transform &&
                     (AarisOfflineHealth)fallback[3] == health[32],
                     "Cover-aware rival hunting chooses the visible second target", report);
-                Object.DestroyImmediate(cover);
+                Object.DestroyImmediate(rivalCover);
                 Physics.SyncTransforms();
                 Check((bool)Call(hunter, "HasSightToRival", blockedRival.transform),
                     "Nearest rival is visible again after cover removal", report);
