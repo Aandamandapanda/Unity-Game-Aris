@@ -53,6 +53,8 @@ jobs:
                            'AarisNativeSourceCompileGate.Run', '-batchmode -nographics -quit'):
               assert required in native, required
           assert 'git reset' not in native and 'git worktree' not in native
+          assert 'AARIS_NATIVE_COMPILE_TEMP_PACKAGE_LOCK=omitted' in native
+          assert 'cp "$SOURCE/Packages/packages-lock.json"' not in native
           baseline = Path('Tools/Codespaces/unity_empty_project_baseline.sh').read_text()
           assert 'mktemp -d /tmp/aaris-unity-empty.' in baseline
           assert 'AARIS_UNITY_BASELINE_RESULT=empty_editor_pass' in baseline
