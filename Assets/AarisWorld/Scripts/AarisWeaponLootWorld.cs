@@ -840,12 +840,18 @@ namespace Aaris.MapReview
 
         private bool CanReachPickup(AarisWeaponPickup pickup) => CanReachPoint(pickup.transform.position);
 
-        private bool CanReachPoint(Vector3 position)
+        private bool CanReachPoint(Vector3 position) =>
+            HasClearPickupPath(player, position);
+
+        // Shared player/bot LOS. Only the looter's own body is excluded.
+        // Bot loot attempts are already staggered on the AI think tick.
+        private bool HasClearPickupPath(Transform looter, Vector3 position)
         {
+            if (looter == null) return false;
             // Range is not enough: a weapon behind a solid wall must not be
             // collected through that wall. Ignore only the player's own
             // colliders, not all colliders on the player layer.
-            Vector3 eye = player.position + Vector3.up * .95f;
+            Vector3 eye = looter.position + Vector3.up * .95f;
             Vector3 target = position + Vector3.up * .24f;
             Vector3 toTarget = target - eye;
             float distance = toTarget.magnitude;
@@ -864,7 +870,7 @@ namespace Aaris.MapReview
             for (int i = 0; i < hits; i++)
             {
                 var collider = sightHits[i].collider;
-                if (collider == null || collider.transform.IsChildOf(player)) continue;
+                if (collider == null || collider.transform.IsChildOf(looter)) continue;
                 return false;
             }
             return true;
@@ -1145,11 +1151,12 @@ namespace Aaris.MapReview
         // Bot pickup uses the exact same floor weapon record as player pickup.
         // It never clones a gun, invents ammunition or desynchronizes the
         // candidate-consumed registry. Bot callers are already time-sliced.
-        internal bool TryTakeForRival(Vector3 position, out AarisWeaponSpec acquired)
+        internal bool TryTakeForRival(Transform rival, out AarisWeaponSpec acquired)
         {
             acquired = null;
-            if (!isActiveAndEnabled || !HasLandingAuthority || Time.timeScale <= 0f)
-                return false;
+            if (!isActiveAndEnabled || rival == null || !HasLandingAuthority ||
+                Time.timeScale <= 0f) return false;
+            Vector3 position = rival.position;
             for (int i = active.Count - 1; i >= 0; i--)
             {
                 AarisWeaponPickup pickup = active[i];
@@ -1158,6 +1165,8 @@ namespace Aaris.MapReview
                     continue;
                 if ((pickup.transform.position - position).sqrMagnitude >
                     PickupDistance * PickupDistance) continue;
+                // Never consume or reserve a floor gun through solid cover.
+                if (!HasClearPickupPath(rival, pickup.transform.position)) continue;
                 if (!pickup.TryReserve()) continue;
                 int id = pickup.CandidateIndex;
                 if (id >= 0)
