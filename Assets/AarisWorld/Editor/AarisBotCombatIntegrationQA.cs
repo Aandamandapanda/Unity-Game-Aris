@@ -96,6 +96,7 @@ namespace Aaris.MapReview.Editor
                     SceneManager.SetActiveScene(scratch);
                 }
                 VerifyDamage(report);
+                VerifyDestructibleHitConfirmation(report);
                 VerifyBots(report, active);
                 VerifyBotLootCover(report);
             }
@@ -192,6 +193,48 @@ namespace Aaris.MapReview.Editor
                     (Vector3?)(Origin + Vector3.up * 1.65f) });
                 Check(Mathf.Abs(bHp.CurrentHealth - 145f) < .01f && botHits == 2,
                     "Headshot applies 1.75x and notifies victim", report);
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
+        private static void VerifyDestructibleHitConfirmation(StringBuilder report)
+        {
+            var root = new GameObject("Destructible hit feedback audit");
+            try
+            {
+                var shooter = new GameObject("Shooter");
+                shooter.transform.SetParent(root.transform, false);
+                var wall = new GameObject("Gloo Wall");
+                wall.transform.SetParent(root.transform, false);
+                var wallCollider = wall.AddComponent<BoxCollider>();
+                var wallHealth = wall.AddComponent<AarisGlooWallHealth>();
+                var hit = typeof(AarisEquippedGun).GetMethod("ApplyDamage", Static,
+                    null, new[] { typeof(Collider), typeof(float), typeof(GameObject) }, null);
+                Check(hit != null && hit.ReturnType == typeof(bool),
+                    "Authoritative hit result", report);
+                Check(!(bool)hit.Invoke(null, new object[] { wallCollider, 10f, shooter }),
+                    "Uninitialized Gloo Wall cannot confirm damage", report);
+                wallHealth.Initialize(60f, 50f);
+                Check((bool)hit.Invoke(null, new object[] { wallCollider, 20f, shooter }) &&
+                    Mathf.Abs(wallHealth.CurrentHealth - 40f) < .01f,
+                    "Gloo Wall real HP loss confirms hit", report);
+                Set(wallHealth, "health", 0f);
+                Check(!(bool)hit.Invoke(null, new object[] { wallCollider, 20f, shooter }),
+                    "Depleted Gloo Wall rejects duplicate hit marker", report);
+                var panel = new GameObject("Window");
+                panel.transform.SetParent(root.transform, false);
+                var panelCollider = panel.AddComponent<BoxCollider>();
+                var panelHealth = panel.AddComponent<AarisBreakablePanel>();
+                Check(!(bool)hit.Invoke(null, new object[] { panelCollider, 10f, shooter }),
+                    "Unconfigured panel rejects phantom damage", report);
+                panelHealth.Configure(panel.transform, panelCollider, null,
+                    false, 45f, root.transform);
+                Check((bool)hit.Invoke(null, new object[] { panelCollider, 20f, shooter }) &&
+                    Mathf.Abs(panelHealth.CurrentHealth - 25f) < .01f,
+                    "Configured breakable panel reports real HP loss", report);
+                Set(panelHealth, "destroyed", true);
+                Check(!(bool)hit.Invoke(null, new object[] { panelCollider, 10f, shooter }),
+                    "Broken panel rejects duplicate hit marker", report);
             }
             finally { Object.DestroyImmediate(root); }
         }
