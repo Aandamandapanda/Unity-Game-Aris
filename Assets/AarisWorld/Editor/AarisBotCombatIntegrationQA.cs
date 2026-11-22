@@ -406,6 +406,36 @@ namespace Aaris.MapReview.Editor
                 Physics.SyncTransforms();
                 Check((bool)Call(hunter, "HasSightToRival", blockedRival.transform),
                     "Nearest rival is visible again after cover removal", report);
+                // A previously selected shooter must lose permission as soon
+                // as its authoritative HP reaches zero. A new full roster
+                // scan may refill the slot, but no intermediate scan slice
+                // may ever authorize a third simultaneous player attacker.
+                var eliminatedAttacker = Get(director, "attackerOne") as Component;
+                int eliminatedIndex = Array.IndexOf(bots, eliminatedAttacker);
+                Check(eliminatedIndex >= 0,
+                    "Selected attacker still belongs to 100-rival roster", report);
+                health[eliminatedIndex].ApplyDamage(250f, player);
+                Check(health[eliminatedIndex].IsDead &&
+                    !(bool)Call(director, "MayAttackPlayer", eliminatedAttacker),
+                    "Eliminated bot immediately loses player attack permission", report);
+                Set(director, "nextAttackerSelection", -1f);
+                Set(director, "attackerScanCursor", -1);
+                int maximumConcurrent = 0;
+                int finalConcurrent = 0;
+                for (int frame = 0; frame < 9; frame++)
+                {
+                    Set(director, "attackerScanFrame", -1);
+                    Call(director, "RefreshPlayerAttackers");
+                    int concurrent = 0;
+                    for (int i = 0; i < bots.Length; i++)
+                        if ((bool)Call(director, "MayAttackPlayer", bots[i]))
+                            concurrent++;
+                    maximumConcurrent = Mathf.Max(maximumConcurrent, concurrent);
+                    finalConcurrent = concurrent;
+                }
+                Check(maximumConcurrent <= 2 && finalConcurrent == 2 &&
+                    !(bool)Call(director, "MayAttackPlayer", eliminatedAttacker),
+                    "Death replacement remains capped at two through every scan slice", report);
             }
             finally { Object.DestroyImmediate(root); }
         }
