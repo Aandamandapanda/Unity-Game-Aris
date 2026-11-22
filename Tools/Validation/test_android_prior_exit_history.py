@@ -42,10 +42,14 @@ class PriorExitHistory(unittest.TestCase):
         self.assertIn("yield return new WaitForSecondsRealtime(12f);", probe)
         self.assertIn("AarisAndroidExitHistory.QueryAsync();", probe)
         self.assertIn("while (!query.IsCompleted) yield return null;", probe)
-        self.assertIn('Record("previous-process-exit");', probe)
+        # The JNI result is captured after startup, but JSON/profiler output
+        # is deferred again to an available nonessential diagnostic frame.
+        self.assertIn("previousProcessExitReportPending = true;", probe)
         update = RUNTIME.split("private void Update()", 1)[1].split(
             "private void OnLowMemory()", 1
         )[0]
+        self.assertIn("if (previousProcessExitReportPending && CanRecordPeriodicDiagnostics())", update)
+        self.assertIn('Record("previous-process-exit");', update)
         self.assertNotIn("getHistoricalProcessExitReasons", update)
         self.assertNotIn("QueryAsync()", update)
         self.assertNotIn("AndroidJNI", update)
