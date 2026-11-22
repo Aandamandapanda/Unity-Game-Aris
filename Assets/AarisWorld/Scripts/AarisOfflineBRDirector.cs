@@ -677,6 +677,60 @@ namespace Aaris.MapReview
             return victim != null;
         }
 
+        // The closest rival may be behind cover while another is visible.
+        // Only a bot whose first target already failed a combat-range LOS
+        // check asks for an alternative. Scan positions once without GC;
+        // then try at most THREE nearest alternate LOS paths. This avoids
+        // 100 expensive raycasts per thinking bot on 2 GB Android devices.
+        internal bool TryFindVisibleRivalAlternative(AarisOfflineRival hunter,
+            Transform blocked, out Transform victim,
+            out AarisOfflineHealth victimHealth)
+        {
+            victim = null;
+            victimHealth = null;
+            if (hunter == null) return false;
+            const float maxRangeSqr = 42f * 42f;
+            AarisOfflineRival first = null, second = null, third = null;
+            float d1 = maxRangeSqr, d2 = maxRangeSqr, d3 = maxRangeSqr;
+            Vector3 from = hunter.transform.position;
+            for (int i = 0; i < rivals.Length; i++)
+            {
+                AarisOfflineRival bot = rivals[i];
+                if (bot == null || bot == hunter || !bot.IsAlive ||
+                    bot.transform == blocked) continue;
+                float sqr = (bot.transform.position - from).sqrMagnitude;
+                if (sqr >= d3) continue;
+                if (sqr < d1)
+                {
+                    third = second; d3 = d2;
+                    second = first; d2 = d1;
+                    first = bot; d1 = sqr;
+                }
+                else if (sqr < d2)
+                {
+                    third = second; d3 = d2;
+                    second = bot; d2 = sqr;
+                }
+                else
+                {
+                    third = bot; d3 = sqr;
+                }
+            }
+            // No list, allocations or unrestricted per-candidate raycasts.
+            AarisOfflineRival candidate = first;
+            for (int i = 0; i < 3; i++)
+            {
+                if (i == 1) candidate = second;
+                else if (i == 2) candidate = third;
+                if (candidate == null) continue;
+                if (!hunter.HasSightToRival(candidate.transform)) continue;
+                victim = candidate.transform;
+                victimHealth = candidate.Health;
+                return true;
+            }
+            return false;
+        }
+
         // A camera-visible enemy is not red-locked through a barrel-side wall.
         // Match TryFire's stance eye-height and near-muzzle obstruction probe.
         private static bool MuzzlePathOpenTo(Transform shooter, Transform victim,
@@ -1354,6 +1408,22 @@ namespace Aaris.MapReview
                     target != null ? target.GetComponent<CharacterController>() : null;
                 canSee = target != null && targetHealth != null && !targetHealth.IsDead &&
                     (target.position - transform.position).sqrMagnitude < 42f * 42f && HasSight();
+                // If the nearest rival is behind a wall, a second visible
+                // opponent in the same 42m combat band is more meaningful
+                // than endlessly staring at the first obstruction. Only
+                // run this bounded search on an actual occluded rival;
+                // never steal one of the two reserved player-attack slots.
+                if (!canSee && target != null && target != playerTarget &&
+                    (target.position - transform.position).sqrMagnitude < 42f * 42f &&
+                    owner.TryFindVisibleRivalAlternative(this, target,
+                        out Transform clearRival, out AarisOfflineHealth clearHealth))
+                {
+                    target = clearRival;
+                    targetHealth = clearHealth;
+                    targetCapsule = target.GetComponent<CharacterController>();
+                    // Revalidate after adopting the real target capsule.
+                    canSee = HasSight();
+                }
                 if (!canSee)
                 {
                     turnOffset += UnityEngine.Random.Range(-35f, 35f);
@@ -1535,6 +1605,10 @@ namespace Aaris.MapReview
         }
 
         private bool HasSight() { return HasSightTo(target); }
+
+        // The director uses this only after the nearest bot target fails
+        // LOS, with at most three alternate candidates per think tick.
+        internal bool HasSightToRival(Transform victim) => HasSightTo(victim);
 
         private bool HasSightTo(Transform victim)
         {
