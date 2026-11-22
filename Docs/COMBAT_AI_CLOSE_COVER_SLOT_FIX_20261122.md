@@ -40,6 +40,18 @@ Run on `Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity` using `Aaris.
 
 The Editor frame duration was paced near 16.7 ms, and measured GC included unrelated scene systems. Neither number establishes Android FPS, phone thermal behavior, first-launch stutter or game-only GC. No terrain scene, prefabs, animations, FBX files or URP quality settings were changed.
 
+## 100-bot logical CPU regression after the fix
+
+The same validated Editor-only `AarisBotFrameBenchmark.Run` was repeated with the production fix applied. Result: **PASS**, Unity exit `0`, 100/100 actors moved, 1.300 game seconds, 0 compilation errors. The measurements were:
+
+| Metric | No rivals | 100 logical rivals |
+| --- | ---: | ---: |
+| Mean Main Thread | 0.222 ms | 0.347 ms |
+| Main Thread p95 | 0.257 ms | 0.397 ms |
+| Mean GC Allocated In Frame | 704.0 B/frame | 705.4 B/frame |
+
+This particular test's 100-rival minus zero-rival mean is **0.125 ms/frame**. Earlier independently measured editor baselines on the same project ranged around 0.131–0.133 ms/frame extra logic time, but machine load and the randomized simulation differ, so this is **not a proven speedup**. It shows no obvious gross regression in the isolated workload. The benchmark models 3 nearby and 97 distant logical bot instances, not 100 visible high-quality animated characters, so its graphics and Android performance claims remain strictly limited.
+
 ## Reproduce
 
 ```bash
