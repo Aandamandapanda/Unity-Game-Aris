@@ -340,5 +340,22 @@ class CombatEndToEndContract(unittest.TestCase):
         self.assertLessEqual(max_after_first, 10)
 
 
+
+class PositionlessMeleeFeedbackContract(unittest.TestCase):
+    def test_melee_damage_routes_to_pooled_popup_without_headshot(self):
+        actions = read("AarisBattleActions.cs")
+        self.assertIn("ApplyDamage(victim, punchDamage, gameObject);", actions)
+        self.assertIn("ApplyDamage(collider, amount, attacker, null);", GUN)
+        health_case = GUN.split("if (damageable is AarisOfflineHealth victim)", 1)[1].split(
+            "else damageable.ApplyDamage(damage, attacker);", 1)[0]
+        self.assertIn("if (hitPosition.HasValue)", health_case)
+        self.assertIn("IsAuthoredHeadHit(collider, node)", health_case)
+        self.assertIn("victim.ApplyHitDamage(damage, attacker, headshot);", health_case)
+        self.assertIn("AarisCombatFeedbackHUD.NotifyOutgoingDamage(", health_case)
+        self.assertIn("hitPosition ?? collider.bounds.center", health_case)
+        self.assertNotIn("victim && hitPosition.HasValue", GUN)
+        qa = (ROOT / "Assets/AarisWorld/Editor/AarisFullSceneCombatSoak.cs").read_text()
+        self.assertIn("MELEE_DAMAGE_FLOATING_NUMBER_MISSING", qa)
+
 if __name__ == "__main__":
     unittest.main()

@@ -749,20 +749,22 @@ namespace Aaris.MapReview
                         !health.IsDead;
                     bool headshot = false;
                     float damage = amount;
-                    if (damageable is AarisOfflineHealth victim && hitPosition.HasValue)
+                    if (damageable is AarisOfflineHealth victim)
                     {
-                        Bounds bounds = collider.bounds;
-                        // Respect the current collision stance (standing, crouching,
-                        // prone), rather than assuming a standing 1.8m capsule.
-                        // Only the receiver's own full-body collider can
-                        // use height-based head detection. A raised hand,
-                        // forearm or shoulder child collider is not a head,
-                        // even when struck in its upper 21 percent. Authored
-                        // Head/HeadCollider child hitboxes remain authoritative.
-                        headshot = IsAuthoredHeadHit(collider, node) ||
-                            (collider.transform == node &&
-                             bounds.size.y > .28f && hitPosition.Value.y >=
-                                bounds.min.y + bounds.size.y * .79f);
+                        // Unpositioned melee receives real HP feedback, but no
+                        // unearned headshot without a physical hit coordinate.
+                        if (hitPosition.HasValue)
+                        {
+                            Bounds bounds = collider.bounds;
+                            // Head threshold uses the current standing,
+                            // crouched or prone capsule, not a fixed height.
+                            // An arm/shoulder child cannot become a headshot.
+                            // Authored HeadCollider/Head bones still qualify.
+                            headshot = IsAuthoredHeadHit(collider, node) ||
+                                (collider.transform == node &&
+                                 bounds.size.y > .28f && hitPosition.Value.y >=
+                                    bounds.min.y + bounds.size.y * .79f);
+                        }
                         if (headshot) damage *= 1.75f;
                         float before = victim.CurrentHealth;
                         victim.ApplyHitDamage(damage, attacker, headshot);

@@ -612,6 +612,20 @@ namespace Aaris.MapReview.Editor
                 throw new InvalidOperationException("REAL_WALL_SHOT_PASSED_COVER");
             Note("PASS real AssaultRifle no red-lock and no HP damage through wall");
             Object.Destroy(wall);
+            // A punch has no hit coordinate: validate actual 10 HP body damage
+            // and the reusable floating damage-number feedback in Play Mode.
+            victimHp.RestoreHealth(200f);
+            int meleePopupBefore = (int)Read(hud, "numberIndex");
+            var meleeRoute = typeof(AarisEquippedGun).GetMethod("ApplyDamage",
+                BindingFlags.Static | BindingFlags.NonPublic, null,
+                new[] { typeof(Collider), typeof(float), typeof(GameObject) }, null);
+            if (meleeRoute == null)
+                throw new InvalidOperationException("MELEE_DAMAGE_ROUTE_MISSING");
+            meleeRoute.Invoke(null, new object[] { victimCapsule, 10f, player.gameObject });
+            if (Mathf.Abs(victimHp.CurrentHealth - 190f) > .001f ||
+                (int)Read(hud, "numberIndex") != meleePopupBefore + 1)
+                throw new InvalidOperationException("MELEE_DAMAGE_FLOATING_NUMBER_MISSING");
+            Note("PASS unpositioned melee hits body HP and shows pooled damage popup");
 
             // Incoming victim damage must update 200-HP text/bar AND flash.
             health.ApplyDamage(25f, victim.gameObject);
