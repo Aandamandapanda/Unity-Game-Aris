@@ -110,11 +110,7 @@ run_checked rig env -u AARIS_FULLSCENE_SOAK_SECONDS \
 grep -qx 'RESULT=PASS' "$TERRAIN_REPORT"
 grep -q '^SPAWNED_REAL_SCENE=100/100 ' "$TERRAIN_REPORT"
 grep -q '^PASS distant rig and PlayableGraph retired:' "$TERRAIN_REPORT"
-grep -Eq '^PASS original humanoid rig restored with [1-9][0-9]* renderers
-echo COMBAT_GATE_SCOPES=0,1,2,4
-echo COMBAT_GATE_NATIVE_DAMAGE=bidirectional
-echo COMBAT_GATE_ANDROID_FPS=not_measured
- "$TERRAIN_REPORT"
+grep -Eq '^PASS original humanoid rig restored with [1-9][0-9]* renderers$' "$TERRAIN_REPORT"
 echo COMBAT_GATE_RIG_REBUILD=PASS
 echo COMBAT_GATE_SCENE_BOTS=100/100
 echo COMBAT_GATE_SCOPES=0,1,2,4
