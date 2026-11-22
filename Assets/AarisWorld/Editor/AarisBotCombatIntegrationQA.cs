@@ -213,6 +213,20 @@ namespace Aaris.MapReview.Editor
                     Set(director, "attackerScanFrame", -1);
                     Call(director, "RefreshPlayerAttackers");
                 }
+                for (int i = 0; i < 3; i++)
+                {
+                    object[] ray = { player.transform, default(RaycastHit) };
+                    bool los = (bool)Call(bots[i], "TryGetSightHit", ray);
+                    bool selected = (bool)Call(bots[i], "HasPlayerSightForSelection");
+                    report.AppendLine("DEBUG bot=" + i + " visible=" +
+                        ((GameObject)Get(bots[i], "visualRoot")).activeInHierarchy +
+                        " los=" + los + " selected=" + selected +
+                        " hit=" + (((RaycastHit)ray[1]).collider != null ?
+                            ((RaycastHit)ray[1]).collider.name : "null"));
+                }
+                report.AppendLine("DEBUG cursor=" + Get(director, "attackerScanCursor") +
+                    " nearest=" + Get(director, "attackerScanFirst") +
+                    " second=" + Get(director, "attackerScanSecond"));
                 var first = Get(director, "attackerOne");
                 var second = Get(director, "attackerTwo");
                 Check(first != null && second != null && first != second,
