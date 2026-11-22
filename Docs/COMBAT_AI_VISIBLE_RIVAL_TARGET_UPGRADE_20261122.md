@@ -40,7 +40,11 @@ The observed 100-bot minus zero-bot delta was 0.144 ms in this run. Previous edi
 
 ## Full-scene and device limits
 
-The full authored `TerrainDemoScene.unity` verification uses real terrain, 100 spawned rivals, Humanoid visuals, distant LODs, actual player damage, all four scope tiers, 3 stance-aware shots, 200 HP feedback and solid-wall shot blocking. Its result is recorded separately after execution.
+The full authored `TerrainDemoScene.unity` verification uses real terrain, 100 spawned rivals, Humanoid visuals, distant LODs, actual player damage, all four scope tiers, 3 stance-aware shots, 200 HP feedback and solid-wall shot blocking.
+
+**Verified full-scene result after the production AI change:** Unity Editor 6000.3.26f1 exited `0` with `RESULT=PASS`; **100/100 real terrain rivals** spawned on first pass, all 100 alive at the measurement boundary, **7 nearby Humanoid rigs**, **20 distant LOD visuals** and **13 genuine player HP-damage events**. Shotgun/SMG/AssaultRifle/Sniper optical tiers **4/4 PASS**; standing/crouching/prone 2x shots **3/3 PASS**; physical wall stopped Red-Lock and HP damage; HP 200→175 HUD and hit flash PASS. The 200-frame headless Editor timings were paced near 16.7 ms and do not represent on-device FPS.
+
+**Verified final source QA:** On the final branch, `AarisBotCombatIntegrationQA.Run` exited Unity `0` with `RESULT=PASS`, 0 compiler errors, and **`PASS Live bot think chooses and sees wall-clear rival`** in addition to the direct alternative-target test and existing 100-bot/player-damage assertions.
 
 The benchmark/QA additions are Editor-only. No graphics-quality reduction, mesh replacement, terrain rewrite, new git worktree, or changes to other agents' pending assets are part of this upgrade. Android 2 GB devices still need on-device profiling and heat/first-start hitch checks.
 
