@@ -265,8 +265,28 @@ namespace Aaris.MapReview.Editor
                 Physics.SyncTransforms();
                 Check(!(bool)muzzle.Invoke(bots[1], new object[] { player.transform }),
                     "Bot shot blocked by close solid muzzle cover", report);
+                Check(!(bool)Call(bots[1], "HasSightTo", player.transform),
+                    "Close wall now blocks bot tactical LOS before attack", report);
+                Check(!(bool)Call(bots[1], "HasPlayerSightForSelection"),
+                    "Covered rival cannot claim one of two attack slots", report);
+                // Re-run the actual staged selector while the nearest rival
+                // remains behind a 48cm muzzle-origin blind spot. The other
+                // two visible rivals must replace the blocked contender.
+                Set(director, "nextAttackerSelection", -1f);
+                Set(director, "attackerScanCursor", -1);
+                for (int frame = 0; frame < 9; frame++)
+                {
+                    Set(director, "attackerScanFrame", -1);
+                    Call(director, "RefreshPlayerAttackers");
+                }
+                Check(!(bool)Call(director, "MayAttackPlayer", bots[1]) &&
+                    (bool)Call(director, "MayAttackPlayer", bots[0]) &&
+                    (bool)Call(director, "MayAttackPlayer", bots[2]),
+                    "100-bot scheduler replaces thin-wall blocked attacker", report);
                 Object.DestroyImmediate(cover);
                 Physics.SyncTransforms();
+                Check((bool)Call(bots[1], "HasPlayerSightForSelection"),
+                    "Bot may reacquire attacker slot after wall removal", report);
 
                 var cameraObj = new GameObject("QA scope camera");
                 cameraObj.transform.SetParent(player.transform, false);
