@@ -76,8 +76,16 @@ namespace Aaris.MapReview.Editor
             {
                 if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling)
                     throw new InvalidOperationException("EDITOR_BUSY");
-                scratch = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
-                SceneManager.SetActiveScene(scratch);
+                // Batchmode can start with an unsaved empty untitled scene.
+                // Unity disallows additive scene creation beside that scene.
+                bool emptyBatchScene = Application.isBatchMode &&
+                    string.IsNullOrEmpty(original.path) && original.rootCount == 0;
+                if (!emptyBatchScene)
+                {
+                    scratch = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,
+                        NewSceneMode.Additive);
+                    SceneManager.SetActiveScene(scratch);
+                }
                 VerifyDamage(report);
                 VerifyBots(report, active);
             }
