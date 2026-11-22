@@ -451,6 +451,7 @@ namespace Aaris.MapReview
                 var rival = actor.AddComponent<AarisOfflineRival>();
                 rival.Initialize(this, health, player, playerHealth, index);
                 rivals[index] = rival;
+                TrackRivalPosition(index, rival, point);
                 populatedSlots[index] = true;
                 activeRivals++;
                 spawnedRivals++;
@@ -636,6 +637,8 @@ namespace Aaris.MapReview
 
         internal void RivalDefeated(AarisOfflineRival rival)
         {
+            if (rival != null)
+                UntrackRivalPosition(rival.SpatialSlot, rival);
             if (activeRivals > 0) activeRivals--;
             if (spawnComplete && spawnedRivals > 0 && activeRivals == 0 &&
                 playerHealth != null && !playerHealth.IsDead &&
@@ -723,6 +726,91 @@ namespace Aaris.MapReview
         // Distant opponents are strategic hunt targets, not shooting targets.
         // Only the existing 42 m LOS gate and 38 m firing gate permit damage.
         private const float RivalHuntRadius = 110f;
+        // 110m spatial cells: any rival within hunt range is in the current
+        // cell or one of eight neighbours. Preallocated arrays + hash buckets
+        // avoid scanning 100 native Transforms for every distant hunt.
+        private const int RivalSpatialBuckets = 256;
+        private readonly int[] rivalBucketHeads = new int[RivalSpatialBuckets];
+        private readonly int[] rivalSpatialNext = new int[RivalCount];
+        private readonly int[] rivalSpatialPrevious = new int[RivalCount];
+        private readonly int[] rivalSpatialBuckets = new int[RivalCount];
+        private readonly long[] rivalSpatialKeys = new long[RivalCount];
+        private readonly bool[] rivalSpatialRegistered = new bool[RivalCount];
+        private bool rivalBucketsInitialized;
+        private int indexedRivals;
+
+        private static int RivalCell(float coordinate) =>
+            Mathf.FloorToInt(coordinate / RivalHuntRadius);
+
+        private static long RivalCellKey(int x, int z) =>
+            ((long)x << 32) | (uint)z;
+
+        private static int RivalBucket(int x, int z) =>
+            unchecked((x * 73856093) ^ (z * 19349663)) &
+            (RivalSpatialBuckets - 1);
+
+        private void PrepareRivalBuckets()
+        {
+            if (rivalBucketsInitialized) return;
+            for (int i = 0; i < rivalBucketHeads.Length; i++)
+                rivalBucketHeads[i] = -1;
+            rivalBucketsInitialized = true;
+        }
+
+        private void RemoveRivalSpatialSlot(int slot)
+        {
+            if (slot < 0 || slot >= RivalCount || !rivalSpatialRegistered[slot])
+                return;
+            int previous = rivalSpatialPrevious[slot];
+            int next = rivalSpatialNext[slot];
+            if (previous < 0) rivalBucketHeads[rivalSpatialBuckets[slot]] = next;
+            else rivalSpatialNext[previous] = next;
+            if (next >= 0) rivalSpatialPrevious[next] = previous;
+            rivalSpatialRegistered[slot] = false;
+            indexedRivals--;
+        }
+
+        internal void UntrackRivalPosition(int slot, AarisOfflineRival bot)
+        {
+            if (slot >= 0 && slot < RivalCount && rivals[slot] == bot)
+                RemoveRivalSpatialSlot(slot);
+        }
+
+        internal void TrackRivalPosition(int slot, AarisOfflineRival bot,
+            Vector3 position)
+        {
+            if (slot < 0 || slot >= RivalCount || rivals[slot] != bot) return;
+            PrepareRivalBuckets();
+            int x = RivalCell(position.x), z = RivalCell(position.z);
+            long key = RivalCellKey(x, z);
+            if (rivalSpatialRegistered[slot] && rivalSpatialKeys[slot] == key)
+                return;
+            RemoveRivalSpatialSlot(slot);
+            int bucket = RivalBucket(x, z);
+            int head = rivalBucketHeads[bucket];
+            rivalSpatialNext[slot] = head;
+            rivalSpatialPrevious[slot] = -1;
+            if (head >= 0) rivalSpatialPrevious[head] = slot;
+            rivalBucketHeads[bucket] = slot;
+            rivalSpatialKeys[slot] = key;
+            rivalSpatialBuckets[slot] = bucket;
+            rivalSpatialRegistered[slot] = true;
+            indexedRivals++;
+        }
+
+        private void BootstrapRivalSpatialIndex()
+        {
+            PrepareRivalBuckets();
+            // Supports Editor harnesses that populate rivals by reflection.
+            if (indexedRivals != 0) return;
+            for (int i = 0; i < rivals.Length; i++)
+            {
+                AarisOfflineRival bot = rivals[i];
+                if (bot != null && bot.IsAlive)
+                    TrackRivalPosition(i, bot, bot.transform.position);
+            }
+        }
+
         private const int AlternativeBudget = 6;
         private readonly AarisOfflineRival[] alternativeBots = new AarisOfflineRival[AlternativeBudget];
         private readonly float[] alternativeDistSq = new float[AlternativeBudget];
@@ -731,15 +819,36 @@ namespace Aaris.MapReview
             out Transform victim, out AarisOfflineHealth victimHealth)
         {
             victim = null; victimHealth = null;
+            if (self == null) return false;
+            BootstrapRivalSpatialIndex();
+            Vector3 origin = self.transform.position;
+            // The requester can have been teleported by an external script.
+            TrackRivalPosition(self.SpatialSlot, self, origin);
+            int cx = RivalCell(origin.x), cz = RivalCell(origin.z);
             float nearest = RivalHuntRadius * RivalHuntRadius;
-            for (int i = 0; i < rivals.Length; i++)
-            {
-                AarisOfflineRival bot = rivals[i];
-                if (bot == null || bot == self || !bot.IsAlive) continue;
-                float d = (bot.transform.position - self.transform.position).sqrMagnitude;
-                if (d >= nearest) continue;
-                nearest = d; victim = bot.transform; victimHealth = bot.Health;
-            }
+            int nearestIndex = RivalCount;
+            for (int x = cx - 1; x <= cx + 1; x++)
+                for (int z = cz - 1; z <= cz + 1; z++)
+                {
+                    long key = RivalCellKey(x, z);
+                    int bucket = RivalBucket(x, z);
+                    for (int i = rivalBucketHeads[bucket]; i >= 0;
+                         i = rivalSpatialNext[i])
+                    {
+                        if (rivalSpatialKeys[i] != key) continue;
+                        AarisOfflineRival bot = rivals[i];
+                        if (bot == null || bot == self || !bot.IsAlive) continue;
+                        float d = (bot.transform.position - origin).sqrMagnitude;
+                        // Preserve strict 110m range and old slot-order ties.
+                        if (d >= RivalHuntRadius * RivalHuntRadius ||
+                            d > nearest || (d == nearest && i >= nearestIndex))
+                            continue;
+                        nearest = d;
+                        nearestIndex = i;
+                        victim = bot.transform;
+                        victimHealth = bot.Health;
+                    }
+                }
             return victim != null;
         }
 
@@ -1224,6 +1333,8 @@ namespace Aaris.MapReview
         private float farSimulationPhase;
 #endif
         private float avoidanceHandedness;
+        private int spatialSlot = -1;
+        internal int SpatialSlot => spatialSlot;
         private bool canSee;
         private PlayableGraph graph;
         private AnimationMixerPlayable animations;
@@ -1239,6 +1350,7 @@ namespace Aaris.MapReview
             Transform victim, AarisOfflineHealth victimHealth, int encounterSlot)
         {
             owner = director;
+            spatialSlot = encounterSlot;
             health = self;
             target = null;
             targetHealth = null;
@@ -1837,6 +1949,7 @@ namespace Aaris.MapReview
             Vector3 beforeMove = transform.position;
             CollisionFlags hit = capsule.Move(displacement +
                 Vector3.up * (verticalSpeed * dt));
+            owner.TrackRivalPosition(spatialSlot, this, transform.position);
             if ((hit & CollisionFlags.Sides) != 0 && !canSee)
                 turnOffset = -turnOffset + UnityEngine.Random.Range(-28f, 28f);
 
@@ -1970,6 +2083,7 @@ namespace Aaris.MapReview
                 if (owner.TryVirtualGround(next.x, next.z, out float ground))
                     next.y = ground + 0.08f;
                 transform.position = next;
+                owner.TrackRivalPosition(spatialSlot, this, next);
                 if (direction.sqrMagnitude > 0.0001f)
                     transform.rotation = Quaternion.LookRotation(direction);
             }
@@ -2265,6 +2379,8 @@ namespace Aaris.MapReview
 
         private void OnDestroy()
         {
+            if (owner != null)
+                owner.UntrackRivalPosition(spatialSlot, this);
             if (health != null)
             {
                 health.Died -= OnDied;

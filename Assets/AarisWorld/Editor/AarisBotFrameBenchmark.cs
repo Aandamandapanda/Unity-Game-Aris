@@ -216,6 +216,9 @@ namespace Aaris.MapReview.Editor
                 var self = go.AddComponent<AarisOfflineHealth>();
                 var brain = go.AddComponent(BotType);
                 Set(brain, "owner", director);
+                // The synthetic test bypasses Initialize; assign a real
+                // roster slot so spatial updates match production behavior.
+                Set(brain, "spatialSlot", i);
                 Set(brain, "health", self);
                 Set(brain, "capsule", capsule);
                 Set(brain, "playerTarget", player);
