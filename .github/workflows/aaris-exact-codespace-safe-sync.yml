@@ -8,6 +8,7 @@ on:
       - 'Tools/Codespaces/editor_status_readonly.sh'
       - 'Tools/Codespaces/native_source_compile_sandbox.sh'
       - 'Tools/Codespaces/unity_empty_project_baseline.sh'
+      - 'Tools/Codespaces/unity_package_matrix_probe.sh'
   issue_comment:
     types: [created]
 
@@ -30,6 +31,7 @@ jobs:
           bash -n Tools/Codespaces/editor_status_readonly.sh
           bash -n Tools/Codespaces/native_source_compile_sandbox.sh
           bash -n Tools/Codespaces/unity_empty_project_baseline.sh
+          bash -n Tools/Codespaces/unity_package_matrix_probe.sh
           python3 - <<'PY'
           from pathlib import Path
           s = Path('Tools/Codespaces/canonical_safe_sync.sh').read_text()
@@ -57,6 +59,11 @@ jobs:
           assert '-batchmode -nographics -quit' in baseline
           assert 'AARIS_UNITY_BASELINE_PACKAGE_PROJECT_GAME_SCRIPTS=0' in baseline
           assert 'git reset' not in baseline and 'git worktree' not in baseline
+          matrix = Path('Tools/Codespaces/unity_package_matrix_probe.sh').read_text()
+          for required in ('mktemp -d', 'AARIS_PKG_MATRIX_RESULT=diagnostic_completed',
+                           'full_graphics', 'modules ugui urp vfx full', 'xvfb-run -a'):
+              assert required in matrix, required
+          assert 'git reset' not in matrix and 'git worktree' not in matrix
           print('AARIS_SAFE_SYNC_STATIC_PASS')
           PY
 
@@ -70,7 +77,8 @@ jobs:
        startsWith(github.event.comment.body, 'AARIS CANONICAL COMPILE ') ||
        startsWith(github.event.comment.body, 'AARIS CANONICAL EDITOR_STATUS ') ||
        startsWith(github.event.comment.body, 'AARIS CANONICAL NATIVE_COMPILE ') ||
-       startsWith(github.event.comment.body, 'AARIS CANONICAL UNITY_BASELINE '))
+       startsWith(github.event.comment.body, 'AARIS CANONICAL UNITY_BASELINE ') ||
+       startsWith(github.event.comment.body, 'AARIS CANONICAL PKG_MATRIX '))
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     permissions:
@@ -91,7 +99,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ -n "$GH_TOKEN" ]] || { echo 'AARIS_SAFE_SYNC_TOKEN_NOT_CONFIGURED'; exit 11; }
-          [[ "$REQUEST" =~ ^AARIS[[:space:]]CANONICAL[[:space:]](STATUS|SYNC|COMPILE|EDITOR_STATUS|NATIVE_COMPILE|UNITY_BASELINE)[[:space:]](aaris-ai-[a-zA-Z0-9-]{3,110})$ ]] || {
+          [[ "$REQUEST" =~ ^AARIS[[:space:]]CANONICAL[[:space:]](STATUS|SYNC|COMPILE|EDITOR_STATUS|NATIVE_COMPILE|UNITY_BASELINE|PKG_MATRIX)[[:space:]](aaris-ai-[a-zA-Z0-9-]{3,110})$ ]] || {
             echo 'AARIS_SAFE_SYNC_INVALID_REQUEST'; exit 12;
           }
           MODE="${BASH_REMATCH[1],,}"
@@ -146,6 +154,14 @@ jobs:
                 echo AARIS_SAFE_SYNC_UNITY_BASELINE_FAILED
                 exit 18
               }
+          elif [[ "$SAFE_MODE" == pkg_matrix ]]; then
+            # Read-only original project. Only temporary variants are imported.
+            timeout 620 gh codespace ssh -c "$SAFE_MACHINE" -- "bash -s" \
+              < Tools/Codespaces/unity_package_matrix_probe.sh \
+              > "$RUNNER_TEMP/safe-sync-result.txt" 2> "$RUNNER_TEMP/safe-sync-private-errors.txt" || {
+                echo AARIS_SAFE_SYNC_PKG_MATRIX_UNAVAILABLE
+                exit 19
+              }
           else
             timeout 420 gh codespace ssh -c "$SAFE_MACHINE" -- "bash -s -- $SAFE_MODE" \
               < Tools/Codespaces/canonical_safe_sync.sh \
@@ -166,8 +182,8 @@ jobs:
             echo
             echo '```text'
             if [[ -s "$RUNNER_TEMP/safe-sync-result.txt" ]]; then
-              grep -E '^AARIS_SYNC_[A-Z0-9_]+=[a-zA-Z0-9_-]+$|^UNITY_COMPILER_(LOG_FOUND|LOG_NOT_FOUND|ERROR_COUNT_[0-9]+|ERRORS_NOT_IN_AVAILABLE_LOGS)$|^AARIS_EDITOR_STATUS_[A-Z0-9_]+=[a-zA-Z0-9_-]+$|^AARIS_NATIVE_COMPILE_[A-Z0-9_]+=[a-zA-Z0-9_-]+$|^AARIS_UNITY_BASELINE_[A-Z0-9_]+=[a-zA-Z0-9_-]+$' \
-                "$RUNNER_TEMP/safe-sync-result.txt" | head -35 || true
+              grep -E '^AARIS_SYNC_[A-Z0-9_]+=[a-zA-Z0-9_-]+$|^UNITY_COMPILER_(LOG_FOUND|LOG_NOT_FOUND|ERROR_COUNT_[0-9]+|ERRORS_NOT_IN_AVAILABLE_LOGS)$|^AARIS_EDITOR_STATUS_[A-Z0-9_]+=[a-zA-Z0-9_-]+$|^AARIS_NATIVE_COMPILE_[A-Z0-9_]+=[a-zA-Z0-9_-]+$|^AARIS_UNITY_BASELINE_[A-Z0-9_]+=[a-zA-Z0-9_-]+$|^AARIS_PKG_MATRIX_[A-Z0-9_]+=[a-zA-Z0-9_-]+$' \
+                "$RUNNER_TEMP/safe-sync-result.txt" | head -100 || true
             else
               echo 'AARIS_SYNC_RESULT=not_started_or_unavailable'
             fi
