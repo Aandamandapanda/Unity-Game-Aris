@@ -1026,6 +1026,13 @@ namespace Aaris.MapReview
         private const float FarVisualDistance = 485f;
         private bool visualBuilt;
         private float nextVisualCheck, staggeredVisualDelay;
+        // A hidden close Humanoid still retains its skinned meshes and
+        // PlayableGraph. Retire it after sustained distance and rebuild the
+        // SAME authored rig on return; the shared far LOD stays visible.
+        private const float RigRetireDistance = 190f;
+        private const float RigRetireAfterSeconds = 5f;
+        private float rigFarSince = -1f;
+        private static int lastRigRetireFrame = -1;
         private int medkits = 1;
         private float nextLootAt;
         private AarisWeaponSpec carriedGun;
@@ -1174,6 +1181,37 @@ namespace Aaris.MapReview
                 .SetSourcePlayable(animations);
             graph.Play();
             hasAnimations = true;
+        }
+
+        // Called only on the existing 0.55s staggered visual tick.
+        // Never retire a visible rig, or one lacking its far LOD in the
+        // 155-485m visual band. At most one native hierarchy per frame.
+        private void RetireHiddenRig(float now, float playerDistanceSqr)
+        {
+            if (visualRoot == null || visualRoot.activeSelf ||
+                playerDistanceSqr < RigRetireDistance * RigRetireDistance)
+            {
+                rigFarSince = -1f;
+                return;
+            }
+            if (rigFarSince < 0f) rigFarSince = now;
+            if (now - rigFarSince < RigRetireAfterSeconds ||
+                lastRigRetireFrame == Time.frameCount) return;
+            if (playerDistanceSqr < FarVisualDistance * FarVisualDistance &&
+                (farVisualRoot == null || !farVisualRoot.activeInHierarchy))
+                return;
+            lastRigRetireFrame = Time.frameCount;
+            if (graph.IsValid()) graph.Destroy();
+            hasAnimations = false;
+            visualBlend = 0f;
+            GameObject retired = visualRoot;
+            visualRoot = null;
+            visualBuilt = false;
+            rigFarSince = -1f;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
+#endif
+            Destroy(retired);
         }
 
         // Built only once per domain. Seven small cuboids yield one shared
@@ -1388,6 +1426,7 @@ namespace Aaris.MapReview
                 }
                 if (farVisualRoot != null && farVisualRoot.activeSelf != farBand)
                     farVisualRoot.SetActive(farBand);
+                RetireHiddenRig(now, playerDistanceSqr);
             }
             if (now >= nextThink)
             {

@@ -45,6 +45,8 @@ namespace Aaris.MapReview.Editor
         private static float sampleStarted, previousTimeScale, previousFixedDelta;
         private static bool hadRuntimeError;
         private static int peakSpawned, peakActive;
+        private static Component rigRebuildTarget;
+        private static int rigsBeforeTravel, originalRigRenderers;
         private static string errorFirst = "";
         static AarisFullSceneCombatSoak()
         {
@@ -72,6 +74,8 @@ namespace Aaris.MapReview.Editor
             SessionState.SetFloat(Session + "Deadline",
                 (float)EditorApplication.timeSinceStartup + 360f);
             stage = 0;
+            rigRebuildTarget = null;
+            rigsBeforeTravel = originalRigRenderers = 0;
             hadRuntimeError = false;
             errorFirst = "";
         }
@@ -143,6 +147,8 @@ namespace Aaris.MapReview.Editor
                 if (stage == 1) { PrewarmAndBaseline(); return; }
                 if (stage == 2) { SpawnAll(); return; }
                 if (stage == 3) { MoveToCombatAndMeasure(); return; }
+                if (stage == 4) { VerifyRigRetirement(); return; }
+                if (stage == 5) { VerifyRigRebuild(); return; }
             }
             catch (Exception ex)
             {
@@ -286,9 +292,89 @@ namespace Aaris.MapReview.Editor
             // HP-loss event must come through the authoritative receiver.
             bool pass = peakSpawned == 100 && humanoids > 0 &&
                 visible > 0 && damageEvents > 0 && !hadRuntimeError;
-            Note("RESULT=" + (pass ? "PASS" : "FAIL") +
-                (pass ? "" : " expected_100_spawns_visible_rigs_and_incoming_damage"));
-            Complete(pass ? 0 : 1);
+            if (!pass)
+            {
+                Note("RESULT=FAIL expected_100_spawns_visible_rigs_and_incoming_damage");
+                Complete(1);
+                return;
+            }
+            PrepareRigRetentionCheck();
+        }
+
+        private static void PrepareRigRetentionCheck()
+        {
+            rigsBeforeTravel = 0;
+            rigRebuildTarget = null;
+            for (int i = 0; i < rivals.Length; i++)
+            {
+                var bot = rivals.GetValue(i) as Component;
+                if (bot == null || !IsAlive(bot)) continue;
+                var rig = (GameObject)Read(bot, "visualRoot");
+                if (rig == null) continue;
+                rigsBeforeTravel++;
+                if (rigRebuildTarget != null ||
+                    (bot.transform.position - player.transform.position).sqrMagnitude <
+                    210f * 210f) continue;
+                rigRebuildTarget = bot;
+                originalRigRenderers = rig.GetComponentsInChildren<Renderer>(true).Length;
+            }
+            if (rigRebuildTarget == null || rigsBeforeTravel < 2 ||
+                originalRigRenderers == 0)
+                throw new InvalidOperationException("RIG_RETIRE_FIXTURE_MISSING");
+            director.enabled = false;
+            health.RestoreHealth(200f);
+            sampleStarted = Time.time;
+            stage = 4;
+            Note("RIG_INSTANCES_BEFORE_TRAVEL=" + rigsBeforeTravel);
+        }
+
+        private static void VerifyRigRetirement()
+        {
+            if (Time.time - sampleStarted < 7.5f) return;
+            if (rigRebuildTarget == null || !IsAlive(rigRebuildTarget))
+                throw new InvalidOperationException("RIG_RETIRE_TEST_ACTOR_LOST");
+            if ((GameObject)Read(rigRebuildTarget, "visualRoot") != null ||
+                (bool)Read(rigRebuildTarget, "visualBuilt") ||
+                (bool)Read(rigRebuildTarget, "hasAnimations"))
+                throw new InvalidOperationException("DISTANT_HUMANOID_STILL_RETAINED");
+            int remaining = 0;
+            for (int i = 0; i < rivals.Length; i++)
+            {
+                var bot = rivals.GetValue(i) as Component;
+                if (bot != null && IsAlive(bot) &&
+                    (GameObject)Read(bot, "visualRoot") != null) remaining++;
+            }
+            if (remaining >= rigsBeforeTravel)
+                throw new InvalidOperationException("NO_RIG_RETIREMENT_OBSERVED");
+            Note("PASS distant rig and PlayableGraph retired: " +
+                rigsBeforeTravel + " -> " + remaining);
+            var capsule = player.GetComponent<CharacterController>();
+            capsule.enabled = false;
+            player.transform.position = rigRebuildTarget.transform.position +
+                new Vector3(0f, 0.3f, -16f);
+            capsule.enabled = true;
+            Physics.SyncTransforms();
+            sampleStarted = Time.time;
+            stage = 5;
+        }
+
+        private static void VerifyRigRebuild()
+        {
+            GameObject rebuilt = (GameObject)Read(rigRebuildTarget, "visualRoot");
+            if (rebuilt != null && rebuilt.activeInHierarchy &&
+                (bool)Read(rigRebuildTarget, "visualBuilt"))
+            {
+                int renderers = rebuilt.GetComponentsInChildren<Renderer>(true).Length;
+                if (renderers != originalRigRenderers)
+                    throw new InvalidOperationException("RIG_VISUAL_QUALITY_CHANGED");
+                Note("PASS original humanoid rig restored with " +
+                    renderers + " renderers");
+                Note("RESULT=" + (hadRuntimeError ? "FAIL runtime_error" : "PASS"));
+                Complete(hadRuntimeError ? 1 : 0);
+                return;
+            }
+            if (Time.time - sampleStarted > 4f)
+                throw new InvalidOperationException("RIG_NOT_REBUILT_ON_RETURN");
         }
 
         // Runs against the live saved player, its real inventory, HUD, camera
