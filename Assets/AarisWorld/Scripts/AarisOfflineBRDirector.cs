@@ -1255,7 +1255,21 @@ namespace Aaris.MapReview
             nextCameraProbe = Time.time + encounterSlot * 0.0012f;
             nextLootAt = Time.time + encounterSlot * 0.035f + 1f;
             remoteLootSeed = 0x9E3779B9u ^ ((uint)encounterSlot + 1u);
-            if ((transform.position - victim.position).sqrMagnitude < 100f * 100f)
+            // Register distant rivals as logical fighters from the first frame.
+            // Do not register 100 expensive PhysX character capsules briefly
+            // only to turn them off on the next scheduled simulation tick.
+            float spawnDistanceSqr = (transform.position - victim.position).sqrMagnitude;
+            if (spawnDistanceSqr >= 185f * 185f)
+            {
+                virtualBody = true;
+                capsule.enabled = false;
+            }
+            // A 55-100m unseen spawn must not instantiate a skinned Humanoid
+            // just because it was nearby when the slot was created. The
+            // staggered visibility admission in Update builds it on entry.
+            if (spawnDistanceSqr < 55f * 55f ||
+                (spawnDistanceSqr < 100f * 100f &&
+                 owner.IsDistantRivalOnScreen(transform.position)))
                 BuildVisual();
         }
 
