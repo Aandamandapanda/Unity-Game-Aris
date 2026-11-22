@@ -242,10 +242,18 @@ class CombatEndToEndContract(unittest.TestCase):
             self.assertLess(height * 0.5, height)
 
     def test_redlock_retries_visible_candidate_behind_cover(self):
-        self.assertIn("for (int attempt = 0; attempt < 3; attempt++)", BOTS)
-        self.assertIn("bot == rejectedFirst || bot == rejectedSecond", BOTS)
-        self.assertIn("if (attempt == 0) rejectedFirst = candidate;", BOTS)
-        self.assertIn("closest.transform.IsChildOf(candidate.transform)", BOTS)
+        redlock = BOTS.split("internal static bool TryAcquireAimTarget", 1)[1].split(
+            "private void RefreshStatus", 1)[0]
+        # One 100-bot cone scan yields three ranked fallbacks; occluded
+        # targets are still rejected by physical camera AND muzzle checks.
+        self.assertEqual(redlock.count("for (int i = 0; i < activeDirector.rivals.Length; i++)"), 1)
+        self.assertIn("for (int attempt = 0; attempt < 3; attempt++)", redlock)
+        self.assertIn("AarisOfflineRival first = null, second = null, third = null;", redlock)
+        self.assertIn("float threshold = a3;", redlock)
+        self.assertIn("third = second; d3 = d2; r3 = r2; a3 = a2;", redlock)
+        self.assertIn("closest.transform.IsChildOf(candidate.transform)", redlock)
+        self.assertIn("MuzzlePathOpenTo(shooter, candidate.transform, closestPoint)", redlock)
+        self.assertNotIn("rejectedFirst", redlock)
 
     def test_unarmed_bots_use_contact_melee_without_phantom_gunfire(self):
         attack = BOTS.split("if (hasTarget && canSee &&", 1)[1].split(
