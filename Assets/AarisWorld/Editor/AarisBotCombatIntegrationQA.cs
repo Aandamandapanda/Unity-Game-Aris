@@ -342,6 +342,19 @@ namespace Aaris.MapReview.Editor
                     "Red-Lock turns off behind solid wall", report);
                 Object.DestroyImmediate(sightWall);
                 Physics.SyncTransforms();
+                // Regression: at contact range the actual rival capsule may
+                // enter the first 24 cm of the player's muzzle corridor.
+                // This is an enemy impact, not cover; Red-Lock must not
+                // silently turn white while the gun can still damage it.
+                Vector3 savedNearPosition = bots[1].transform.position;
+                bots[1].transform.position = Origin + Vector3.forward * .65f;
+                camera.transform.LookAt(bots[1].transform.position + Vector3.up * 1.12f);
+                Physics.SyncTransforms();
+                Check((bool)acquire.Invoke(null, args),
+                    "Point-blank visible rival retains Red-Lock", report);
+                bots[1].transform.position = savedNearPosition;
+                camera.transform.LookAt(bots[1].transform.position + Vector3.up * 1.12f);
+                Physics.SyncTransforms();
 
                 var gunObj = new GameObject("QA equipped gun");
                 gunObj.transform.SetParent(player.transform, false);
