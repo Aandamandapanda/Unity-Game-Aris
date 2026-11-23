@@ -108,6 +108,10 @@ namespace Aaris.MapReview.Editor
                 int frame = Time.frameCount;
                 if (frame == lastFrame || frame <= 0) return;
                 lastFrame = frame;
+                // The benchmark disables the director's MonoBehaviour Update,
+                // so drive its actual centralized dormant queue explicitly.
+                if (phase >= 2 && director != null)
+                    director.TickDormantRivals(Time.time);
                 if (phase == 1)
                 {
                     if (++baselineWarmCount <= BaselineWarmupFrames) return;

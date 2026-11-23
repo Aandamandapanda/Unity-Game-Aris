@@ -161,6 +161,12 @@ namespace Aaris.MapReview.Editor
             lastFrame = frame;
             try
             {
+                // This QA harness deliberately disables Director.Update to
+                // control spawning. Drive its dormant queue exactly once per
+                // sampled frame so far bots retain their real combat, 100ms
+                // proximity checks and delayed rig retirement in the fixture.
+                if (stage >= 3 && director != null && !director.enabled)
+                    director.TickDormantRivals(Time.time);
                 if (stage == 0) { Setup(); return; }
                 if (stage == 1) { PrewarmAndBaseline(); return; }
                 if (stage == 2) { SpawnAll(); return; }
