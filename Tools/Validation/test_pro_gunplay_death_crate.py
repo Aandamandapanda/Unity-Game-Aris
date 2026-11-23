@@ -124,6 +124,22 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         fall = (1.65 + math.sqrt(1.65**2 + 2 * 9.81 * 1.3)) / 9.81
         self.assertGreater(cycle,fall)
 
+    def test_player_and_bot_casings_share_capped_geometry_without_native_colliders(self):
+        self.assertIn("internal static Mesh SharedCasingMesh()", GUN)
+        self.assertIn("sharedCasingMesh = mesh;", GUN)
+        self.assertIn("mesh.UploadMeshData(true);", GUN)
+        self.assertIn("triangles = new int[sides * 12]", GUN)
+        self.assertIn("typeof(MeshFilter), typeof(MeshRenderer)", GUN)
+        self.assertIn("AarisEquippedGun.SharedCasingMesh()", FX)
+        self.assertNotIn("GameObject.CreatePrimitive(PrimitiveType.Cylinder)", GUN)
+        self.assertNotIn("GameObject.CreatePrimitive(PrimitiveType.Cylinder)", FX)
+        self.assertNotIn("Destroy(shellCollider)", GUN)
+        self.assertNotIn("Destroy(collider)", GUN)
+        self.assertIn("Player casing pool reuses one sealed mesh", (
+            ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text())
+        self.assertIn("Six nearby bot ejections create no transient native Colliders", (
+            ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text())
+
     def test_nearby_rival_only_pooled_visuals(self):
         self.assertIn("private const int MaximumSlots = 6;",FX)
         self.assertIn("if (observer == null || shooter == null || Time.timeScale <= 0f ||",FX)
@@ -157,7 +173,8 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("casing.velocity += Physics.gravity * dt;", updates)
         self.assertIn("if (casing.velocity.y < .5f) casing.grounded = true;", updates)
         self.assertNotIn("Physics.Raycast", updates)
-        self.assertIn("Destroy(hitbox);", FX)
+        self.assertNotIn("Destroy(hitbox);", FX)
+        self.assertNotIn("GameObject.CreatePrimitive", FX)
         self.assertNotIn("AddComponent<Rigidbody>", FX.split("private CasingSlot CreateCasingSlot()",1)[1])
 
     def test_bot_death_spawns_crate_before_destruction(self):
