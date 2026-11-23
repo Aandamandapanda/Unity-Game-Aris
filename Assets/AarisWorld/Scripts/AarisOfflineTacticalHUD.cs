@@ -89,6 +89,11 @@ namespace Aaris.MapReview
             motor != null && motor.isActiveAndEnabled &&
             (medicalHealth == null || !medicalHealth.IsDead);
 
+        // Crate hints must not offer PICK when medkit storage is full,
+        // disabled, or input authority is suspended.
+        internal bool CanReceiveDeathCrateMedkits =>
+            AcceptsTacticalInput && medkits < maxMedkits;
+
         // Atomic transfer from a bot crate, capped by the player's authored kit capacity.
         internal int AddDeathCrateMedkits(int amount)
         {

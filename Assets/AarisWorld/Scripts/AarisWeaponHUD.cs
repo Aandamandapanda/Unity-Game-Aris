@@ -16,10 +16,15 @@ namespace Aaris.MapReview
         private readonly List<RectTransform> hitRects = new List<RectTransform>(6);
         private readonly List<Button> buttons = new List<Button>(6);
         private readonly List<Text> captions = new List<Text>(6);
+        // Two prebuilt strokes allow a distinct critical-hit marker with no
+        // per-hit GameObjects, materials, or sprite allocations.
+        private readonly Image[] hitMarkerStrokes = new Image[2];
+        private static readonly Color NormalHitTint = new Color(1f, .86f, .45f, .95f);
+        private static readonly Color CriticalHitTint = new Color(1f, .31f, .13f, 1f);
         private AarisWeaponInventory inventory;
         private Text nearbyGunHint;
         private RectTransform hitMarker;
-        private float hitMarkerUntil;
+        private float hitMarkerUntil, criticalHitMarkerUntil;
         private Transform nearbyGunOwner;
         private float nextNearbyGunHintAt;
         private Canvas canvas;
@@ -139,18 +144,31 @@ namespace Aaris.MapReview
                 var graphic = stroke.GetComponent<Image>();
                 graphic.color = new Color(1f, .86f, .45f, .95f);
                 graphic.raycastTarget = false;
+                hitMarkerStrokes[i] = graphic;
             }
             root.SetActive(false);
         }
 
-        public static void NotifyHit(GameObject attacker)
+        public static void NotifyHit(GameObject attacker, bool headshot = false)
         {
             if (instance == null || attacker == null ||
                 instance.inventory == null ||
                 attacker != instance.inventory.gameObject ||
                 instance.hitMarker == null ||
                 !instance.isActiveAndEnabled || Time.timeScale <= 0f) return;
-            instance.hitMarkerUntil = Time.unscaledTime + 0.13f;
+            float now = Time.unscaledTime;
+            // Headshot pellets keep their critical cue even if a later body
+            // pellet arrives in the same shotgun shot.
+            if (headshot) instance.criticalHitMarkerUntil = now + 0.21f;
+            bool critical = now < instance.criticalHitMarkerUntil;
+            Color tint = critical ? CriticalHitTint : NormalHitTint;
+            for (int i = 0; i < instance.hitMarkerStrokes.Length; i++)
+            {
+                Image stroke = instance.hitMarkerStrokes[i];
+                if (stroke != null && stroke.color != tint) stroke.color = tint;
+            }
+            instance.hitMarkerUntil = Mathf.Max(instance.hitMarkerUntil,
+                now + (critical ? 0.21f : 0.13f));
             if (!instance.hitMarker.gameObject.activeSelf)
                 instance.hitMarker.gameObject.SetActive(true);
         }
@@ -332,6 +350,7 @@ namespace Aaris.MapReview
         private void OnDisable()
         {
             if (hitMarker != null) hitMarker.gameObject.SetActive(false);
+            hitMarkerUntil = criticalHitMarkerUntil = 0f;
             if (instance == this) instance = null;
         }
     }

@@ -86,7 +86,7 @@ namespace Aaris.MapReview
             // Use the same reachable target as the PICK button. Proximity
             // labels for farther crates must not promise an instant pickup.
             Drop inReach = instance.cachedPickupNear
-                ? instance.Nearest(seeker.position, PickupRadius, true) : null;
+                ? instance.Nearest(seeker.position, PickupRadius, true, 0, true) : null;
             Drop drop = inReach ?? instance.Nearest(seeker.position, 48f, false);
             if (drop == null) return false;
             canPick = inReach != null;
@@ -192,8 +192,14 @@ namespace Aaris.MapReview
         }
 
         private Drop Nearest(Vector3 point, float radius, bool mustReach,
-            int excludeProbe = 0)
+            int excludeProbe = 0, bool actionableOnly = false)
         {
+            // Once per lookup, not once per candidate; avoid a false PICK
+            // prompt for medkit-only crates when no medkit can be stored.
+            bool canTakeMedkits = !actionableOnly ||
+                (player != null &&
+                 player.TryGetComponent(out AarisOfflineTacticalHUD medical) &&
+                 medical.CanReceiveDeathCrateMedkits);
             float best = radius * radius;
             Drop selected = null;
             for (int i = 0; i < drops.Count; i++)
@@ -201,7 +207,9 @@ namespace Aaris.MapReview
                 Drop drop = drops[i];
                 if (!drop.HasContent || (excludeProbe != 0 &&
                     drop.lastPickupProbe == excludeProbe) ||
-                    Mathf.Abs(drop.position.y - point.y) > 3f)
+                    Mathf.Abs(drop.position.y - point.y) > 3f ||
+                    (actionableOnly && drop.gun == null &&
+                     (drop.medkits <= 0 || !canTakeMedkits)))
                     continue;
                 float d2 = (drop.position - point).sqrMagnitude;
                 if (d2 >= best) continue;
@@ -218,7 +226,7 @@ namespace Aaris.MapReview
                 Time.time < nextPoll) return;
             nextPoll = Time.time + 0.25f;
             Vector3 here = player.position;
-            cachedPickupNear = Nearest(here, PickupRadius, true) != null;
+            cachedPickupNear = Nearest(here, PickupRadius, true, 0, true) != null;
             int bestIndex = -1;
             float bestDistance = VisualRadius * VisualRadius;
             float furthestVisualDistance = -1f;
