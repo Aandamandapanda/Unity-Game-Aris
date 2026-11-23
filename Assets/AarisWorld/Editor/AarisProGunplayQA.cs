@@ -236,6 +236,17 @@ namespace Aaris.MapReview.Editor
                     "Accepted shot enables transparent muzzle flame");
                 var light = (Light)Read(gun, "muzzleLight");
                 Check(light.enabled && light.shadows == LightShadows.None, "Player barrel burst casts no shadow map");
+                string globalRandomBeforeFlash =
+                    JsonUtility.ToJson(UnityEngine.Random.state);
+                Vector3 priorFlashScale = flash.transform.localScale;
+                Quaternion priorFlashRotation = flash.transform.localRotation;
+                Call(gun, "TriggerMuzzleFlash");
+                Check(globalRandomBeforeFlash ==
+                    JsonUtility.ToJson(UnityEngine.Random.state),
+                    "Muzzle flame variation never changes global combat RNG");
+                Check((flash.transform.localScale - priorFlashScale).sqrMagnitude > .000001f ||
+                    Quaternion.Angle(flash.transform.localRotation, priorFlashRotation) > .1f,
+                    "Consecutive muzzle flames still look different");
                 string globalRandomBeforeBrass =
                     JsonUtility.ToJson(UnityEngine.Random.state);
                 Call(gun, "EjectCasingNow");
@@ -276,6 +287,11 @@ namespace Aaris.MapReview.Editor
                 }
                 Check(visibleAuto == 3,
                     "Three rapid automatic bullets retain three independent thin tracers");
+                Vector3 farHit = new Vector3(0f, 1.3f, 310f);
+                Call(automatic, "TriggerTracer", new Vector3(0f, 1.3f, .3f), farHit);
+                Check(Vector3.Distance((Vector3)Read(automatic, "tracerEnd"), farHit) < .01f &&
+                    (float)Read(automatic, "tracerDuration") <= .21f,
+                    "Long-range hit tracer reaches real impact with bounded lifetime");
 
                 // Recreate a slow-frame ordering hazard: several accepted
                 // rounds arrive before the casing component's next Update.
