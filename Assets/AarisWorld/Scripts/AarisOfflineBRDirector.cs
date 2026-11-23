@@ -46,6 +46,9 @@ namespace Aaris.MapReview
         // far/unseen agents, without changing their AI combat deadlines.
         private readonly bool[] dormantRivalSlots = new bool[RivalCount];
         private int dormantRivalCount;
+        // Keep the 100-slot scheduler asleep between the earliest actual
+        // combat, camera or proximity deadline. No extra timers or allocations.
+        private float nextDormantSweepAt = float.PositiveInfinity;
 
         internal void RegisterDormantRival(int slot, AarisOfflineRival bot, bool dormant)
         {
@@ -53,11 +56,20 @@ namespace Aaris.MapReview
             if (dormantRivalSlots[slot] == dormant) return;
             dormantRivalSlots[slot] = dormant;
             dormantRivalCount += dormant ? 1 : -1;
+            if (dormant)
+                nextDormantSweepAt = Mathf.Min(nextDormantSweepAt,
+                    bot.NextDormantWakeTime);
+            else if (dormantRivalCount == 0)
+                nextDormantSweepAt = float.PositiveInfinity;
         }
 
         public void TickDormantRivals(float now)
         {
-            if (dormantRivalCount == 0) return;
+            if (dormantRivalCount == 0 || now < nextDormantSweepAt) return;
+            // All existing AI deadlines retain priority. Recompute only after
+            // some rival has become due; dormant registration can lower this
+            // bound immediately, including after a player/camera transition.
+            nextDormantSweepAt = float.PositiveInfinity;
             for (int i = 0; i < RivalCount; i++)
             {
                 if (!dormantRivalSlots[i]) continue;
@@ -70,6 +82,9 @@ namespace Aaris.MapReview
                 }
                 if (now >= bot.NextDormantWakeTime)
                     bot.TickDormantFromDirector();
+                if (dormantRivalSlots[i])
+                    nextDormantSweepAt = Mathf.Min(nextDormantSweepAt,
+                        bot.NextDormantWakeTime);
             }
         }
         private const int MaximumSpawnPasses = 4;

@@ -48,6 +48,48 @@ class CentralDormantSchedulerTests(unittest.TestCase):
                         central[i] = now + .35
             self.assertEqual(new_ticks, old_ticks)
 
+    def test_global_wake_deadline_preserves_existing_combat_ticks(self):
+        # The global min only avoids an idle roster scan. It must not modify
+        # the per-bot simulation/proximity clocks or suppress remote kills.
+        self.assertIn("private float nextDormantSweepAt = float.PositiveInfinity;", DIRECTOR)
+        self.assertIn("now < nextDormantSweepAt", DIRECTOR)
+        self.assertIn("nextDormantSweepAt = Mathf.Min(nextDormantSweepAt,", DIRECTOR)
+        self.assertIn("if (now >= bot.NextDormantWakeTime)", DIRECTOR)
+        for fps in (30, 60, 120):
+            for count in (1, 10, 40, 100):
+                baseline = [i * .0035 for i in range(count)]
+                optimized = baseline.copy()
+                baseline_probe = [0.] * count
+                optimized_probe = baseline_probe.copy()
+                baseline_ticks = [0] * count
+                optimized_ticks = [0] * count
+                next_global_wake = 0.
+                scans = 0
+                for frame in range(1, fps * 10 + 1):
+                    now = frame / fps
+                    for i in range(count):
+                        if now >= baseline_probe[i]:
+                            baseline_probe[i] = now + .1
+                        if now >= baseline[i]:
+                            baseline_ticks[i] += 1
+                            baseline[i] = now + .35
+                    if now < next_global_wake:
+                        continue
+                    scans += 1
+                    next_global_wake = float("inf")
+                    for i in range(count):
+                        if now >= optimized_probe[i]:
+                            optimized_probe[i] = now + .1
+                        if now >= optimized[i]:
+                            optimized_ticks[i] += 1
+                            optimized[i] = now + .35
+                        next_global_wake = min(next_global_wake,
+                                               optimized_probe[i], optimized[i])
+                self.assertEqual(baseline_ticks, optimized_ticks)
+                self.assertLessEqual(scans, fps * 10)
+                if count == 1:
+                    self.assertLess(scans, fps * 10 // 2)
+
     def test_benchmark_drives_queue_when_director_disabled(self):
         bench = (Path(__file__).resolve().parents[2] /
                  "Assets/AarisWorld/Editor/AarisBotFrameBenchmark.cs").read_text()
