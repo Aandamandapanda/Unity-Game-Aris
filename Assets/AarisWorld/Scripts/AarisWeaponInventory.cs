@@ -1119,8 +1119,10 @@ namespace Aaris.MapReview
             // First make the trigger physically reachable on this Humanoid;
             // then match the left support grip to the weapon's barrel length.
             FitTriggerGripToArmReach();
-            float foregrip = Mathf.Clamp(
-                equipped.Spec.presentationLengthMetres * 0.40f, 0.22f, 0.48f);
+            // A pistol is supported around the trigger hand, not at a rifle's
+            // fore-end beyond its muzzle. The same stance-aware arm solve runs.
+            float foregrip = equipped.Spec.category == "Pistol" ? -0.025f :
+                Mathf.Clamp(equipped.Spec.presentationLengthMetres * 0.40f, 0.22f, 0.48f);
             foregrip = ReachableSupportGripZ(
                 leftUpperArm, leftForearm, leftHand, weaponRoot, foregrip);
             ReachArm(rightUpperArm, rightForearm, hand,

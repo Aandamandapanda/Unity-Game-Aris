@@ -19,6 +19,7 @@ namespace Aaris.MapReview
             internal LineRenderer tracer;
             internal Renderer flash;
             internal Transform flashPose;
+            internal Light burst;
             internal Vector3 origin, end;
             internal float shotAt, tracerUntil, flashUntil;
         }
@@ -34,7 +35,7 @@ namespace Aaris.MapReview
 
         private readonly Slot[] slots = new Slot[MaximumSlots];
         private readonly CasingSlot[] casings = new CasingSlot[MaximumCasingSlots];
-        private static Material glowMaterial, brassMaterial, shotgunMaterial;
+        private static Material brassMaterial, shotgunMaterial;
         private Transform observer;
         private int nextSlot, nextCasingSlot;
 
@@ -42,20 +43,18 @@ namespace Aaris.MapReview
 
         private static Material MaterialFor(bool brass, bool shotgun = false)
         {
-            Material cached = brass
-                ? (shotgun ? shotgunMaterial : brassMaterial) : glowMaterial;
+            if (!brass) return AarisEquippedGun.SharedGunfireGlowMaterial();
+            Material cached = shotgun ? shotgunMaterial : brassMaterial;
             if (cached != null) return cached;
-            Shader shader = Shader.Find(brass ? "Universal Render Pipeline/Lit" :
-                "Universal Render Pipeline/Particles/Unlit");
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
             if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
             if (shader == null) shader = Shader.Find("Unlit/Color");
             if (shader == null) return null;
-            Color color = brass ? (shotgun
-                ? new Color(.55f, .11f, .07f) : new Color(.85f, .63f, .24f)) :
-                new Color(2.4f, 1.1f, .27f, .82f);
+            Color color = shotgun
+                ? new Color(.55f, .11f, .07f) : new Color(.85f, .63f, .24f);
             cached = new Material(shader)
             {
-                name = brass ? "Aaris Bot Casing Metal" : "Aaris Bot Gunfire Glow",
+                name = "Aaris Bot Casing Metal",
                 enableInstancing = true
             };
             if (cached.HasProperty("_BaseColor")) cached.SetColor("_BaseColor", color);
@@ -65,12 +64,10 @@ namespace Aaris.MapReview
                 cached.EnableKeyword("_EMISSION");
                 cached.SetColor("_EmissionColor", color);
             }
-            if (brass)
-            {
-                if (shotgun) shotgunMaterial = cached;
-                else brassMaterial = cached;
-            }
-            else glowMaterial = cached;
+            if (cached.HasProperty("_Metallic")) cached.SetFloat("_Metallic", .72f);
+            if (cached.HasProperty("_Smoothness")) cached.SetFloat("_Smoothness", .38f);
+            if (shotgun) shotgunMaterial = cached;
+            else brassMaterial = cached;
             return cached;
         }
 
@@ -102,6 +99,15 @@ namespace Aaris.MapReview
             slot.flash.shadowCastingMode = ShadowCastingMode.Off;
             slot.flash.receiveShadows = false;
             slot.flash.enabled = false;
+            var light = new GameObject("Aaris Pooled Bot Barrel Light");
+            light.transform.SetParent(slot.flashPose, false);
+            slot.burst = light.AddComponent<Light>();
+            slot.burst.type = LightType.Point;
+            slot.burst.color = new Color(1f, .60f, .25f);
+            slot.burst.range = 2.3f;
+            slot.burst.intensity = 1.2f;
+            slot.burst.shadows = LightShadows.None;
+            slot.burst.enabled = false;
             return slot;
         }
 
@@ -144,17 +150,24 @@ namespace Aaris.MapReview
                 (Mathf.Min(length, 50f) / length);
             slot.shotAt = now;
             slot.tracerUntil = now +
-                Mathf.Clamp(length / 350f, .025f, .14f);
+                Mathf.Clamp(Mathf.Min(length, 50f) / 350f, .025f, .14f);
             slot.flashUntil = now + .045f;
             slot.tracer.SetPosition(0, from);
-            slot.tracer.SetPosition(1, from);
+            slot.tracer.SetPosition(1, Vector3.MoveTowards(from, slot.end, 1.65f));
             slot.tracer.enabled = true;
             slot.flashPose.position = from;
-            slot.flashPose.rotation = shooter.rotation;
+            slot.flashPose.rotation = Quaternion.LookRotation(target - from, Vector3.up);
             slot.flashPose.localScale = shotgun
                 ? new Vector3(.22f, .13f, .30f)
                 : new Vector3(.15f, .09f, .24f);
             slot.flash.enabled = true;
+            // At most two shadowless bot bursts, only close to the observer.
+            int activeBursts = 0;
+            for (int i = 0; i < slots.Length; i++)
+                if (slots[i] != null && slots[i] != slot &&
+                    slots[i].burst.enabled) activeBursts++;
+            slot.burst.enabled = activeBursts < 2 &&
+                (from - observer.position).sqrMagnitude <= 18f * 18f;
 
             // The next short muzzle/tracer slot must never erase an earlier
             // falling shell. Casings own a separately bounded ring pool.
@@ -175,9 +188,8 @@ namespace Aaris.MapReview
             casing.spin = new Vector3(520f, 940f, 650f);
             casing.grounded = false;
             // One ground probe on an accepted nearby shot, none in Update.
-            if (Physics.Raycast(port + Vector3.up * .1f, Vector3.down,
-                out RaycastHit ground, 5.5f, Physics.DefaultRaycastLayers,
-                QueryTriggerInteraction.Ignore) && ground.normal.y > .45f)
+            if (AarisEquippedGun.TryFindCasingGround(port, shooter,
+                out RaycastHit ground))
                 casing.groundY = ground.point.y + .012f;
             else casing.groundY = shooter.position.y + .012f;
             casing.groundY = Mathf.Min(casing.groundY, port.y - .07f);
@@ -194,13 +206,17 @@ namespace Aaris.MapReview
                 Slot slot = slots[i];
                 if (slot == null) continue;
                 if (slot.flash.enabled && now >= slot.flashUntil)
+                {
                     slot.flash.enabled = false;
+                    slot.burst.enabled = false;
+                }
                 if (slot.tracer.enabled)
                 {
                     if (now >= slot.tracerUntil) slot.tracer.enabled = false;
                     else
                     {
-                        float head = Mathf.Clamp01((now - slot.shotAt) /
+                        float head = Mathf.Clamp01((now - slot.shotAt +
+                            Mathf.Clamp(dt, .001f, .016f)) /
                             Mathf.Max(.001f, slot.tracerUntil - slot.shotAt));
                         Vector3 segment = slot.end - slot.origin;
                         float metres = segment.magnitude;

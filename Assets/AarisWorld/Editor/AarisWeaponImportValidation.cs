@@ -124,13 +124,12 @@ namespace Aaris.MapReview.Editor
                 if (!seenIds.Add(spec.id))
                     throw new InvalidOperationException("Duplicate live weapon ID: " + spec.id);
                 string name = spec.id;
-                string prefix = "Assets/Resources/" + spec.modelResource;
-                string path = AssetDatabase.LoadAssetAtPath<GameObject>(prefix + ".fbx") != null ? prefix + ".fbx" : prefix + ".obj";
                 var model = Resources.Load<GameObject>(spec.modelResource);
+                string path = model != null ? AssetDatabase.GetAssetPath(model) : spec.modelResource;
                 if (model == null)
                     throw new InvalidOperationException("Missing Unity imported model: " + path);
                 var importer = AssetImporter.GetAtPath(path) as ModelImporter;
-                if (importer == null)
+                if (importer == null && !path.EndsWith(".prefab", StringComparison.Ordinal))
                     throw new InvalidOperationException("Unity failed FBX ModelImporter: " + path);
                 var renderers = model.GetComponentsInChildren<Renderer>(true);
                 if (!Array.Exists(renderers, r => r != null && r.enabled && r.gameObject.activeSelf))

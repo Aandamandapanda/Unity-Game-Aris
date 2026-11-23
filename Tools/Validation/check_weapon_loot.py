@@ -22,6 +22,7 @@ EXPECTED = {
     "Sniper": None,
     "Shotgun": None,
     "DMR": None,
+    "Pistol": None,
 }
 PBR_RESOURCES = {
     "SMG": ("GreaseGun", "Grease_Gun", "AarisWeapons/PBR/GreaseGun/Grease_Gun"),
@@ -83,17 +84,17 @@ def run():
     assert ids == list(EXPECTED), ids
     lengths = {gun["id"]: gun["presentationLengthMetres"] for gun in catalog["weapons"]}
     assert lengths == {"SMG": 0.65, "AssaultRifle": 0.91,
-                       "BattleRifle": 1.02, "Sniper": 1.23, "Shotgun": 1.03, "DMR": 1.02}
+                       "BattleRifle": 1.02, "Sniper": 1.23, "Shotgun": 1.03, "DMR": 1.02, "Pistol": .235}
     assert lengths["SMG"] < lengths["AssaultRifle"] < lengths["Sniper"]
     handling_masses = {gun["id"]: gun["handlingMassKg"] for gun in catalog["weapons"]}
     assert handling_masses == {"SMG": 4.1, "AssaultRifle": 3.4,
-                               "BattleRifle": 4.4, "Sniper": 5.1, "Shotgun": 3.6, "DMR": 4.4}
-    assert all(2.0 <= mass <= 8.0 for mass in handling_masses.values())
+                               "BattleRifle": 4.4, "Sniper": 5.1, "Shotgun": 3.6, "DMR": 4.4, "Pistol": .86}
+    assert all(.45 <= mass <= 8.0 for mass in handling_masses.values())
     # Loot probability remains authored separately; firearm inertia must never
     # consume these selection weights (42/27/15/8/8) as if they were kilograms.
     for gun in catalog["weapons"]:
         name = gun["id"]
-        expected_resource = (PBR_RESOURCES[name][2]
+        expected_resource = ("AarisWeapons/Authored/Pistol/CompactPistol" if name == "Pistol" else PBR_RESOURCES[name][2]
                              if name in PBR_RESOURCES
                              else "AarisWeapons/Models/" + name)
         assert gun["modelResource"] == expected_resource
@@ -101,6 +102,13 @@ def run():
         assert gun["reserveAmmo"] >= 0 and gun["reloadSeconds"] > 0
         assert gun["pellets"] >= 1 and gun["damage"] > 0 and gun["weight"] > 0
         assert gun["adsFov"] >= 8 and gun["adsFov"] <= 65
+        if name == "Pistol":
+            folder = ROOT / "Assets/Resources/AarisWeapons/Authored/Pistol"
+            assert (folder / "CompactPistol.prefab").exists()
+            assert (folder / "CompactPistolMesh.asset").exists()
+            assert gun["category"] == "Pistol" and not gun["automatic"]
+            assert (folder / "CompactPistol.prefab.meta").exists()
+            continue
         if name in PBR_RESOURCES:
             continue
         path = MODELS / (name + ".fbx")
@@ -552,7 +560,7 @@ def run():
     assert "AarisWeaponMeshBounds.TryMeasure(root.transform," in grip
     assert "mesh.localScale *= scale;" in grip
     assert "incoming.Spec.presentationLengthMetres / longest" in grip
-    assert "presentationLengthMetres >= 0.48f" in catalog_cs
+    assert "presentationLengthMetres >= 0.18f" in catalog_cs
     assert "combinedBounds.center * scale" in grip
     assert "incoming.Spec.presentationLengthMetres * 0.22f" in grip
     assert "state.Spec.presentationLengthMetres / length" in pickup_cs
@@ -732,7 +740,7 @@ def run():
     assert "equipped.Spec.weight" not in inventory[inventory.index(
         "private void ApplyProceduralWeaponMotion()"):inventory.index(
         "private static float GripFrameScale()")]
-    assert "handlingMassKg >= 2.0f" in catalog_cs
+    assert "handlingMassKg >= 0.45f" in catalog_cs
 
     # Camera aim may hit the same collider deeper than the barrel ray.
     # Damage can keep the reticle target, but sound/VFX must use first muzzle contact.

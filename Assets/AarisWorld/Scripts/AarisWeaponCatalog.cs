@@ -46,9 +46,9 @@ namespace Aaris.MapReview
             pellets >= 1 && pellets <= 16 && reloadSeconds >= 0.1f &&
             reloadSeconds <= 12f && adsFov >= 8f && adsFov <= 65f &&
             (scopePower == 0 || scopePower == 1 || scopePower == 2 || scopePower == 4) &&
-            weight > 0f && handlingMassKg >= 2.0f && handlingMassKg <= 8.0f &&
+            weight > 0f && handlingMassKg >= 0.45f && handlingMassKg <= 8.0f &&
             handScale > 0f && handScale <= 12f &&
-            presentationLengthMetres >= 0.48f && presentationLengthMetres <= 1.4f;
+            presentationLengthMetres >= 0.18f && presentationLengthMetres <= 1.4f;
     }
 
     [Serializable]

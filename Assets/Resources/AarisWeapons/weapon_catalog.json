@@ -197,6 +197,39 @@
       "presentationLengthMetres": 1.02,
       "handlingMassKg": 4.4,
       "scopePower": 4
+    },
+    {
+      "id": "Pistol",
+      "displayName": "Compact Pistol",
+      "modelResource": "AarisWeapons/Authored/Pistol/CompactPistol",
+      "category": "Pistol",
+      "automatic": false,
+      "rpm": 360,
+      "magazineSize": 15,
+      "reserveAmmo": 60,
+      "pellets": 1,
+      "damage": 27,
+      "headshotMultiplier": 1.8,
+      "rangeMetres": 70,
+      "spreadDegrees": 1.15,
+      "recoilPitchDegrees": 0.85,
+      "reloadSeconds": 1.65,
+      "adsFov": 47,
+      "weight": 10,
+      "handOffset": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "handRotation": {
+        "x": 0,
+        "y": 90,
+        "z": 0
+      },
+      "handScale": 1,
+      "presentationLengthMetres": 0.235,
+      "handlingMassKg": 0.86,
+      "scopePower": 1
     }
   ]
 }

@@ -1,0 +1,267 @@
+#if UNITY_EDITOR
+using System;
+using System.Collections;
+using System.IO;
+using System.Reflection;
+using System.Text;
+using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+using Object = UnityEngine.Object;
+
+namespace Aaris.MapReview.Editor
+{
+    // Actual Play Mode/PhysX regressions. Runs only in a dedicated batch Editor;
+    // the temporary scene and fixtures are never saved over the game scene.
+    [InitializeOnLoad]
+    public static class AarisProGunplayQA
+    {
+        private const string Session = "AarisProGunplayQA";
+        private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
+        private const BindingFlags Static = BindingFlags.Static | BindingFlags.NonPublic;
+        private static readonly string Output = Path.Combine(Path.GetTempPath(), "aaris-progunplay-qa");
+        private static StringBuilder report;
+        private static bool runtimeError;
+        static AarisProGunplayQA() { EditorApplication.update += Tick; }
+        public static void Run()
+        {
+            if (!Application.isBatchMode || EditorApplication.isPlayingOrWillChangePlaymode)
+                throw new InvalidOperationException("DEDICATED_BATCH_EDITOR_REQUIRED");
+            Directory.CreateDirectory(Output);
+            SessionState.SetBool(Session + "Start", true);
+            SessionState.SetBool(Session, false);
+            SessionState.SetBool(Session + "Tested", false);
+            SessionState.SetBool(Session + "Finish", false);
+            SessionState.SetInt(Session + "Exit", 1);
+        }
+        // Defer entry until import/startup has settled. Entering directly from
+        // executeMethod can lose a delayCall to Editor Search initialization.
+        private static void Tick()
+        {
+            if (SessionState.GetBool(Session + "Finish", false))
+            {
+                if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+                SessionState.SetBool(Session + "Finish", false);
+                SessionState.SetBool(Session, false);
+                EditorApplication.Exit(SessionState.GetInt(Session + "Exit", 1));
+                return;
+            }
+            if (SessionState.GetBool(Session + "Start", false))
+            {
+                if (EditorApplication.isCompiling || EditorApplication.isUpdating ||
+                    EditorApplication.isPlayingOrWillChangePlaymode) return;
+                SessionState.SetBool(Session + "Start", false);
+                EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+                SessionState.SetBool(Session, true);
+                EditorApplication.isPlaying = true;
+                return;
+            }
+            if (!SessionState.GetBool(Session, false) || !EditorApplication.isPlaying ||
+                Time.frameCount < 3 || SessionState.GetBool(Session + "Tested", false)) return;
+            SessionState.SetBool(Session + "Tested", true);
+            Test();
+        }
+        private static object Read(object target, string name) =>
+            target.GetType().GetField(name, Private).GetValue(target);
+        private static void Set(object target, string name, object value) =>
+            target.GetType().GetField(name, Private).SetValue(target, value);
+        private static object Call(object target, string name, params object[] args) =>
+            target.GetType().GetMethod(name, Private).Invoke(target, args);
+        private static void Check(bool pass, string label)
+        {
+            if (!pass) throw new InvalidOperationException(label);
+            report.AppendLine("PASS " + label);
+        }
+        private static AarisOfflineHealth Health(GameObject actor)
+        {
+            var result = actor.AddComponent<AarisOfflineHealth>();
+            Set(result, "current", 200f);
+            return result;
+        }
+        private static void Log(string text, string stack, LogType type)
+        {
+            if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert)
+                runtimeError = true;
+        }
+        private static void Test()
+        {
+            report = new StringBuilder("Unity " + Application.unityVersion + "\nPLAY_MODE=true\n");
+            runtimeError = false;
+            Application.logMessageReceived += Log;
+            var root = new GameObject("Temporary pro gunplay QA");
+            int exit = 1;
+            try
+            {
+                Time.timeScale = 1f;
+                var actor = new GameObject("Shooter"); actor.transform.SetParent(root.transform);
+                var own = actor.AddComponent<BoxCollider>();
+                own.size = new Vector3(.62f, 1.8f, .62f); own.center = Vector3.up * .9f;
+                var floor = new GameObject("Real floor"); floor.transform.SetParent(root.transform);
+                floor.transform.position = new Vector3(0f, -.1f, 0f);
+                floor.AddComponent<BoxCollider>().size = new Vector3(30f, .2f, 30f);
+                var findGround = typeof(AarisEquippedGun).GetMethod("TryFindCasingGround", Static);
+                foreach (float height in new[] {1.8f, 1.2f, .5f})
+                {
+                    own.size = new Vector3(.62f, height, .62f); own.center = Vector3.up * height * .5f;
+                    Physics.SyncTransforms();
+                    object[] args = {new Vector3(.08f, height * .75f, .1f), actor.transform, default(RaycastHit)};
+                    Check((bool)findGround.Invoke(null, args) &&
+                        ((RaycastHit)args[2]).collider == floor.GetComponent<Collider>(),
+                        "Casing excludes own body, stance height=" + height);
+                }
+                // Saturate the small buffer with shooter-owned attachments.
+                for (int i = 0; i < 25; i++)
+                {
+                    var part = new GameObject("Own attachment"); part.transform.SetParent(actor.transform);
+                    part.transform.localPosition = new Vector3(.08f, .04f + i * .025f, .1f);
+                    part.AddComponent<BoxCollider>().size = new Vector3(.05f, .008f, .05f);
+                }
+                Physics.SyncTransforms();
+                object[] dense = {new Vector3(.08f, 1.5f, .1f), actor.transform, default(RaycastHit)};
+                Check((bool)findGround.Invoke(null, dense) &&
+                    ((RaycastHit)dense[2]).collider == floor.GetComponent<Collider>(),
+                    "Dense self hit buffer still resolves real floor");
+                own.size = new Vector3(.62f, 1.8f, .62f); own.center = Vector3.up * .9f;
+                string[] ids = {"SMG", "AssaultRifle", "BattleRifle", "Sniper", "Shotgun", "DMR", "Pistol"};
+                var damage = typeof(AarisEquippedGun).GetMethod("ApplyDamage", Static, null,
+                    new[] {typeof(Collider), typeof(float), typeof(GameObject), typeof(Vector3?), typeof(float)}, null);
+                foreach (string id in ids)
+                {
+                    var spec = AarisWeaponCatalog.Get(id);
+                    Check(spec != null && spec.Valid && AarisWeaponCatalog.ModelFor(spec) != null,
+                        id + " native model and authored profile loaded");
+                    for (int head = 0; head < 2; head++)
+                    {
+                        var victim = new GameObject("Profile target"); victim.transform.SetParent(root.transform);
+                        victim.transform.position = new Vector3(8f, 0f, 8f);
+                        var body = victim.AddComponent<BoxCollider>();
+                        body.size = new Vector3(.6f, 1.8f, .6f); body.center = Vector3.up * .9f;
+                        var hp = Health(victim); Physics.SyncTransforms();
+                        Vector3 hit = victim.transform.position + Vector3.up * (head == 1 ? 1.7f : .7f);
+                        damage.Invoke(null, new object[] {body, spec.damage, actor, (Vector3?)hit, spec.headshotMultiplier});
+                        float expected = Mathf.Max(0f, 200f - spec.damage * (head == 1 ? spec.headshotMultiplier : 1f));
+                        Check(Mathf.Abs(hp.CurrentHealth - expected) < .02f, id + (head == 1 ? " head" : " body") + " actual HP loss");
+                        Object.Destroy(victim);
+                    }
+                }
+                var target = new GameObject("Real pistol target"); target.transform.SetParent(root.transform);
+                target.transform.position = new Vector3(0f, 0f, 2f);
+                var hitbox = target.AddComponent<BoxCollider>(); hitbox.center = Vector3.up * 1.1f;
+                hitbox.size = new Vector3(.9f, 1.8f, .4f); var targetHp = Health(target);
+                var view = new GameObject("QA Camera"); view.transform.SetParent(root.transform);
+                var camera = view.AddComponent<Camera>(); camera.transform.position = Vector3.up * 1.45f;
+                camera.transform.LookAt(target.transform.position + Vector3.up * 1.1f);
+                var gunObject = new GameObject("Pistol firing fixture"); gunObject.transform.SetParent(actor.transform);
+                gunObject.transform.localPosition = Vector3.up * 1.28f;
+                var gun = gunObject.AddComponent<AarisEquippedGun>();
+                gun.Configure(AarisWeaponCatalog.Get("Pistol"), 727u);
+                Physics.SyncTransforms();
+                Check(gun.TryFire(camera, actor) && gun.Magazine == 14 && targetHp.CurrentHealth < 200f,
+                    "Pistol consumes one round and physically damages target");
+                var tracer = (LineRenderer)Read(gun, "tracerRenderer");
+                Check(tracer.enabled && Vector3.Distance(tracer.GetPosition(0), tracer.GetPosition(1)) > .01f,
+                    "Close tracer has visible length on accepting frame");
+                Call(gun, "TickTracer");
+                Check(tracer.enabled && Vector3.Distance(tracer.GetPosition(0), tracer.GetPosition(1)) > .001f,
+                    "Close tracer remains nonzero through first Update");
+                var flash = (Renderer)Read(gun, "muzzleFlashRenderer");
+                Check(Vector3.Distance(tracer.GetPosition(0), flash.transform.position) < .001f,
+                    "Tracer starts on rendered barrel path");
+                Check(flash.enabled && flash.sharedMaterial.renderQueue >= 3000,
+                    "Accepted shot enables transparent muzzle flame");
+                var light = (Light)Read(gun, "muzzleLight");
+                Check(light.enabled && light.shadows == LightShadows.None, "Player barrel burst casts no shadow map");
+                Call(gun, "EjectCasingNow");
+                Check(Mathf.Abs((float)Read(gun, "casingGroundY") - .012f) < .02f,
+                    "Player casing bounce plane is actual floor");
+
+                var bots = root.AddComponent<AarisRivalGunfireVfx>(); Call(bots, "Bind", actor.transform);
+                for (int i = 0; i < 6; i++) Call(bots, "Emit", actor.transform, new Vector3(0f, 1.2f, 4f), false);
+                int activeLights = 0;
+                foreach (Light burst in bots.GetComponentsInChildren<Light>())
+                    if (burst != light && burst.enabled) activeLights++;
+                Check(activeLights == 2, "Six bot shots keep at most two active barrel lights");
+                var slots = (Array)Read(bots, "slots"); var firstSlot = slots.GetValue(0);
+                var botFlash = (Renderer)firstSlot.GetType().GetField("flash", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(firstSlot);
+                Check(botFlash.sharedMaterial == flash.sharedMaterial, "Bots share transparent flame material with player");
+
+                // Actual nearby crate transfer; preserve rounds and consumed meds.
+                var crate = root.AddComponent<AarisDeathCrateWorld>();
+                typeof(AarisDeathCrateWorld).GetField("instance", Static).SetValue(null, crate);
+                Call(crate, "Bind", actor.transform);
+                Call(crate, "Spawn", new Vector3(1.8f, 0f, 0f), AarisWeaponCatalog.Get("Pistol"), 7, 19, 0, 883u);
+                // Provide the real motor's required saved-camera contract.
+                view.tag = "MainCamera";
+                var motor = actor.AddComponent<AarisThirdPersonPlayer>();
+                var inventory = actor.AddComponent<AarisWeaponInventory>(); Set(inventory, "motor", motor);
+                var selfBlocker = new GameObject("Own pickup-path attachment");
+                selfBlocker.transform.SetParent(actor.transform, false);
+                selfBlocker.transform.localPosition = new Vector3(.85f, .7f, 0f);
+                selfBlocker.AddComponent<BoxCollider>().size = Vector3.one * .25f;
+                var capsule = actor.GetComponent<CharacterController>();
+                capsule.enabled = false; actor.transform.position = Vector3.zero; capsule.enabled = true;
+                foreach (float height in new[] {1.8f, 1.2f, .5f})
+                {
+                    capsule.height = height; capsule.center = Vector3.up * height * .5f;
+                    Physics.SyncTransforms();
+                    Check((bool)Call(crate, "Reachable", actor.transform.position, new Vector3(1.8f, 0f, 0f)),
+                        "Crate ignores owned colliders at stance height=" + height);
+                }
+                var loot = typeof(AarisDeathCrateWorld).GetMethod("TryLootNearest", Static);
+                Check((bool)loot.Invoke(null, new object[] {actor.transform, inventory}) &&
+                    inventory.Current.Spec.id == "Pistol" && inventory.Current.Magazine == 7 && inventory.Current.Reserve == 19,
+                    "Death crate transfers exact pistol magazine and reserve without phantom medkit");
+                Check(((IList)Read(crate, "drops")).Count == 0, "Empty looted crate is removed");
+                Call(crate, "Spawn", new Vector3(1.8f, 0f, 0f), AarisWeaponCatalog.Get("Pistol"), 5, 11, 1, 884u);
+                var wall = new GameObject("Crate wall"); wall.transform.SetParent(root.transform);
+                wall.transform.position = new Vector3(.9f, 1f, 0f);
+                wall.AddComponent<BoxCollider>().size = new Vector3(.1f, 2f, 2f);
+                Physics.SyncTransforms();
+                Check(!(bool)loot.Invoke(null, new object[] {actor.transform, inventory}), "Crate cannot be looted through solid wall");
+                Object.Destroy(wall);
+                // Exercise the production health event -> rival OnDied ->
+                // director -> crate chain, including duplicate fatal hits.
+                var director = root.AddComponent<AarisOfflineBRDirector>();
+                Set(director, "deathCrates", crate);
+                var deadActor = new GameObject("Real rival fatality fixture");
+                deadActor.transform.SetParent(root.transform);
+                deadActor.transform.position = new Vector3(200f, 0f, 0f);
+                var deadCapsule = deadActor.AddComponent<CharacterController>();
+                var deadHealth = Health(deadActor);
+                Type rivalType = typeof(AarisOfflineBRDirector).Assembly.GetType("Aaris.MapReview.AarisOfflineRival", true);
+                var rival = deadActor.AddComponent(rivalType);
+                Call(rival, "Initialize", director, deadHealth, actor.transform, Health(actor), 0);
+                Set(rival, "carriedGun", AarisWeaponCatalog.Get("DMR"));
+                Set(rival, "carriedMagazine", 3); Set(rival, "carriedReserve", 17); Set(rival, "medkits", 0);
+                deadActor.transform.position = new Vector3(1.8f, 0f, 0f); deadCapsule.enabled = true;
+                Physics.SyncTransforms();
+                var records = (IList)Read(crate, "drops"); int beforeDeaths = records.Count;
+                deadHealth.ApplyDamage(250f, actor);
+                Check(deadHealth.IsDead && !deadCapsule.enabled && records.Count == beforeDeaths + 1,
+                    "Actual rival fatality spawns exactly one grounded crate");
+                var deathRecord = records[records.Count - 1];
+                var deathGun = (AarisWeaponState)Read(deathRecord, "gun");
+                Check(deathGun.Spec.id == "DMR" && deathGun.Magazine == 3 &&
+                    (int)Read(deathRecord, "looseAmmo") == 17 && (int)Read(deathRecord, "medkits") == 0 &&
+                    Mathf.Abs(((Vector3)Read(deathRecord, "position")).y) < .02f,
+                    "Fatality crate preserves real gun, spent ammo and zero medkits on real floor");
+                deadHealth.ApplyDamage(250f, actor);
+                Check(records.Count == beforeDeaths + 1, "Repeated fatal hit cannot duplicate death loot");
+                Check(!runtimeError, "No runtime errors during native gunplay regressions");
+                exit = 0;
+            }
+            catch (Exception ex) { report.AppendLine("FAIL " + ex); }
+            finally
+            {
+                Application.logMessageReceived -= Log;
+                report.AppendLine("RESULT=" + (exit == 0 ? "PASS" : "FAIL"));
+                File.WriteAllText(Path.Combine(Output, "report.txt"), report.ToString());
+                Object.Destroy(root);
+                SessionState.SetInt(Session + "Exit", exit);
+                SessionState.SetBool(Session + "Finish", true);
+                EditorApplication.isPlaying = false;
+            }
+        }
+    }
+}
+#endif

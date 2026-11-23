@@ -19,11 +19,11 @@ SPEC = read("AarisWeaponCatalog.cs")
 CAT = json.loads((ROOT / "Assets/Resources/AarisWeapons/weapon_catalog.json").read_text("utf-8"))
 
 class ProGunplayAndDeathCrate(unittest.TestCase):
-    def test_all_six_authored_damage_profiles_are_distinct(self):
+    def test_all_seven_authored_damage_profiles_are_distinct(self):
         guns = {w["id"]: w for w in CAT["weapons"]}
-        self.assertEqual(set(guns), {"SMG","AssaultRifle","BattleRifle","Sniper","Shotgun","DMR"})
-        self.assertEqual(len(set(x["damage"] for x in guns.values())), 6)
-        self.assertEqual(len(set(x["rpm"] for x in guns.values())), 6)
+        self.assertEqual(set(guns), {"SMG","AssaultRifle","BattleRifle","Sniper","Shotgun","DMR","Pistol"})
+        self.assertEqual(len(set(x["damage"] for x in guns.values())), 7)
+        self.assertEqual(len(set(x["rpm"] for x in guns.values())), 7)
         self.assertIn("headshotMultiplier >= 1f && headshotMultiplier <= 4f", SPEC)
         self.assertEqual(guns["Sniper"]["headshotMultiplier"], 2.25)
         self.assertLess(guns["SMG"]["headshotMultiplier"],
