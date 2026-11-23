@@ -1169,7 +1169,7 @@ namespace Aaris.MapReview
                     }
                     if (canRegister && attacker != null &&
                         !node.IsChildOf(attacker.transform))
-                        AarisWeaponHUD.NotifyHit(attacker);
+                        AarisWeaponHUD.NotifyHit(attacker, headshot);
                     return canRegister;
                 }
             }
