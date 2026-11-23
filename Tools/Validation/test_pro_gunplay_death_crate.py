@@ -192,7 +192,25 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("Time.time + 0.25f;",CRATE)
         self.assertIn("unusedVisuals.Pop() : CreateVisual();",CRATE)
         self.assertIn("Vertical loot marker",CRATE)
-        self.assertIn("ground.point.y",CRATE)
+        self.assertIn("position.y = bestSupportY;",CRATE)
+
+    def test_crowded_death_crate_chooses_static_floor_not_live_bot(self):
+        spawn = CRATE.split("internal void Spawn(", 1)[1].split(
+            "internal static bool HasPickupNear(", 1)[0]
+        self.assertIn("private RaycastHit[] spawnGroundHits = new RaycastHit[16];", CRATE)
+        self.assertIn("AarisPhysicsHitBuffer.Raycast(", spawn)
+        self.assertIn("ref spawnGroundHits, 256,", spawn)
+        self.assertIn("surface.attachedRigidbody != null", spawn)
+        self.assertIn("surface.GetComponentInParent<CharacterController>() != null", spawn)
+        self.assertIn("hit.normal.y <= 0.45f", spawn)
+        self.assertIn("hit.point.y > position.y + 0.35f", spawn)
+        self.assertIn("hit.point.y <= bestSupportY", spawn)
+        self.assertIn("position.y = bestSupportY;", spawn)
+        self.assertLess(spawn.index("if (state == null && medkits <= 0) return;"),
+                        spawn.index("AarisPhysicsHitBuffer.Raycast("))
+        fixture = (ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text()
+        self.assertIn("Crate ignores living rival cap and anchors on real floor", fixture)
+        self.assertIn("Empty death crate skips physics and creates no record", fixture)
 
     def test_crate_hint_matches_actual_pickup_priority_and_range(self):
         self.assertIn("out string weapon, out float distance, out bool canPick", CRATE)
