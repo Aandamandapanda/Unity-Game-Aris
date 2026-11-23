@@ -22,6 +22,7 @@ namespace Aaris.MapReview
             public string Key;
             public Vector3 Position;
             public float At, Volume;
+            public bool Local;
         }
         private readonly TimedCue[] scheduled = new TimedCue[16];
         // Most frames have no due audio cue. Track the next deadline so a
@@ -63,6 +64,17 @@ namespace Aaris.MapReview
         private float stepDistance, lastSkidAt = -10f, lastCrashAt = -10f;
         private AarisBattleActions.PlayerStance lastFootstepStance = AarisBattleActions.PlayerStance.Standing;
         private int nextLocalVoice, nextWorldVoice = LocalVoiceCount;
+        // Gunshot pitch variation must not advance Unity's global gameplay RNG.
+        // This stream only affects audio presentation, not loot or AI choices.
+        private uint gunshotPitchSeed = 0xC2B2AE35u;
+
+        private float NextGunshotPitch()
+        {
+            gunshotPitchSeed = unchecked(
+                gunshotPitchSeed * 1664525u + 1013904223u);
+            return .97f + (gunshotPitchSeed & 0x00FFFFFFu) *
+                (1f / 16777216f) * .065f;
+        }
         private int vehicleGear = 1;
         private Vector3 previousPosition;
         private float nextOptionalComponentRefresh;
@@ -264,7 +276,8 @@ namespace Aaris.MapReview
             key == "grenade_pin" || key == "grenade_throw" ||
             key == "car_start" || key == "gloo_deploy";
 
-        private void OneShot(string name, Vector3 point, float volume = 1f, float pitch = 1f)
+        private void OneShot(string name, Vector3 point, float volume = 1f,
+            float pitch = 1f, bool forceWorld = false)
         {
             AudioClip clip = GetClip(name);
             if (!isActiveAndEnabled || clip == null) return;
@@ -272,6 +285,9 @@ namespace Aaris.MapReview
             // A shotgun/impact cue must not be stolen by round-robin wrapping
             // while another of the 12 existing channels has already finished.
             bool local = IsLocalCue(name);
+            // Player shots use the dedicated close-mix; nearby rivals remain
+            // directional 3D voices, even when sharing the exact same clip.
+            if (forceWorld) local = false;
             int start = local ? 0 : LocalVoiceCount;
             int count = local ? LocalVoiceCount : VoiceCount - LocalVoiceCount;
             int cursor = local ? nextLocalVoice : nextWorldVoice;
@@ -310,25 +326,52 @@ namespace Aaris.MapReview
             voice.Play();
         }
 
-        private void Schedule(string key, Vector3 point, float seconds, float volume)
+        // Reserve a saturated cue queue for mechanically meaningful sounds:
+        // grenade release > bolt/pump cycle > incidental cartridge landing.
+        // Do not drop a cue that is about to play just to accept a later,
+        // equal-priority shell. A tiny integer comparison, no allocations.
+        private static int ScheduledCuePriority(string key)
+        {
+            return key == "grenade_throw" ? 2 :
+                key == "bolt_reload" ? 1 : 0;
+        }
+
+        private void Schedule(string key, Vector3 point, float seconds,
+            float volume, bool local = true)
         {
             int empty = -1;
             for (int i = 0; i < scheduled.Length; i++)
                 if (scheduled[i].Key == null) { empty = i; break; }
-            // At high rates, drop only the oldest noncritical tail cue.
-            // Recompute the deadline when replacing it: the old minimum
-            // might no longer be in the queue.
             bool replacedOldest = empty < 0;
+            float at = Time.time + seconds;
             if (replacedOldest)
             {
-                empty = 0;
-                for (int i = 1; i < scheduled.Length; i++)
-                    if (scheduled[i].At < scheduled[empty].At) empty = i;
+                // Full queue: select the least-important cue, breaking ties
+                // by FARTHEST future deadline. Earlier sounds keep playing.
+                int lowestPriority = int.MaxValue;
+                float latestAt = float.NegativeInfinity;
+                for (int i = 0; i < scheduled.Length; i++)
+                {
+                    int priority = ScheduledCuePriority(scheduled[i].Key);
+                    if (priority < lowestPriority ||
+                        (priority == lowestPriority && scheduled[i].At > latestAt))
+                    {
+                        lowestPriority = priority;
+                        latestAt = scheduled[i].At;
+                        empty = i;
+                    }
+                }
+                int incomingPriority = ScheduledCuePriority(key);
+                // Never evict a more important cue. For equal priority,
+                // retain the cue scheduled sooner instead of starving it.
+                if (incomingPriority < lowestPriority ||
+                    (incomingPriority == lowestPriority && at >= latestAt))
+                    return;
             }
-            float at = Time.time + seconds;
             scheduled[empty] = new TimedCue
             {
-                Key = key, Position = point, At = at, Volume = volume
+                Key = key, Position = point, At = at, Volume = volume,
+                Local = local
             };
             if (replacedOldest)
             {
@@ -356,25 +399,40 @@ namespace Aaris.MapReview
                 }
                 TimedCue cue = scheduled[i];
                 scheduled[i].Key = null;
-                OneShot(cue.Key, cue.Position, cue.Volume);
+                OneShot(cue.Key, cue.Position, cue.Volume,
+                    forceWorld: !cue.Local);
             }
             nextScheduledAt = next;
         }
 
         /// <summary>Only successful weapon shots call this, never a held Fire button.</summary>
-        public static void GunShot(string category, string id, Vector3 position)
+        public static void GunShot(string category, string id, Vector3 position,
+            bool isPlayerShot = true)
         {
             if (instance == null || !instance.isActiveAndEnabled) return;
+            // Real bot shots farther than the spatial voice range cannot be
+            // heard. Do not spend an 8-channel world voice, pitch RNG or two
+            // timed-cue slots on inaudible combat across the 2km map.
+            if (!isPlayerShot &&
+                (position - instance.transform.position).sqrMagnitude > 70f * 70f)
+                return;
             string sound = category == "SMG" ? "smg_shot" :
                 category == "Sniper" ? "sniper_shot" :
                 category == "Shotgun" ? "shotgun_shot" :
                 id == "BattleRifle" ? "battle_rifle_shot" : "ar_shot";
             float pitch = category == "Pistol" ? 1.24f : 1f;
             instance.OneShot(sound, position, category == "Pistol" ? 0.68f : 0.85f,
-                pitch * UnityEngine.Random.Range(0.97f, 1.035f));
-            instance.Schedule("shell_drop", position, 0.14f, 0.16f);
+                pitch * instance.NextGunshotPitch(), forceWorld: !isPlayerShot);
+            // The shell cannot hit the floor before the bolt/pump releases it.
+            // From a ~1.3m receiver with upward ejection, a ~0.63s flight
+            // is a restrained ground-contact approximation (no extra PhysX).
+            float casingDelay = category == "Shotgun" ? .31f :
+                category == "Sniper" ? .29f : .025f;
+            instance.Schedule("shell_drop", position, casingDelay + .63f,
+                .16f, local: isPlayerShot);
             if (category == "Sniper" || category == "Shotgun")
-                instance.Schedule("bolt_reload", position, 0.36f, 0.44f);
+                instance.Schedule("bolt_reload", position, 0.36f, 0.44f,
+                    local: isPlayerShot);
         }
 
         public static void BulletImpact(Vector3 position)

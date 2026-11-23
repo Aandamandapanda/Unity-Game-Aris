@@ -12,6 +12,7 @@ GUN = read("AarisEquippedGun.cs")
 RIVAL = read("AarisOfflineBRDirector.cs")
 CRATE = read("AarisDeathCrateWorld.cs")
 FX = read("AarisRivalGunfireVfx.cs")
+AUDIO = read("AarisAudioDirector.cs")
 INVENTORY = read("AarisWeaponInventory.cs")
 FLOOR = read("AarisWeaponLootWorld.cs")
 MEDICAL = read("AarisOfflineTacticalHUD.cs")
@@ -513,6 +514,131 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("Delayed bolt brass originates at moving shooter with actual floor",
                       (ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text())
 
+
+
+    def test_player_shell_visual_rng_is_independent_from_combat_random(self):
+        fire = GUN.split("public bool TryFire(", 1)[1].split(
+            "private static bool IsAuthoredHeadHit", 1)[0]
+        eject = GUN.split("private void EjectCasingNow()", 1)[1].split(
+            "private void HideCasing()", 1)[0]
+        self.assertIn("casingVisualSeed = state.SpreadSeed ^ 0xA15C0DEu;", GUN)
+        self.assertIn("private float NextCasingVisualRange(", GUN)
+        self.assertIn("unchecked(", GUN)
+        self.assertIn("casingVisualSeed * 1664525u + 1013904223u", GUN)
+        self.assertGreaterEqual(eject.count("NextCasingVisualRange("), 7)
+        self.assertNotIn("UnityEngine.Random.Range(", eject)
+        self.assertNotIn("Random.InitState(", eject)
+        self.assertIn("AarisWeaponRandom.Next01(ref spreadSeed)", fire)
+        self.assertIn("spreadSeed = state.SpreadSeed;", GUN)
+        self.assertNotIn("spreadSeed =", eject)
+        native = (ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text("utf-8")
+        self.assertIn("Player brass visuals do not mutate global combat RNG", native)
+        self.assertIn("Independent player shells keep natural ballistic variation", native)
+        self.assertIn("JsonUtility.ToJson(UnityEngine.Random.state)", native)
+
+    def test_saturated_firefight_audio_never_discards_higher_priority_cues(self):
+        self.assertIn("private static int ScheduledCuePriority(string key)", AUDIO)
+        priority = AUDIO.split("private static int ScheduledCuePriority(", 1)[1].split(
+            "private void Schedule(", 1)[0]
+        self.assertIn('key == "grenade_throw" ? 2', priority)
+        self.assertIn('key == "bolt_reload" ? 1 : 0', priority)
+        scheduler = AUDIO.split("private void Schedule(", 1)[1].split(
+            "private void PlayScheduled()", 1)[0]
+        for expected in (
+            "int lowestPriority = int.MaxValue;",
+            "float latestAt = float.NegativeInfinity;",
+            "ScheduledCuePriority(scheduled[i].Key)",
+            "scheduled[i].At > latestAt",
+            "incomingPriority < lowestPriority",
+            "incomingPriority == lowestPriority && at >= latestAt",
+            "nextScheduledAt = float.PositiveInfinity;",
+            "nextScheduledAt = Mathf.Min(nextScheduledAt, at);",
+        ):
+            self.assertIn(expected, scheduler)
+        for forbidden in ("new List<", "new GameObject(", "Instantiate(", "Physics.Raycast", "OrderBy("):
+            self.assertNotIn(forbidden, scheduler)
+
+        def rank(key):
+            return {"grenade_throw": 2, "bolt_reload": 1}.get(key, 0)
+
+        def add(queue, incoming):
+            # Faithfully model the 16-slot fixed-array replacement policy.
+            if len(queue) < 16:
+                return queue + [incoming]
+            worst = min(rank(cue[0]) for cue in queue)
+            latest_at = max(cue[1] for cue in queue if rank(cue[0]) == worst)
+            if rank(incoming[0]) < worst or (
+                rank(incoming[0]) == worst and incoming[1] >= latest_at
+            ):
+                return queue
+            index = next(i for i, cue in enumerate(queue)
+                         if rank(cue[0]) == worst and cue[1] == latest_at)
+            updated = list(queue)
+            updated[index] = incoming
+            return updated
+
+        early = [("shell_drop", round(0.2 + i * 0.01, 2)) for i in range(16)]
+        self.assertEqual(add(early, ("shell_drop", 1.4)), early)
+        closer = add(early, ("shell_drop", 0.19))
+        self.assertIn(("shell_drop", 0.19), closer)
+        self.assertIn(("shell_drop", 0.2), closer)
+        self.assertNotIn(("shell_drop", 0.35), closer)
+        with_grenade = add(early, ("grenade_throw", 0.9))
+        self.assertIn(("grenade_throw", 0.9), with_grenade)
+        with_bolt = add(with_grenade, ("bolt_reload", 0.75))
+        self.assertIn(("grenade_throw", 0.9), with_bolt)
+        self.assertIn(("bolt_reload", 0.75), with_bolt)
+        self.assertEqual(add([("grenade_throw", 1 + i) for i in range(16)],
+                             ("shell_drop", 0.1)),
+                         [("grenade_throw", 1 + i) for i in range(16)])
+
+    def test_rival_gunfire_and_delayed_cues_are_directional_3d(self):
+        bot_fire = RIVAL.split("float fireInterval = carriedGun != null", 1)[1].split(
+            "private float NextVirtualRandom()", 1)[0]
+        self.assertIn("isPlayerShot: false", bot_fire)
+        self.assertIn("bool isPlayerShot = true", AUDIO)
+        self.assertIn("if (forceWorld) local = false;", AUDIO)
+        self.assertIn("bool local = IsLocalCue(name);", AUDIO)
+        self.assertIn("bool forceWorld = false", AUDIO)
+        self.assertIn("forceWorld: !isPlayerShot", AUDIO)
+        gunshot = AUDIO.split("public static void GunShot(", 1)[1].split(
+            "public static void BulletImpact(", 1)[0]
+        self.assertIn("if (!isPlayerShot &&", gunshot)
+        self.assertIn("(position - instance.transform.position).sqrMagnitude > 70f * 70f", gunshot)
+        self.assertLess(gunshot.index("if (!isPlayerShot &&"),
+                        gunshot.index("instance.OneShot(sound, position"))
+        self.assertIn("public bool Local;", AUDIO)
+        self.assertIn("Local = local", AUDIO)
+        self.assertIn("forceWorld: !cue.Local", AUDIO)
+        gunshot = AUDIO.split("public static void GunShot(", 1)[1].split(
+            "public static void BulletImpact(", 1)[0]
+        self.assertIn("local: isPlayerShot", gunshot)
+        self.assertIn("private const int LocalVoiceCount = 4;", AUDIO)
+        self.assertIn("private const int VoiceCount = 12;", AUDIO)
+        # No per-bot sound source or duplicate global voice manager.
+        self.assertNotIn("new AudioSource", gunshot)
+        self.assertNotIn("AddComponent<AudioSource>", gunshot)
+        self.assertNotIn("Instantiate(", gunshot)
+
+    def test_brass_drop_audio_never_precedes_real_ejection(self):
+        gunshot = AUDIO.split("public static void GunShot(", 1)[1].split(
+            "public static void BulletImpact(", 1)[0]
+        self.assertIn("pitch * instance.NextGunshotPitch()", gunshot)
+        self.assertNotIn("UnityEngine.Random.Range(", gunshot)
+        self.assertIn("private float NextGunshotPitch()", AUDIO)
+        self.assertIn('category == "Shotgun" ? .31f', gunshot)
+        self.assertIn('category == "Sniper" ? .29f : .025f', gunshot)
+        self.assertIn('instance.Schedule("shell_drop", position, casingDelay + .63f,', gunshot)
+        self.assertIn('.16f, local: isPlayerShot);', gunshot)
+        player_ejection = GUN.split("private void ScheduleCasingEjection()", 1)[1].split(
+            "private void TickCasingEjections()", 1)[0]
+        for category, expected in (("Shotgun", 0.31), ("Sniper", 0.29), ("SMG", 0.025)):
+            self.assertIn(f'spec.category == "{category}"', player_ejection) if category != "SMG" else None
+            self.assertGreater(expected + 0.63, expected)
+            self.assertLess(expected + 0.63, 1.0)
+        # Fixed-size queue and pooled voices are unchanged.
+        self.assertIn("private readonly TimedCue[] scheduled = new TimedCue[16];", AUDIO)
+        self.assertIn("private const int VoiceCount = 12;", AUDIO)
 
 if __name__ == "__main__":
     unittest.main()
