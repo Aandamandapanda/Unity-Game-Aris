@@ -247,6 +247,26 @@ namespace Aaris.MapReview.Editor
                 var crate = root.AddComponent<AarisDeathCrateWorld>();
                 typeof(AarisDeathCrateWorld).GetField("instance", Static).SetValue(null, crate);
                 Call(crate, "Bind", actor.transform);
+                var cratePreview = (GameObject)Call(crate, "CreateVisual");
+                int cubeParts = 0;
+                Mesh sharedCrateMesh = null;
+                foreach (MeshFilter part in cratePreview.GetComponentsInChildren<MeshFilter>(true))
+                {
+                    if (part.gameObject.name == "Vertical loot marker") continue;
+                    cubeParts++;
+                    if (sharedCrateMesh == null) sharedCrateMesh = part.sharedMesh;
+                    Check(part.sharedMesh == sharedCrateMesh,
+                        "Crate part shares a single prebuilt cube mesh");
+                }
+                Check(cubeParts == 3 && sharedCrateMesh != null &&
+                    cratePreview.GetComponentsInChildren<Collider>(true).Length == 0,
+                    "Death crate visual has three meshes and zero transient colliders");
+                Object.Destroy(cratePreview);
+                // The closer medkit-only crate cannot be collected by this
+                // fixture (no medical HUD); the farther pistol must still be
+                // lootable with the same single PICK action.
+                Call(crate, "Spawn", new Vector3(1.15f, 0f, 0f),
+                    null, 0, 0, 1, 882u);
                 Call(crate, "Spawn", new Vector3(1.8f, 0f, 0f), AarisWeaponCatalog.Get("Pistol"), 7, 19, 0, 883u);
                 // Provide the real motor's required saved-camera contract.
                 view.tag = "MainCamera";
@@ -269,7 +289,11 @@ namespace Aaris.MapReview.Editor
                 Check((bool)loot.Invoke(null, new object[] {actor.transform, inventory}) &&
                     inventory.Current.Spec.id == "Pistol" && inventory.Current.Magazine == 7 && inventory.Current.Reserve == 19,
                     "Death crate transfers exact pistol magazine and reserve without phantom medkit");
-                Check(((IList)Read(crate, "drops")).Count == 0, "Empty looted crate is removed");
+                var leftoverCrates = (IList)Read(crate, "drops");
+                Check(leftoverCrates.Count == 1 &&
+                    Read(leftoverCrates[0], "gun") == null &&
+                    (int)Read(leftoverCrates[0], "medkits") == 1,
+                    "PICK skips unavailable medkit, takes farther gun and preserves remaining crate");
                 Call(crate, "Spawn", new Vector3(1.8f, 0f, 0f), AarisWeaponCatalog.Get("Pistol"), 5, 11, 1, 884u);
                 var wall = new GameObject("Crate wall"); wall.transform.SetParent(root.transform);
                 wall.transform.position = new Vector3(.9f, 1f, 0f);
