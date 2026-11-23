@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/aaris-ultra-gunplay-live-playmode.yml'
-      - 'Tools/Codespaces/ultra_gunplay_playmode_sandbox.sh'
+      - 'Tools/CI/ultra_gunplay_playmode_sandbox.sh'
       - 'Tools/Validation/test_ultra_gunplay_live_gate.py'
   issue_comment:
     types: [created]
@@ -26,7 +26,7 @@ jobs:
       - name: Check isolated QA script and execution guardrails
         run: |
           set -euo pipefail
-          bash -n Tools/Codespaces/ultra_gunplay_playmode_sandbox.sh
+          bash -n Tools/CI/ultra_gunplay_playmode_sandbox.sh
           python3 -m unittest discover -s Tools/Validation -p test_ultra_gunplay_live_gate.py
           echo AARIS_ULTRA_QA_SCRIPT_GUARDS=PASS
 
@@ -70,7 +70,7 @@ jobs:
           set +e
           timeout --kill-after=20s 1700s \
             gh codespace ssh -c "$MACHINE" -- "bash -s -- '$GITHUB_SHA'" \
-            < Tools/Codespaces/ultra_gunplay_playmode_sandbox.sh \
+            < Tools/CI/ultra_gunplay_playmode_sandbox.sh \
             > "$report" 2> "$RUNNER_TEMP/aaris-ultra-gunplay/remote-errors.txt"
           result=$?
           set -e
