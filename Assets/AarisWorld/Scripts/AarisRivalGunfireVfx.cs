@@ -80,9 +80,11 @@ namespace Aaris.MapReview
             slot.tracer.receiveShadows = false;
             slot.tracer.enabled = false;
 
-            var flash = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            flash.name = "Aaris Bot Reused Barrel Fire";
+            var flash = new GameObject("Aaris Bot Reused Tapered Barrel Fire",
+                typeof(MeshFilter), typeof(MeshRenderer));
             flash.transform.SetParent(transform, false);
+            flash.GetComponent<MeshFilter>().sharedMesh =
+                AarisEquippedGun.SharedMuzzleFlameMesh();
             slot.flashPose = flash.transform;
             slot.flash = flash.GetComponent<MeshRenderer>();
             slot.flash.sharedMaterial = MaterialFor(false);

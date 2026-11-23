@@ -176,6 +176,9 @@ namespace Aaris.MapReview
             return material;
         }
 
+        // Shared tapered flame can be reused by close-range rival slots.
+        internal static Mesh SharedMuzzleFlameMesh() => MuzzleFlameMesh();
+
         // Shared ten-vertex geometry replaces an opaque-looking yellow quad.
         // Built once; no mesh, texture, particle or object allocation per shot.
         private static Mesh MuzzleFlameMesh()

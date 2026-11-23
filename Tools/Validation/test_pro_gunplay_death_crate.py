@@ -54,6 +54,8 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("slot.tracer.widthMultiplier = .008f;",FX)
         self.assertIn("slot.casingPose.Rotate(slot.spin * dt, Space.World);",FX)
         self.assertIn("owner.ShowRivalGunfire(transform, shotHit.point, carriedGun);",RIVAL)
+        self.assertIn("shotHit.point, carriedGun.headshotMultiplier);",RIVAL)
+        self.assertIn("AarisEquippedGun.SharedMuzzleFlameMesh()",FX)
         self.assertNotIn("ShowRivalGunfire",RIVAL.split("private void TickVirtualCombat",1)[1])
 
     def test_bot_death_spawns_crate_before_destruction(self):

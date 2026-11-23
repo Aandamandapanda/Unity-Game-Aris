@@ -2533,7 +2533,7 @@ namespace Aaris.MapReview
                 // and its pooled damage number at the victim bounds center.
                 if (carriedGun != null)
                     AarisEquippedGun.ApplyDamage(shotHit.collider, damage,
-                        gameObject, shotHit.point);
+                        gameObject, shotHit.point, carriedGun.headshotMultiplier);
                 else
                     AarisEquippedGun.ApplyDamage(shotHit.collider, damage,
                         gameObject);
