@@ -1185,7 +1185,7 @@ namespace Aaris.MapReview
         // Bot pickup uses the exact same floor weapon record as player pickup.
         // It never clones a gun, invents ammunition or desynchronizes the
         // candidate-consumed registry. Bot callers are already time-sliced.
-        internal bool TryTakeForRival(Transform rival, out AarisWeaponSpec acquired)
+        internal bool TryTakeForRival(Transform rival, out AarisWeaponState acquired)
         {
             acquired = null;
             if (!isActiveAndEnabled || rival == null || !HasLandingAuthority ||
@@ -1213,7 +1213,10 @@ namespace Aaris.MapReview
                     consumed[id] = true;
                 }
                 else DeleteDrop(id);
-                acquired = pickup.Spec;
+                // Transfer the actual immutable floor state, not merely its
+                // weapon ID. A rival must not refill an already-spent magazine
+                // or create reserve rounds that never existed on the ground.
+                acquired = pickup.State;
                 pickup.CommitConsumed();
                 active.RemoveAt(i);
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -1222,7 +1225,7 @@ namespace Aaris.MapReview
                 Destroy(pickup.gameObject);
                 if (Debug.isDebugBuild)
                     Debug.Log("AARIS_BOT_GROUND_LOOT id=" + id +
-                        " gun=" + acquired.id);
+                        " gun=" + acquired.Spec.id);
                 return true;
             }
             return false;
