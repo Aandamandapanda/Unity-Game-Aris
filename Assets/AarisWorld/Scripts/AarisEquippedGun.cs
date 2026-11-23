@@ -154,6 +154,18 @@ namespace Aaris.MapReview
             RefreshReload();
         }
 
+        // Cheap exact capacity probe for a nearby crate's PICK hint.
+        // A completed reload can free reserve space between hint polls.
+        internal bool HasReserveSpace
+        {
+            get
+            {
+                RefreshReload();
+                return spec != null && reserve <
+                    Mathf.Max(spec.reserveAmmo * 2, spec.magazineSize * 3);
+            }
+        }
+
         // Exact ammo transfer for death-crate loot; never generates cartridges.
         internal int AddReserve(int amount)
         {
