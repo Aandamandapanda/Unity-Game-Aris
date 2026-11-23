@@ -203,6 +203,24 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn('(cratePickupReady ? "  PICK" : "")', HUD)
         self.assertIn("instance.cachedPickupNear = false;", CRATE)
 
+    def test_ground_weapon_pickup_cannot_peek_over_cover_in_prone(self):
+        loot = read("AarisWeaponLootWorld.cs")
+        self.assertIn("looter.TryGetComponent(out CharacterController body)", loot)
+        self.assertIn("body.center.y - body.height * .5f", loot)
+        self.assertIn("body.height * .65f, .33f, .95f", loot)
+        self.assertIn("Vector3 eye = looter.position + Vector3.up * eyeHeight;", loot)
+        self.assertNotIn("Vector3 eye = looter.position + Vector3.up * .95f;", loot)
+        # A wall spanning y=0...0.52m at z=0.84-0.96m blocks
+        # crouched/prone pickup but clears standing for a gun 1.8m away.
+        for height in (1.8, 1.2, .5, 1.8, .5):
+            eye = max(.33, min(.95, height * .65))
+            segment_height_at_wall_back = eye + (.24-eye) * (.96/1.8)
+            self.assertEqual(segment_height_at_wall_back > .52, height > 1.6)
+        native = (ROOT / "Assets/AarisWorld/Editor/AarisBotCombatIntegrationQA.cs").read_text()
+        self.assertIn("Ground gun pickup obeys standing/crouch/prone cover", native)
+        self.assertIn("float[] heights = {1.8f, 1.2f, .5f, 1.8f, .5f};", native)
+        self.assertIn("capsule.height = heights[i];", native)
+
     def test_crate_reach_ray_obeys_live_stance_capsule(self):
         self.assertIn("private CharacterController playerCapsule;", CRATE)
         self.assertIn("playerCapsule = target != null", CRATE)
