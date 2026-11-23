@@ -41,6 +41,9 @@ namespace Aaris.MapReview
         private int liveVisuals;
         private bool cachedPickupNear;
         private RaycastHit[] pickupHits = new RaycastHit[16];
+        // Death-time only: retain the probe buffer across all 100 bot deaths.
+        // Never let a live rival capsule or moving vehicle become crate floor.
+        private RaycastHit[] spawnGroundHits = new RaycastHit[16];
 
         private void Awake() { instance = this; }
         internal void Bind(Transform target)
@@ -54,20 +57,40 @@ namespace Aaris.MapReview
         internal void Spawn(Vector3 position, AarisWeaponSpec gun,
             int magazine, int reserve, int medkits, uint seed)
         {
-            // OnDied disables the rival capsule first. Anchor on a real floor.
-            Vector3 probe = position + Vector3.up * 1.85f;
-            if (Physics.Raycast(probe, Vector3.down, out RaycastHit ground, 5.5f,
-                Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore) &&
-                ground.normal.y > 0.45f)
-                position.y = ground.point.y;
             AarisWeaponState state = gun != null && gun.Valid
                 ? new AarisWeaponState(gun, Mathf.Clamp(magazine, 0, gun.magazineSize),
                     0, 0f, 0f, false, seed) : null;
             // Reserve ammo stays separately tracked so it can be transferred to
             // a matching carried gun without duplicating the death weapon.
             // A rival that spent its last medkit must not conjure a fresh one.
-            // Unarmed rivals with no remaining supplies leave no empty crate.
+            // Skip the ground query altogether when no crate will be spawned.
             if (state == null && medkits <= 0) return;
+            // OnDied disables the victim's capsule, but another nearby living
+            // rival may still cover the downward ray. Inspect complete hits
+            // and choose the highest stationary support below the dead feet.
+            // This preserves elevated bridges/floors without floating crates
+            // on a living bot or a vehicle. Queries run only on actual deaths.
+            Vector3 probe = position + Vector3.up * 1.85f;
+            int groundCount = AarisPhysicsHitBuffer.Raycast(
+                new Ray(probe, Vector3.down), 5.5f,
+                Physics.DefaultRaycastLayers, ref spawnGroundHits, 256,
+                out RaycastHit[] supportHits);
+            float bestSupportY = float.NegativeInfinity;
+            for (int i = 0; i < groundCount; i++)
+            {
+                RaycastHit hit = supportHits[i];
+                Collider surface = hit.collider;
+                if (surface == null ||
+                    surface.attachedRigidbody != null ||
+                    surface.GetComponentInParent<CharacterController>() != null ||
+                    hit.normal.y <= 0.45f ||
+                    hit.point.y > position.y + 0.35f ||
+                    hit.point.y <= bestSupportY)
+                    continue;
+                bestSupportY = hit.point.y;
+            }
+            if (bestSupportY > float.NegativeInfinity)
+                position.y = bestSupportY;
             drops.Add(new Drop
             {
                 position = position,
