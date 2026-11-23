@@ -295,7 +295,10 @@ class CombatEndToEndContract(unittest.TestCase):
         # A camera-only presentation wake must not consume a far loot tick.
         self.assertIn("if (simulationDue && carriedGun == null && now >= nextLootAt)", BOTS)
         self.assertIn("if (playerDistanceSqr < 76f * 76f)", BOTS)
-        self.assertIn("owner.TryLootForRival(transform, out found)", BOTS)
+        self.assertIn("owner.TryLootForRival(transform, out scavenged);", BOTS)
+        self.assertIn("carriedMagazine = Mathf.Clamp(scavenged.Magazine, 0,", BOTS)
+        self.assertIn("carriedReserve = Mathf.Max(0, scavenged.Reserve);", BOTS)
+        self.assertIn("acquired = pickup.State;", LOOT)
         # Bots pass their actual Transform so pickup LOS can exclude ONLY
         # the looter's own colliders, never arbitrary player-layer walls.
         self.assertIn("internal bool TryLootForRival(Transform rival", BOTS)

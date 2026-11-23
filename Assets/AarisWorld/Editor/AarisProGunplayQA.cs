@@ -175,6 +175,32 @@ namespace Aaris.MapReview.Editor
                 Check(Mathf.Abs((float)Read(gun, "casingGroundY") - .012f) < .02f,
                     "Player casing bounce plane is actual floor");
 
+                // Physical renderer validation: three rapid automatic rounds
+                // must coexist, rather than replacing the first 64m tracer.
+                var autoVisual = new GameObject("SMG pooled tracer fixture");
+                autoVisual.transform.SetParent(actor.transform, false);
+                var automatic = autoVisual.AddComponent<AarisEquippedGun>();
+                automatic.Configure(AarisWeaponCatalog.Get("SMG"), 728u);
+                for (int i = 0; i < 3; i++)
+                    Call(automatic, "TriggerTracer", new Vector3(0f, 1.3f, .3f),
+                        new Vector3(i, 1.3f, 30f));
+                var autoTracers = (Array)Read(automatic, "tracerTrail");
+                var firstAuto = (LineRenderer)Read(automatic, "tracerRenderer");
+                int visibleAuto = firstAuto != null && firstAuto.enabled ? 1 : 0;
+                for (int i = 0; i < autoTracers.Length; i++)
+                {
+                    object trailState = autoTracers.GetValue(i);
+                    var trailRenderer = (LineRenderer)trailState.GetType()
+                        .GetField("renderer", BindingFlags.Instance |
+                            BindingFlags.NonPublic).GetValue(trailState);
+                    if (trailRenderer != null && trailRenderer.enabled &&
+                        Vector3.Distance(trailRenderer.GetPosition(0),
+                            trailRenderer.GetPosition(1)) > .01f)
+                        visibleAuto++;
+                }
+                Check(visibleAuto == 3,
+                    "Three rapid automatic bullets retain three independent thin tracers");
+
                 var bots = root.AddComponent<AarisRivalGunfireVfx>(); Call(bots, "Bind", actor.transform);
                 for (int i = 0; i < 6; i++) Call(bots, "Emit", actor.transform, new Vector3(0f, 1.2f, 4f), false);
                 int activeLights = 0;
