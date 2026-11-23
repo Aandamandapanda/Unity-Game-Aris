@@ -100,6 +100,15 @@ namespace Aaris.MapReview
             if (drop == null) return false;
             canPick = inReach != null;
             weapon = drop.gun != null ? drop.gun.Spec.displayName : "MEDKIT";
+            // Label the resource the button can ACTUALLY receive: a full
+            // inventory without a floor-exchange world may take ammo or meds,
+            // but cannot swap its gun through the crate.
+            if (inReach != null && drop.gun != null &&
+                seeker.TryGetComponent(out AarisWeaponInventory inventory) &&
+                !inventory.CanPickupDeathCrateGun)
+                weapon = drop.looseAmmo > 0 &&
+                    inventory.CanReceiveDeathCrateAmmo(drop.gun.Spec)
+                    ? drop.gun.Spec.displayName + " AMMO" : "MEDKIT";
             distance = Vector3.Distance(seeker.position, drop.position);
             return true;
         }
@@ -123,7 +132,7 @@ namespace Aaris.MapReview
             for (int i = 0; i < attempts; i++)
             {
                 Drop drop = instance.Nearest(seeker.position, PickupRadius,
-                    true, probe);
+                    true, probe, true);
                 if (drop == null) break;
                 drop.lastPickupProbe = probe;
 
@@ -131,7 +140,7 @@ namespace Aaris.MapReview
                 // A full two-slot inventory needs a reserved, reachable floor
                 // record for the outgoing hand gun BEFORE changing ownership.
                 // The inventory routes that case through its normal loot world.
-                if (drop.gun != null)
+                if (drop.gun != null && inventory.CanPickupDeathCrateGun)
                 {
                     AarisWeaponState transfer = new AarisWeaponState(drop.gun.Spec,
                         drop.gun.Magazine, drop.looseAmmo, 0f, 0f, false,
@@ -223,6 +232,11 @@ namespace Aaris.MapReview
                 (player != null &&
                  player.TryGetComponent(out AarisOfflineTacticalHUD medical) &&
                  medical.CanReceiveDeathCrateMedkits);
+            AarisWeaponInventory inventory = null;
+            if (actionableOnly && player != null)
+                player.TryGetComponent(out inventory);
+            bool canTakeGun = inventory != null &&
+                inventory.CanPickupDeathCrateGun;
             float best = radius * radius;
             Drop selected = null;
             for (int i = 0; i < drops.Count; i++)
@@ -230,10 +244,17 @@ namespace Aaris.MapReview
                 Drop drop = drops[i];
                 if (!drop.HasContent || (excludeProbe != 0 &&
                     drop.lastPickupProbe == excludeProbe) ||
-                    Mathf.Abs(drop.position.y - point.y) > 3f ||
-                    (actionableOnly && drop.gun == null &&
-                     (drop.medkits <= 0 || !canTakeMedkits)))
+                    Mathf.Abs(drop.position.y - point.y) > 3f)
                     continue;
+                if (actionableOnly)
+                {
+                    bool takeGun = drop.gun != null && canTakeGun;
+                    bool takeAmmo = drop.gun != null && drop.looseAmmo > 0 &&
+                        inventory != null &&
+                        inventory.CanReceiveDeathCrateAmmo(drop.gun.Spec);
+                    bool takeMedkits = drop.medkits > 0 && canTakeMedkits;
+                    if (!takeGun && !takeAmmo && !takeMedkits) continue;
+                }
                 float d2 = (drop.position - point).sqrMagnitude;
                 if (d2 >= best) continue;
                 if (mustReach && !Reachable(point, drop.position)) continue;

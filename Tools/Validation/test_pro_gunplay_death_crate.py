@@ -246,12 +246,27 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("AcceptsTacticalInput && medkits < maxMedkits", medical)
         self.assertIn("int excludeProbe = 0, bool actionableOnly = false", CRATE)
         self.assertIn("medical.CanReceiveDeathCrateMedkits", CRATE)
-        self.assertIn("drop.medkits <= 0 || !canTakeMedkits", CRATE)
+        self.assertIn("bool takeMedkits = drop.medkits > 0 && canTakeMedkits;", CRATE)
         self.assertIn("Nearest(here, PickupRadius, true, 0, true)", CRATE)
         self.assertIn("Nearest(seeker.position, PickupRadius, true, 0, true)", CRATE)
         fixture = (ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text()
         self.assertIn("Uncollectable medkit-only crate never promises PICK", fixture)
         self.assertIn("Actionable crate hint bypasses nearer unavailable medkit", fixture)
+
+    def test_full_slots_without_floor_world_only_allow_real_ammo_or_meds(self):
+        self.assertIn("internal bool HasReserveSpace", GUN)
+        self.assertIn("internal bool CanPickupDeathCrateGun =>", INVENTORY)
+        self.assertIn("lootWorld != null && lootWorld.isActiveAndEnabled", INVENTORY)
+        self.assertIn("internal bool CanReceiveDeathCrateAmmo(AarisWeaponSpec spec)", INVENTORY)
+        self.assertIn("equipped.HasReserveSpace", INVENTORY)
+        self.assertIn("stowed.HasReserveSpace", INVENTORY)
+        self.assertIn("inventory.CanPickupDeathCrateGun;", CRATE)
+        self.assertIn("bool takeGun = drop.gun != null && canTakeGun;", CRATE)
+        self.assertIn("bool takeAmmo = drop.gun != null && drop.looseAmmo > 0 &&", CRATE)
+        self.assertIn("if (!takeGun && !takeAmmo && !takeMedkits) continue;", CRATE)
+        self.assertIn("drop.gun != null && inventory.CanPickupDeathCrateGun", CRATE)
+        self.assertIn('drop.gun.Spec.displayName + " AMMO" : "MEDKIT"', CRATE)
+        self.assertIn("true, probe, true);", CRATE)
 
     def test_visual_budget_keeps_closest_crates_when_saturated(self):
         world = CRATE.split("private void Update()", 1)[1].split(
@@ -273,7 +288,7 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("int attempts = instance.drops.Count;", take)
         self.assertIn("drop.lastPickupProbe = probe;", take)
         self.assertIn("instance.Nearest(seeker.position, PickupRadius,", take)
-        self.assertIn("true, probe);", take)
+        self.assertIn("true, probe, true);", take)
         self.assertIn("if (drop == null) break;", take)
         self.assertIn("if (taken)", take)
         self.assertIn("return true;", take)

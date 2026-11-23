@@ -102,6 +102,13 @@ class OfflineWeaponPauseAndLandingAuthority(unittest.TestCase):
                     else:
                         self.assertTrue(permitted)
 
+    def test_pick_button_does_not_advertise_paused_or_disabled_crate(self):
+        pickup = section(INVENTORY, "public bool PickupAvailable =>",
+                         "private static bool HasAuthoredTexture(")
+        self.assertIn("AcceptsPlayerWeaponInput &&", pickup)
+        self.assertIn("lootWorld.HasPickupInRange", pickup)
+        self.assertIn("AarisDeathCrateWorld.HasPickupNear(transform)", pickup)
+
     def test_red_lock_optic_never_claims_a_suspended_player_gun(self):
         # The Red-Lock query and the red reticle must have the same on-foot
         # authority as the shot path; HP remains independently visible.
