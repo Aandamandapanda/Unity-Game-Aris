@@ -1,0 +1,84 @@
+name: Aaris Pro Gunplay Native CSharp Gate
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/aaris-gunplay-feature-native-compile.yml'
+      - 'Assets/AarisWorld/Scripts/AarisDeathCrateWorld.cs'
+      - 'Assets/AarisWorld/Scripts/AarisRivalGunfireVfx.cs'
+      - 'Assets/AarisWorld/Scripts/AarisEquippedGun.cs'
+      - 'Assets/AarisWorld/Scripts/AarisOfflineBRDirector.cs'
+      - 'Assets/AarisWorld/Scripts/AarisWeaponInventory.cs'
+      - 'Assets/AarisWorld/Scripts/AarisWeaponCatalog.cs'
+      - 'Assets/AarisWorld/Scripts/AarisOfflineTacticalHUD.cs'
+      - 'Assets/AarisWorld/Scripts/AarisWeaponHUD.cs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aaris-gunplay-pr-unity-compile
+  cancel-in-progress: false
+
+jobs:
+  native-source-only:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feature/pro-gunplay-death-crate-20261123'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Build a source-only temporary transfer archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
+          find Assets -type f \( -name '*.cs' -o -name '*.asmdef' -o -name '*.asmref' -o -name '*.rsp' \) -print0 > "$RUNNER_TEMP/native-sources.list"
+          tar --null -czf "$RUNNER_TEMP/gunplay-sources.tar.gz" -T "$RUNNER_TEMP/native-sources.list" \
+            Packages/manifest.json ProjectSettings/ProjectVersion.txt
+          test -s "$RUNNER_TEMP/gunplay-sources.tar.gz"
+      - name: Run Unity 6000.3.26f1 on a disposable Codespace source copy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.CODESPACE_PAT }}
+          MACHINE: aaris-ai-ubuntu-minimal-gxpgxwqvv9rq29x46
+        run: |
+          set -euo pipefail
+          [[ -n "$GH_TOKEN" ]] || { echo AARIS_GUNPLAY_NATIVE_GATE=no_codespace_token; exit 31; }
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
+          stage="/tmp/aaris-gunplay-feature-source-$GITHUB_RUN_ID"
+          gh codespace list --json name,state,repository --limit 100 > "$RUNNER_TEMP/codespaces.json"
+          jq -e --arg machine "$MACHINE" \
+            '.[] | select(.name == $machine and .state == "Available" and ((.repository // "") | endswith("/Unity-Game-Aris")))' \
+            "$RUNNER_TEMP/codespaces.json" >/dev/null || {
+              echo AARIS_GUNPLAY_NATIVE_GATE=codespace_unavailable
+              exit 32
+            }
+          cleanup() {
+            gh codespace ssh -c "$MACHINE" -- "rm -rf -- '$stage'" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          gh codespace ssh -c "$MACHINE" -- "mkdir -p '$stage/.git'"
+          gh codespace ssh -c "$MACHINE" -- "tar -xz -C '$stage'" \
+            < "$RUNNER_TEMP/gunplay-sources.tar.gz"
+          sed "s|^SOURCE=/workspaces/Unity-Game-Aris$|SOURCE=$stage|" \
+            Tools/Codespaces/native_source_compile_sandbox.sh \
+            > "$RUNNER_TEMP/native-feature.sh"
+          set +e
+          gh codespace ssh -c "$MACHINE" -- "bash -s" \
+            < "$RUNNER_TEMP/native-feature.sh" \
+            > "$RUNNER_TEMP/native-feature-results.txt" \
+            2> "$RUNNER_TEMP/native-feature-errors.txt"
+          result=$?
+          set -e
+          grep -E '^AARIS_NATIVE_COMPILE_[A-Z0-9_]+=[a-zA-Z0-9_-]+$' \
+            "$RUNNER_TEMP/native-feature-results.txt" || true
+          [[ "$result" -eq 0 ]] && \
+            grep -qx 'AARIS_NATIVE_COMPILE_CSHARP_ERRORS=0' "$RUNNER_TEMP/native-feature-results.txt" && \
+            grep -qx 'AARIS_NATIVE_COMPILE_RESULT=source_only_pass' "$RUNNER_TEMP/native-feature-results.txt" || {
+              echo AARIS_GUNPLAY_NATIVE_GATE=failed
+              exit 33
+            }
+          echo AARIS_GUNPLAY_NATIVE_GATE=source_only_pass

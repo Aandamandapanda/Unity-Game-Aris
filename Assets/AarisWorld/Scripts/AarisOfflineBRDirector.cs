@@ -40,6 +40,8 @@ namespace Aaris.MapReview
         private readonly Vector2[] centers = new Vector2[5];
         private readonly AarisOfflineRival[] rivals = new AarisOfflineRival[RivalCount];
         private static AarisOfflineBRDirector activeDirector;
+        private AarisDeathCrateWorld deathCrates;
+        private AarisRivalGunfireVfx rivalGunfire;
         // Opt-in 1Hz phone diagnostics only. No extra work in normal play.
         internal struct RivalPerfSample
         {
@@ -387,6 +389,12 @@ namespace Aaris.MapReview
             terrains = Terrain.activeTerrains;
             CacheTerrainProbeMetadata();
             nearbyColliders = FindFirstObjectByType<AarisNearbyColliders>();
+            deathCrates = GetComponent<AarisDeathCrateWorld>();
+            if (deathCrates == null) deathCrates = gameObject.AddComponent<AarisDeathCrateWorld>();
+            deathCrates.Bind(player);
+            rivalGunfire = GetComponent<AarisRivalGunfireVfx>();
+            if (rivalGunfire == null) rivalGunfire = gameObject.AddComponent<AarisRivalGunfireVfx>();
+            rivalGunfire.Bind(player);
             StartCoroutine(PrewarmRivalVisuals());
         }
 
@@ -773,6 +781,20 @@ namespace Aaris.MapReview
                 "  >  " + victim.name;
             killFeedClearAt = Time.time + 5.5f;
             recentKillFeed.gameObject.SetActive(true);
+        }
+
+        internal void ShowRivalGunfire(Transform shooter, Vector3 impact,
+            AarisWeaponSpec gun)
+        {
+            if (rivalGunfire != null && gun != null)
+                rivalGunfire.Emit(shooter, impact, gun.category == "Shotgun");
+        }
+
+        internal void DropRivalLoot(Vector3 position, AarisWeaponSpec gun,
+            int magazine, int reserve, int medkits, uint seed)
+        {
+            if (deathCrates != null)
+                deathCrates.Spawn(position, gun, magazine, reserve, medkits, seed);
         }
 
         internal void RivalDefeated(AarisOfflineRival rival)
@@ -2494,6 +2516,9 @@ namespace Aaris.MapReview
                     carriedMagazine--;
                     AarisAudioDirector.GunShot(carriedGun.category, carriedGun.id,
                         transform.position + Vector3.up);
+                    // Visual-only. The existing physical shotHit decides damage.
+                    if (owner != null)
+                        owner.ShowRivalGunfire(transform, shotHit.point, carriedGun);
                 }
                 else
                 {
@@ -2508,7 +2533,7 @@ namespace Aaris.MapReview
                 // and its pooled damage number at the victim bounds center.
                 if (carriedGun != null)
                     AarisEquippedGun.ApplyDamage(shotHit.collider, damage,
-                        gameObject, shotHit.point);
+                        gameObject, shotHit.point, carriedGun.headshotMultiplier);
                 else
                     AarisEquippedGun.ApplyDamage(shotHit.collider, damage,
                         gameObject);
@@ -2903,7 +2928,12 @@ namespace Aaris.MapReview
             // Unregister dead opponents before destruction delay.
             if (centrallyDormant) SetCentralDormancy(false);
             if (capsule != null) capsule.enabled = false;
-            if (owner != null) owner.RivalDefeated(this);
+            if (owner != null)
+            {
+                owner.DropRivalLoot(transform.position, carriedGun,
+                    carriedMagazine, carriedReserve, medkits, remoteLootSeed);
+                owner.RivalDefeated(this);
+            }
             Destroy(gameObject, 1.2f);
         }
 

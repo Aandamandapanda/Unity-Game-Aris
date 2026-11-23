@@ -65,7 +65,11 @@ class CombatEndToEndContract(unittest.TestCase):
         self.assertIn("TryGetSightHit(target, out RaycastHit shotHit)", BOTS)
         self.assertIn("shotHit = hit;", BOTS)
         self.assertIn("AarisCombatFeedbackHUD.NotifyOutgoingDamage", GUN)
-        self.assertIn("headshot) damage *= 1.75f", GUN)
+        self.assertIn("if (headshot) damage *= Mathf.Clamp(headshotMultiplier, 1f, 4f);", GUN)
+        self.assertIn("headshotMultiplier >= 1f && headshotMultiplier <= 4f", read("AarisWeaponCatalog.cs"))
+        for weapon in CAT["weapons"]:
+            self.assertGreaterEqual(weapon["headshotMultiplier"], 1.0)
+            self.assertLessEqual(weapon["headshotMultiplier"], 4.0)
 
     def test_physical_muzzle_impact_controls_same_enemy_headshots(self):
         # Camera/muzzle parallax can strike the same enemy at different heights.
@@ -81,7 +85,8 @@ class CombatEndToEndContract(unittest.TestCase):
         self.assertNotIn("SameTarget", muzzle)
         self.assertLess(muzzle.index("target = muzzleHit;"),
                         muzzle.index("targetFound = true;"))
-        self.assertIn("ApplyDamage(target.collider, spec.damage, owner, target.point)", firing)
+        self.assertIn("ApplyDamage(target.collider, spec.damage, owner, target.point,", firing)
+        self.assertIn("spec.headshotMultiplier);", firing)
         self.assertIn("headshot = IsAuthoredHeadHit(collider, node) ||", GUN)
         self.assertIn("bounds.size.y > .28f && hitPosition.Value.y >=", GUN)
         threshold = 1.8 * .79
@@ -96,7 +101,7 @@ class CombatEndToEndContract(unittest.TestCase):
         self.assertIn("14f / Mathf.Max(1f, spec.rangeMetres)", GUN)
         self.assertIn("spec.pellets > 1 ? spec.spreadDegrees * 0.65f", GUN)
         self.assertIn("Vector2.ClampMagnitude(spread, 1f) * shotSpreadDegrees", GUN)
-        self.assertIn("ApplyDamage(target.collider, spec.damage, owner, target.point)", GUN)
+        self.assertIn("ApplyDamage(target.collider, spec.damage, owner, target.point,", GUN)
         for weapon in CAT["weapons"]:
             full = float(weapon["spreadDegrees"])
             assisted = (full * 0.65 if weapon["pellets"] > 1 else

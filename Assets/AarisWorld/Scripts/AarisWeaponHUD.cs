@@ -196,6 +196,17 @@ namespace Aaris.MapReview
                 closest = pickup;
                 closestSquare = distanceSquare;
             }
+            // Show the same object the PICK action will prefer when a crate
+            // is closer than a floor weapon; do not mislead the player.
+            if (AarisDeathCrateWorld.TryGetNearbyHint(nearbyGunOwner,
+                out string crateLabel, out float crateDistance) &&
+                (closest == null || crateDistance * crateDistance < closestSquare))
+            {
+                nearbyGunHint.text = "DEATH CRATE  " + crateLabel +
+                    "  " + Mathf.RoundToInt(crateDistance) + "m  PICK";
+                nearbyGunHint.enabled = true;
+                return;
+            }
             if (closest == null)
             {
                 nearbyGunHint.enabled = false;

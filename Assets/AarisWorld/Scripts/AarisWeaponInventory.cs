@@ -69,7 +69,9 @@ namespace Aaris.MapReview
         public bool HasAnyGun => equipped != null && equipped.Configured;
         public bool FistMode => fistMode;
         public bool RequiresExchangeDrop => equipped != null && stowed != null;
-        public bool PickupAvailable => lootWorld != null && lootWorld.HasPickupInRange;
+        public bool PickupAvailable =>
+            (lootWorld != null && lootWorld.HasPickupInRange) ||
+            AarisDeathCrateWorld.HasPickupNear(transform);
 
         private static bool HasAuthoredTexture(Material material)
         {
@@ -421,8 +423,25 @@ namespace Aaris.MapReview
 
         public void RequestPickup()
         {
+            if (!AcceptsPlayerWeaponInput) return;
+            // One PICK button for an actual nearby bot death crate or floor gun.
+            // Never consume both in the same tap.
+            if (AarisDeathCrateWorld.TryLootNearest(transform, this)) return;
+            // Keep the same exact on-foot authority on the existing floor path.
             if (AcceptsPlayerWeaponInput && lootWorld != null)
                 lootWorld.RequestPickup();
+        }
+
+        internal int AddDeathCrateAmmo(AarisWeaponSpec spec, int amount)
+        {
+            if (!AcceptsPlayerWeaponInput || spec == null || amount <= 0) return 0;
+            if (equipped != null && equipped.Spec != null &&
+                equipped.Spec.id == spec.id)
+                return equipped.AddReserve(amount);
+            if (stowed != null && stowed.Spec != null &&
+                stowed.Spec.id == spec.id)
+                return stowed.AddReserve(amount);
+            return 0;
         }
 
         public bool DropCurrent() => AcceptsPlayerWeaponInput &&
