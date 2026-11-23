@@ -66,8 +66,20 @@ namespace Aaris.MapReview
         private float muzzleFlashUntil;
         private static Material sharedMuzzleFlashMaterial;
         private static Mesh sharedMuzzleFlameMesh;
-        // One recycled shell visual per weapon. This deliberately avoids
-        // Rigidbody/collider shell storms at 780 RPM on 2 GB Android phones.
+        // Ten renderer-only shell slots survive automatic fire long enough
+        // to hit the ground. No Rigidbody or Collider instances are simulated.
+        // The original primary slot is retained for save/test compatibility.
+        private const int ExtraShellSlots = 9;
+        private struct ShellState
+        {
+            internal Renderer renderer;
+            internal Transform pose;
+            internal Vector3 velocity, angularVelocity;
+            internal float groundY, until;
+            internal bool rested;
+        }
+        private readonly ShellState[] shellTrail = new ShellState[ExtraShellSlots];
+        private int shellCursor;
         private Renderer casingRenderer;
         private Transform casingTransform;
         private Vector3 casingVelocity, casingAngularVelocity;
@@ -338,6 +350,32 @@ namespace Aaris.MapReview
                 UnityEngine.Rendering.ShadowCastingMode.Off;
             casingRenderer.receiveShadows = false;
             casingRenderer.enabled = false;
+            for (int i = 0; i < ExtraShellSlots; i++)
+            {
+                // Allocate one time when a gun is equipped, not at 780 RPM.
+                var extra = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                extra.name = "Aaris Pooled Casing " + (i + 2);
+                extra.layer = gameObject.layer;
+                extra.transform.SetParent(transform, false);
+                extra.transform.localScale = casing.transform.localScale;
+                var collider = extra.GetComponent<Collider>();
+                if (collider != null)
+                {
+                    collider.enabled = false;
+                    Destroy(collider);
+                }
+                var renderer = extra.GetComponent<Renderer>();
+                renderer.sharedMaterial = material;
+                renderer.shadowCastingMode =
+                    UnityEngine.Rendering.ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+                renderer.enabled = false;
+                shellTrail[i] = new ShellState
+                {
+                    renderer = renderer,
+                    pose = extra.transform
+                };
+            }
         }
 
         private void ScheduleCasingEjection()
@@ -353,43 +391,65 @@ namespace Aaris.MapReview
             casingEjectAt = -1f;
             if (casingRenderer == null || casingTransform == null || spec == null)
                 return;
-            // The weapon root uses local +Z as the barrel axis. The ejection
-            // port sits just right/up of the receiver, well behind the muzzle.
+            // Each accepted shot claims the next prebuilt visual. At 780 RPM
+            // a casing has ~770ms before reuse, enough to reach ground.
+            int index = shellCursor++ % (ExtraShellSlots + 1);
+            ShellState slot = index == 0 ? default(ShellState) : shellTrail[index - 1];
+            Renderer visual = index == 0 ? casingRenderer : slot.renderer;
+            Transform pose = index == 0 ? casingTransform : slot.pose;
+            if (visual == null || pose == null) return;
+
             Vector3 port = transform.TransformPoint(new Vector3(
                 0.052f, 0.032f, spec.presentationLengthMetres * 0.14f));
-            casingTransform.SetParent(null, true);
-            casingTransform.position = port;
-            casingTransform.rotation = transform.rotation *
+            pose.SetParent(null, true);
+            pose.position = port;
+            pose.rotation = transform.rotation *
                 Quaternion.Euler(90f, UnityEngine.Random.Range(0f, 360f), 0f);
             float sideSpeed = UnityEngine.Random.Range(2.2f, 3.2f);
             float upSpeed = UnityEngine.Random.Range(1.15f, 1.75f);
             float backSpeed = UnityEngine.Random.Range(0.12f, 0.48f);
-            casingVelocity = transform.right * sideSpeed +
+            Vector3 velocity = transform.right * sideSpeed +
                 transform.up * upSpeed - transform.forward * backSpeed;
-            // Ground is resolved once per ejection, never from per-frame physics.
-            // Avoid the owner's feet by starting above the ejection port.
-            if (Physics.Raycast(port + Vector3.up * 0.12f, Vector3.down,
-                out RaycastHit landing, 5.5f, Physics.DefaultRaycastLayers,
-                QueryTriggerInteraction.Ignore) && landing.normal.y > 0.45f)
-                casingGroundY = landing.point.y + 0.012f;
-            else
-                casingGroundY = cachedOwner != null
-                    ? cachedOwner.transform.position.y + 0.012f
-                    : port.y - 1.15f;
-            casingGroundY = Mathf.Min(casingGroundY, port.y - 0.07f);
-            casingRested = false;
-            casingAngularVelocity = new Vector3(
+            Vector3 angular = new Vector3(
                 UnityEngine.Random.Range(520f, 980f),
                 UnityEngine.Random.Range(760f, 1320f),
                 UnityEngine.Random.Range(420f, 860f));
-            casingUntil = Time.time +
+            float groundY;
+            // One physics query per ejected shell; never a per-frame raycast.
+            if (Physics.Raycast(port + Vector3.up * 0.12f, Vector3.down,
+                out RaycastHit landing, 5.5f, Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.Ignore) && landing.normal.y > 0.45f)
+                groundY = landing.point.y + 0.012f;
+            else
+                groundY = cachedOwner != null
+                    ? cachedOwner.transform.position.y + 0.012f
+                    : port.y - 1.15f;
+            groundY = Mathf.Min(groundY, port.y - 0.07f);
+            float until = Time.time +
                 (spec.category == "Shotgun" ? 1.1f : 0.85f);
-            casingRenderer.enabled = true;
+            if (index == 0)
+            {
+                casingVelocity = velocity;
+                casingAngularVelocity = angular;
+                casingGroundY = groundY;
+                casingUntil = until;
+                casingRested = false;
+            }
+            else
+            {
+                slot.velocity = velocity;
+                slot.angularVelocity = angular;
+                slot.groundY = groundY;
+                slot.until = until;
+                slot.rested = false;
+                shellTrail[index - 1] = slot;
+            }
+            visual.enabled = true;
         }
 
         private void HideCasing()
         {
-            casingEjectAt = -1f;
+            // Only expire the oldest primary slot; other shots keep flying.
             if (casingRenderer != null) casingRenderer.enabled = false;
             casingRested = false;
             if (casingTransform != null && casingTransform.parent != transform)
@@ -397,6 +457,21 @@ namespace Aaris.MapReview
                 casingTransform.SetParent(transform, false);
                 casingTransform.localPosition = Vector3.zero;
                 casingTransform.localRotation = Quaternion.identity;
+            }
+        }
+
+        private void HideAllCasings()
+        {
+            casingEjectAt = -1f;
+            HideCasing();
+            for (int i = 0; i < shellTrail.Length; i++)
+            {
+                ShellState slot = shellTrail[i];
+                if (slot.renderer != null) slot.renderer.enabled = false;
+                if (slot.pose != null && slot.pose.parent != transform)
+                    slot.pose.SetParent(transform, false);
+                slot.rested = false;
+                shellTrail[i] = slot;
             }
         }
 
@@ -577,6 +652,39 @@ namespace Aaris.MapReview
                 }
                 if (Time.time >= casingUntil) HideCasing();
             }
+            // All shells share one budgeted Update: ten tiny transforms,
+            // zero native physics bodies and zero per-frame ray queries.
+            for (int i = 0; i < shellTrail.Length; i++)
+            {
+                ShellState slot = shellTrail[i];
+                if (slot.renderer == null || !slot.renderer.enabled ||
+                    slot.pose == null) continue;
+                if (Time.time >= slot.until)
+                {
+                    slot.renderer.enabled = false;
+                    if (slot.pose.parent != transform)
+                        slot.pose.SetParent(transform, false);
+                    slot.rested = false;
+                    shellTrail[i] = slot;
+                    continue;
+                }
+                if (slot.rested) continue;
+                float dt = Mathf.Min(Time.deltaTime, 0.05f);
+                slot.velocity += Physics.gravity * dt;
+                Vector3 next = slot.pose.position + slot.velocity * dt;
+                if (next.y <= slot.groundY && slot.velocity.y < 0f)
+                {
+                    next.y = slot.groundY;
+                    slot.velocity.y = -slot.velocity.y * 0.28f;
+                    slot.velocity.x *= 0.58f;
+                    slot.velocity.z *= 0.58f;
+                    slot.angularVelocity *= 0.45f;
+                    if (slot.velocity.y < 0.5f) slot.rested = true;
+                }
+                slot.pose.position = next;
+                slot.pose.Rotate(slot.angularVelocity * dt, Space.World);
+                shellTrail[i] = slot;
+            }
         }
 
         private void OnDisable()
@@ -585,7 +693,7 @@ namespace Aaris.MapReview
                 muzzleFlashRenderer.enabled = false;
             if (muzzleLight != null) muzzleLight.enabled = false;
             if (tracerRenderer != null) tracerRenderer.enabled = false;
-            HideCasing();
+            HideAllCasings();
         }
 
         private void OnDestroy()
@@ -594,6 +702,12 @@ namespace Aaris.MapReview
             // leave that pooled visual behind if its owning gun is destroyed.
             if (casingTransform != null && casingTransform.parent != transform)
                 Destroy(casingTransform.gameObject);
+            for (int i = 0; i < shellTrail.Length; i++)
+            {
+                Transform pose = shellTrail[i].pose;
+                if (pose != null && pose.parent != transform)
+                    Destroy(pose.gameObject);
+            }
         }
 
         // Even an unequipped weapon must complete its reload on schedule.

@@ -41,10 +41,29 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("targetFound = muzzleHitFound;",firing)
         self.assertIn("muzzleLight.shadows = LightShadows.None;",GUN)
         self.assertIn("if (muzzleLight != null) muzzleLight.enabled = false;",GUN)
-        self.assertIn("casingGroundY = landing.point.y",GUN)
+        self.assertIn("groundY = landing.point.y + 0.012f;",GUN)
         self.assertIn("casingVelocity.y = -casingVelocity.y * 0.28f;",GUN)
         self.assertNotIn("new LineRenderer()",firing)
         self.assertNotIn("GameObject.CreatePrimitive",firing)
+
+    def test_automatic_shells_survive_until_ground_bounce(self):
+        import math
+        self.assertIn("private const int ExtraShellSlots = 9;", GUN)
+        self.assertIn("shellCursor++ % (ExtraShellSlots + 1)", GUN)
+        self.assertIn("shellTrail[i] = new ShellState", GUN)
+        self.assertIn("for (int i = 0; i < shellTrail.Length; i++)", GUN)
+        self.assertIn("slot.velocity += Physics.gravity * dt;", GUN)
+        self.assertIn("if (slot.velocity.y < 0.5f) slot.rested = true;", GUN)
+        eject = GUN.split("private void EjectCasingNow()",1)[1].split(
+            "private void HideCasing()",1)[0]
+        self.assertNotIn("GameObject.CreatePrimitive",eject)
+        self.assertNotIn("new GameObject(",eject)
+        # At the fastest authored rate ten slots live for more than
+        # one ballistic fall from the muzzle to foot level.
+        fastest_rpm = max(gun["rpm"] for gun in CAT["weapons"])
+        cycle = (9 + 1) * 60.0 / fastest_rpm
+        fall = (1.65 + math.sqrt(1.65**2 + 2 * 9.81 * 1.3)) / 9.81
+        self.assertGreater(cycle,fall)
 
     def test_nearby_rival_only_pooled_visuals(self):
         self.assertIn("private const int MaximumSlots = 6;",FX)
