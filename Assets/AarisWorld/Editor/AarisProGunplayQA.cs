@@ -257,6 +257,7 @@ namespace Aaris.MapReview.Editor
                 Check(activeLights == 2, "Six bot shots keep at most two active barrel lights");
                 var botShellRenderers = bots.GetComponentsInChildren<MeshFilter>(true);
                 int matchedBotCasings = 0;
+                int botEffectColliders = 0;
                 foreach (MeshFilter filter in botShellRenderers)
                     if (filter.gameObject.name ==
                         "Aaris Bot Reused Independent Ejected Casing")
@@ -264,13 +265,38 @@ namespace Aaris.MapReview.Editor
                         Check(filter.sharedMesh == casingMesh,
                             "Nearby bot shell shares the player's capped mesh");
                         matchedBotCasings++;
+                        // The pooled FX share the fixture root with the player,
+                        // floor and target. Count only FX-owned colliders.
+                        botEffectColliders += filter.GetComponentsInChildren<Collider>(true).Length;
                     }
                 Check(matchedBotCasings == 6 &&
-                    bots.GetComponentsInChildren<Collider>(true).Length == 0,
+                    botEffectColliders == 0,
                     "Six nearby bot ejections create no transient native Colliders");
                 var slots = (Array)Read(bots, "slots"); var firstSlot = slots.GetValue(0);
                 var botFlash = (Renderer)firstSlot.GetType().GetField("flash", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(firstSlot);
                 Check(botFlash.sharedMaterial == flash.sharedMaterial, "Bots share transparent flame material with player");
+
+                // Actual bot weapon category must affect its visuals, not
+                // damage or the shared pool count. Bolt-action snipers delay
+                // cartridge ejection while their flash/tracer render now.
+                Call(bots, "EmitForGun", actor.transform,
+                    new Vector3(0f, 1.2f, 4f), AarisWeaponCatalog.Get("Sniper"));
+                var botShellSlots = (Array)Read(bots, "casings");
+                object delayedSniperShell = botShellSlots.GetValue(6);
+                var sniperRenderer = (Renderer)Read(delayedSniperShell, "renderer");
+                Check((bool)Read(delayedSniperShell, "queued") &&
+                    !sniperRenderer.enabled &&
+                    (float)Read(delayedSniperShell, "ejectAt") > Time.time,
+                    "Sniper muzzle fires before delayed bolt-action shell");
+                var sniperFlash = (Transform)Read(slots.GetValue(0), "flashPose");
+                Check(sniperFlash.localScale.x > .18f &&
+                    sniperRenderer.GetComponentsInChildren<Collider>(true).Length == 0,
+                    "Sniper visual differs from AR without a new collider");
+                Set(delayedSniperShell, "ejectAt", Time.time - .01f);
+                Call(bots, "Update");
+                Check(sniperRenderer.enabled &&
+                    !(bool)Read(delayedSniperShell, "queued"),
+                    "Delayed sniper brass ejects from prebuilt pool");
 
                 // Actual nearby crate transfer; preserve rounds and consumed meds.
                 var crate = root.AddComponent<AarisDeathCrateWorld>();
