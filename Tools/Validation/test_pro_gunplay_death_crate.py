@@ -114,12 +114,48 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
                         world.index("CreateVisual();"))
         self.assertIn("nextPoll = Time.time + 0.25f;", world)
 
+    def test_full_slot_exchange_reserves_drop_and_rolls_back_on_failure(self):
+        exchange = INVENTORY.split("internal bool TryPickupDeathCrateGun(",1)[1].split(
+            "internal int AddDeathCrateAmmo",1)[0]
+        self.assertIn("if (RequiresExchangeDrop)", exchange)
+        self.assertIn("lootWorld.TryExchangeDeathCrateGun(incoming)", exchange)
+        self.assertIn("displaced == null;", exchange)
+        method = read("AarisWeaponLootWorld.cs").split(
+            "internal bool TryExchangeDeathCrateGun(",1)[1].split(
+            "public bool TryDropEquipped()",1)[0]
+        self.assertIn("!HasLandingAuthority", method)
+        self.assertIn("player != inventory.transform", method)
+        self.assertIn("!TryFindDropSpot(out Vector3 point, requireReachable: true)",method)
+        self.assertIn("deferVisual: true", method)
+        self.assertLess(method.index("CreateDropped(outgoing, point"),
+                        method.index("inventory.TryPickup(incoming,"))
+        self.assertIn("UndoDrop(reserved);", method)
+        self.assertIn("if (reserved == null) return false;", method)
+        self.assertIn("requestPickupUntil = 0f;", method)
+
+    def test_ammo_remainder_goes_to_matching_stowed_weapon(self):
+        take = INVENTORY.split("internal int AddDeathCrateAmmo(",1)[1].split(
+            "public bool DropCurrent()",1)[0]
+        self.assertIn("added += equipped.AddReserve(amount);",take)
+        self.assertIn("added += stowed.AddReserve(amount - added);",take)
+        self.assertIn("return added;",take)
+        self.assertLess(take.index("equipped.AddReserve(amount)"),
+                        take.index("stowed.AddReserve(amount - added)"))
+
+    def test_spent_medkits_do_not_respawn_in_death_crates(self):
+        spawn = CRATE.split("internal void Spawn(",1)[1].split(
+            "internal static bool HasPickupNear",1)[0]
+        self.assertIn("if (state == null && medkits <= 0) return;",spawn)
+        self.assertIn("medkits = Mathf.Max(0, medkits)",spawn)
+        self.assertNotIn("Mathf.Max(1, medkits)",spawn)
+
     def test_atomic_pickup_cannot_destroy_full_inventory_weapon(self):
         take=CRATE.split("internal static bool TryLootNearest(",1)[1].split(
             "// Check line of sight only",1)[0]
-        self.assertIn("!inventory.RequiresExchangeDrop",take)
-        self.assertIn("inventory.TryPickup(transfer, out AarisWeaponState displaced)",take)
-        self.assertIn("displaced == null",take)
+        self.assertIn("inventory.TryPickupDeathCrateGun(transfer)",take)
+        self.assertIn("drop.gun = null;",take)
+        self.assertLess(take.index("inventory.TryPickupDeathCrateGun(transfer)"),
+                        take.index("drop.gun = null;"))
         self.assertIn("inventory.AddDeathCrateAmmo",take)
         self.assertIn("medical.AddDeathCrateMedkits",take)
         self.assertIn("drop.looseAmmo -= added;",take)

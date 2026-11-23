@@ -51,12 +51,15 @@ namespace Aaris.MapReview
                     0, 0f, 0f, false, seed) : null;
             // Reserve ammo stays separately tracked so it can be transferred to
             // a matching carried gun without duplicating the death weapon.
+            // A rival that spent its last medkit must not conjure a fresh one.
+            // Unarmed rivals with no remaining supplies leave no empty crate.
+            if (state == null && medkits <= 0) return;
             drops.Add(new Drop
             {
                 position = position,
                 gun = state,
                 looseAmmo = state != null ? Mathf.Max(0, reserve) : 0,
-                medkits = Mathf.Max(1, medkits)
+                medkits = Mathf.Max(0, medkits)
             });
             // Do not allocate meshes, lights or native materials on the death hit.
             nextPoll = 0f;
@@ -95,15 +98,15 @@ namespace Aaris.MapReview
             if (drop == null) return false;
 
             bool taken = false;
-            // Prefer the gun when there is capacity; never discard a full
-            // inventory's old weapon without creating a proper floor pickup.
-            if (drop.gun != null && !inventory.RequiresExchangeDrop)
+            // A full two-slot inventory needs a reserved, reachable floor
+            // record for the outgoing hand gun BEFORE changing ownership.
+            // The inventory routes that case through its normal loot world.
+            if (drop.gun != null)
             {
                 AarisWeaponState transfer = new AarisWeaponState(drop.gun.Spec,
                     drop.gun.Magazine, drop.looseAmmo, 0f, 0f, false,
                     drop.gun.SpreadSeed);
-                if (inventory.TryPickup(transfer, out AarisWeaponState displaced) &&
-                    displaced == null)
+                if (inventory.TryPickupDeathCrateGun(transfer))
                 {
                     drop.gun = null;
                     drop.looseAmmo = 0;

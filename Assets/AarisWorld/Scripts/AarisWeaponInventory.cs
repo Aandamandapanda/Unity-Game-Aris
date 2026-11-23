@@ -432,16 +432,28 @@ namespace Aaris.MapReview
                 lootWorld.RequestPickup();
         }
 
+        internal bool TryPickupDeathCrateGun(AarisWeaponState incoming)
+        {
+            if (!AcceptsPlayerWeaponInput || incoming == null) return false;
+            if (RequiresExchangeDrop)
+                return lootWorld != null && lootWorld.TryExchangeDeathCrateGun(incoming);
+            return TryPickup(incoming, out AarisWeaponState displaced) &&
+                displaced == null;
+        }
+
         internal int AddDeathCrateAmmo(AarisWeaponSpec spec, int amount)
         {
             if (!AcceptsPlayerWeaponInput || spec == null || amount <= 0) return 0;
+            int added = 0;
+            // Two slots can carry the same type. Fill any remaining capacity
+            // in the back slot when the equipped gun's reserve reaches its cap.
             if (equipped != null && equipped.Spec != null &&
                 equipped.Spec.id == spec.id)
-                return equipped.AddReserve(amount);
+                added += equipped.AddReserve(amount);
             if (stowed != null && stowed.Spec != null &&
-                stowed.Spec.id == spec.id)
-                return stowed.AddReserve(amount);
-            return 0;
+                stowed.Spec.id == spec.id && added < amount)
+                added += stowed.AddReserve(amount - added);
+            return added;
         }
 
         public bool DropCurrent() => AcceptsPlayerWeaponInput &&
