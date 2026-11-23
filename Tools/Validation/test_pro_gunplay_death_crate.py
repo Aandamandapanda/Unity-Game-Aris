@@ -71,11 +71,35 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("70f * 70f",FX)
         self.assertIn("slots[index] = slot = CreateSlot();",FX)
         self.assertIn("slot.tracer.widthMultiplier = .008f;",FX)
-        self.assertIn("slot.casingPose.Rotate(slot.spin * dt, Space.World);",FX)
+        self.assertIn("casing.pose.Rotate(casing.spin * dt, Space.World);",FX)
         self.assertIn("owner.ShowRivalGunfire(transform, shotHit.point, carriedGun);",RIVAL)
         self.assertIn("shotHit.point, carriedGun.headshotMultiplier);",RIVAL)
         self.assertIn("AarisEquippedGun.SharedMuzzleFlameMesh()",FX)
         self.assertNotIn("ShowRivalGunfire",RIVAL.split("private void TickVirtualCombat",1)[1])
+
+    def test_rival_casing_survives_tracer_slot_reuse(self):
+        self.assertIn("private const int MaximumSlots = 6;", FX)
+        self.assertIn("private const int MaximumCasingSlots = 12;", FX)
+        self.assertIn("new CasingSlot[MaximumCasingSlots]", FX)
+        emit = FX.split("internal void Emit(Transform shooter", 1)[1].split(
+            "private void Update()", 1)[0]
+        self.assertIn("nextSlot++ % MaximumSlots", emit)
+        self.assertIn("nextCasingSlot++ % MaximumCasingSlots", emit)
+        self.assertIn("casings[casingIndex] = casing = CreateCasingSlot();", emit)
+        self.assertIn("casing.renderer.enabled = true;", emit)
+        self.assertIn("casing.until = now + .85f;", emit)
+        self.assertNotIn("slot.casing", emit)
+        self.assertNotIn("GameObject.CreatePrimitive", emit)
+        self.assertNotIn("new GameObject(", emit)
+        updates = FX.split("private void Update()", 1)[1]
+        self.assertIn("for (int i = 0; i < slots.Length; i++)", updates)
+        self.assertIn("for (int i = 0; i < casings.Length; i++)", updates)
+        self.assertIn("if (casing == null || !casing.renderer.enabled) continue;", updates)
+        self.assertIn("casing.velocity += Physics.gravity * dt;", updates)
+        self.assertIn("if (casing.velocity.y < .5f) casing.grounded = true;", updates)
+        self.assertNotIn("Physics.Raycast", updates)
+        self.assertIn("Destroy(hitbox);", FX)
+        self.assertNotIn("Rigidbody", FX.split("private CasingSlot CreateCasingSlot()",1)[1])
 
     def test_bot_death_spawns_crate_before_destruction(self):
         death=RIVAL.split("private void OnDied(AarisOfflineHealth defeated)",1)[1].split(
