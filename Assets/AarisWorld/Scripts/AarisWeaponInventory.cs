@@ -427,7 +427,9 @@ namespace Aaris.MapReview
             // One PICK button for an actual nearby bot death crate or floor gun.
             // Never consume both in the same tap.
             if (AarisDeathCrateWorld.TryLootNearest(transform, this)) return;
-            if (lootWorld != null) lootWorld.RequestPickup();
+            // Keep the same exact on-foot authority on the existing floor path.
+            if (AcceptsPlayerWeaponInput && lootWorld != null)
+                lootWorld.RequestPickup();
         }
 
         internal int AddDeathCrateAmmo(AarisWeaponSpec spec, int amount)
