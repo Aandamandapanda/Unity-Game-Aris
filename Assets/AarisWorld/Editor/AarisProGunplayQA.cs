@@ -442,6 +442,27 @@ namespace Aaris.MapReview.Editor
                     "Fatality crate preserves real gun, spent ammo and zero medkits on real floor");
                 deadHealth.ApplyDamage(250f, actor);
                 Check(records.Count == beforeDeaths + 1, "Repeated fatal hit cannot duplicate death loot");
+                // A nearby standing rival's capsule is not static floor. The
+                // death ray starts just above their head, so a first-hit-only
+                // Raycast would incorrectly float the new crate at head height.
+                var standingRival = new GameObject("Nearby living rival cover");
+                standingRival.transform.SetParent(root.transform, false);
+                standingRival.transform.position = new Vector3(2.6f, 0f, 0f);
+                var standingCapsule = standingRival.AddComponent<CharacterController>();
+                standingCapsule.height = 1.8f;
+                standingCapsule.center = Vector3.up * .9f;
+                Physics.SyncTransforms();
+                Call(crate, "Spawn", standingRival.transform.position,
+                    AarisWeaponCatalog.Get("SMG"), 5, 13, 0, 885u);
+                Check(records.Count == beforeDeaths + 2 &&
+                    Mathf.Abs(((Vector3)Read(records[records.Count - 1],
+                        "position")).y) < .02f &&
+                    (int)Read(records[records.Count - 1], "looseAmmo") == 13,
+                    "Crate ignores living rival cap and anchors on real floor");
+                Call(crate, "Spawn", standingRival.transform.position,
+                    null, 0, 0, 0, 886u);
+                Check(records.Count == beforeDeaths + 2,
+                    "Empty death crate skips physics and creates no record");
                 Check(!runtimeError, "No runtime errors during native gunplay regressions");
                 exit = 0;
             }
