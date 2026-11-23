@@ -98,6 +98,26 @@ namespace Aaris.MapReview
         // Keep the 100-slot scheduler asleep between the earliest actual
         // combat, camera or proximity deadline. No extra timers or allocations.
         private float nextDormantSweepAt = float.PositiveInfinity;
+        private Vector3 lastDirectorPlayerPosition;
+        private bool hasDirectorPlayerPosition;
+
+        // A vehicle warp/teleport may cross a virtual actor's whole LOD band.
+        // Wake only candidates near the new player location, not all 100 bots.
+        private void WakeDormantRivalsNearPlayer(Vector3 position, float now)
+        {
+            bool woken = false;
+            for (int i = 0; i < RivalCount; i++)
+            {
+                if (!dormantRivalSlots[i] || !rivalSpatialRegistered[i] ||
+                    (rivalSpatialPositions[i] - position).sqrMagnitude >=
+                        530f * 530f) continue;
+                AarisOfflineRival bot = rivals[i];
+                if (bot == null || !bot.IsAlive) continue;
+                bot.ForceDormantProximityProbe();
+                woken = true;
+            }
+            if (woken) nextDormantSweepAt = Mathf.Min(nextDormantSweepAt, now);
+        }
 
         internal void RegisterDormantRival(int slot, AarisOfflineRival bot, bool dormant)
         {
@@ -419,7 +439,15 @@ namespace Aaris.MapReview
             }
 
             float elapsed = Time.time - startedAt;
-            // Existing 100ms camera/proximity and 350ms combat deadlines.
+            float now = Time.time;
+            Vector3 playerPosition = player.position;
+            if (hasDirectorPlayerPosition &&
+                (playerPosition - lastDirectorPlayerPosition).sqrMagnitude >
+                    25f * 25f)
+                WakeDormantRivalsNearPlayer(playerPosition, now);
+            lastDirectorPlayerPosition = playerPosition;
+            hasDirectorPlayerPosition = true;
+            // Combat cadence is independent from presentation wake-ups.
             TickDormantRivals(Time.time);
             // Drive staged player-attacker selection once per rendered frame.
             // Do not rely on individual bots' staggered 0.35s think ticks.
@@ -1628,6 +1656,12 @@ namespace Aaris.MapReview
             if (centrallyDormant) Update();
         }
 
+        internal void ForceDormantProximityProbe()
+        {
+            // Teleports wake presentation only; never advance combat clocks.
+            nextDormantProximityProbe = 0f;
+        }
+
         private void SetCentralDormancy(bool dormant)
         {
             if (centrallyDormant == dormant) return;
@@ -2098,7 +2132,15 @@ namespace Aaris.MapReview
             dormantOutOfVisualRange =
                 playerDistanceSqr >= FarVisualDistance * FarVisualDistance;
             if (dormantOutOfVisualRange)
-                nextDormantProximityProbe = now + DormantProximityProbeInterval;
+            {
+                // 485-650m: check vehicle approach between fight ticks.
+                // Beyond 650m the 350ms math-combat tick already probes
+                // distance; do not separately poll 10x/sec at 1km.
+                // 90-485m retains the existing fast camera/proximity probes.
+                nextDormantProximityProbe = now +
+                    (playerDistanceSqr >= 650f * 650f
+                        ? FarSimulationInterval : 0.16f);
+            }
             bool wasCameraRelevant = lastCameraRelevant;
             bool cameraRelevant = wasCameraRelevant;
             if (playerDistanceSqr < FarVisualDistance * FarVisualDistance)
