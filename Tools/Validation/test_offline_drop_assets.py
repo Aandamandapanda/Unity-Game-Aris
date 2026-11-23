@@ -164,8 +164,10 @@ class OfflineCombatAssetChecks(unittest.TestCase):
         self.assertIn("nearbyColliders.HasPotentialInactiveObstacle(predicted,", br)
         self.assertIn("new Vector3(0.36f, 0.90f, 0.36f)", br)
         self.assertIn("owner.WouldCrossInactiveCover(transform.position, displacement)", br)
-        self.assertIn("owner.WouldCrossInactiveCover(transform.position, first)", br)
-        self.assertIn("owner.WouldCrossInactiveCover(transform.position, second)", br)
+        # Steering snapshots one native position before trying either side
+        # tangent; keep this test aligned to the optimized, unchanged flow.
+        self.assertIn("owner.WouldCrossInactiveCover(selfPosition, first)", br)
+        self.assertIn("owner.WouldCrossInactiveCover(selfPosition, second)", br)
         self.assertIn("displacement = Vector3.zero;", br)
         self.assertIn("HasPotentialInactiveObstacle(", grid)
         self.assertNotIn("Physics.SyncTransforms()", br)
