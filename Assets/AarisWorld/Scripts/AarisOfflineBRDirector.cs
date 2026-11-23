@@ -28,6 +28,8 @@ namespace Aaris.MapReview
             new ProfilerMarker("Aaris.AI.DormantScheduler");
         private static readonly ProfilerMarker k_SpatialHunt =
             new ProfilerMarker("Aaris.AI.SpatialOpponentLookup");
+        private static readonly ProfilerMarker k_PlayerThreat =
+            new ProfilerMarker("Aaris.AI.PlayerAttackerSelection");
 #endif
         private const float OceanCutoff = -37.35f;
         private static readonly float[] ZoneRadii = { 1080f, 660f, 360f, 175f, 65f };
@@ -741,6 +743,9 @@ namespace Aaris.MapReview
 
         private void RefreshPlayerAttackers()
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            using var aiProfilerScope = k_PlayerThreat.Auto();
+#endif
             if (attackerScanCursor < 0)
             {
                 if (Time.time < nextAttackerSelection) return;
@@ -763,13 +768,25 @@ namespace Aaris.MapReview
             if (attackerScanFrame == Time.frameCount) return;
             attackerScanFrame = Time.frameCount;
             float first = attackerScanFirst, second = attackerScanSecond;
+            Vector3 playerPosition = player.position;
             int end = Mathf.Min(attackerScanCursor + AttackerSelectionPerFrame,
                 rivals.Length);
             for (int i = attackerScanCursor; i < end; i++)
             {
                 AarisOfflineRival bot = rivals[i];
                 if (bot == null || !bot.IsAlive) continue;
-                float distance = (bot.transform.position - player.position).sqrMagnitude;
+                // A rival's tracked world position changes on every movement,
+                // including same-cell movement. Keep a generous 48m broadphase
+                // (versus 42m physical sight), covering normal frame-level
+                // displacement without reading native Transform positions
+                // for the other ~100 distant rivals each selection sweep.
+                // Live position, camera/visual gate, exact LOS, roster-order ties
+                // and the existing 12-slot/frame deadline remain authoritative.
+                if (rivalSpatialRegistered[i] &&
+                    (rivalSpatialPositions[i] - playerPosition).sqrMagnitude >=
+                        48f * 48f) continue;
+                if (!bot.HasVisibleBody) continue;
+                float distance = (bot.transform.position - playerPosition).sqrMagnitude;
                 // Reject distant targets before the expensive physical LOS ray.
                 // Only visible, unobstructed rivals may reserve either slot.
                 if (distance >= second || !bot.HasPlayerSightForSelection())
