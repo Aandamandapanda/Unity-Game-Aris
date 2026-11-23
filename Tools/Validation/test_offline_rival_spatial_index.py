@@ -156,7 +156,12 @@ class SpatialRivalIndexContract(unittest.TestCase):
         self.assertIn("using var aiProfilerScope = k_DormantScan.Auto();", DIRECTOR)
         self.assertIn("using var aiProfilerScope = k_SpatialHunt.Auto();", DIRECTOR)
         self.assertIn("using var aiProfilerScope = k_RemoteCombat.Auto();", RIVAL)
-        self.assertEqual(SRC.count("#if UNITY_EDITOR || DEVELOPMENT_BUILD"), 5)
+        for field in ("k_DormantScan", "k_SpatialHunt", "k_RemoteCombat"):
+            statement = f"using var aiProfilerScope = {field}.Auto();"
+            offset = SRC.index(statement)
+            self.assertIn("#if UNITY_EDITOR || DEVELOPMENT_BUILD",
+                          SRC[offset - 90:offset])
+            self.assertTrue(SRC[offset + len(statement):].lstrip().startswith("#endif"))
 
     def test_negative_coordinates_boundaries_and_ties(self):
         g = ModelIndex()
