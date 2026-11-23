@@ -174,6 +174,7 @@ namespace Aaris.MapReview
             EnsureCasingVisual();
             EnsureImpactParticles();
             EnsureTracer();
+            ApplyTracerWeaponProfile();
             RefreshReload();
         }
 
@@ -775,6 +776,35 @@ namespace Aaris.MapReview
                 line.receiveShadows = false;
                 line.enabled = false;
                 tracerTrail[i] = new TracerState { renderer = line };
+            }
+        }
+
+        // Thin weapon-class-specific streaks and short shadowless light bursts.
+        // Apply at equip/reconfigure, not for each round or each mobile frame.
+        private void ApplyTracerWeaponProfile()
+        {
+            if (tracerRenderer == null || spec == null) return;
+            float width = spec.category == "Pistol" ? .007f :
+                spec.category == "SMG" ? .008f :
+                spec.category == "Sniper" ? .011f :
+                spec.category == "Shotgun" ? .010f :
+                spec.category == "DMR" ? .0095f :
+                spec.id == "BattleRifle" ? .0105f : .009f;
+            tracerRenderer.widthMultiplier = width;
+            for (int i = 0; i < tracerTrail.Length; i++)
+                if (tracerTrail[i].renderer != null)
+                    tracerTrail[i].renderer.widthMultiplier = width;
+            if (muzzleLight != null)
+            {
+                float intensity = spec.category == "Pistol" ? .85f :
+                    spec.category == "SMG" ? 1.05f :
+                    spec.category == "Sniper" ? 1.95f :
+                    spec.category == "Shotgun" ? 1.75f :
+                    spec.category == "DMR" ? 1.55f :
+                    spec.id == "BattleRifle" ? 1.65f : 1.35f;
+                muzzleLight.intensity = intensity;
+                muzzleLight.range = spec.category == "Pistol" ? 1.55f :
+                    spec.category == "SMG" ? 1.85f : 2.3f;
             }
         }
 

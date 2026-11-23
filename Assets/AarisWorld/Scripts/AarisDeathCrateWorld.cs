@@ -21,6 +21,7 @@ namespace Aaris.MapReview
             internal AarisWeaponState gun;
             internal int looseAmmo, medkits;
             internal GameObject visual;
+            internal Transform beamPose;
             internal bool pendingGroundSnap;
             // Depleted bots leave an honest, briefly visible empty marker.
             internal float markerUntil;
@@ -339,6 +340,15 @@ namespace Aaris.MapReview
                 if (drop.pendingGroundSnap) continue;
                 if (drop.visual != null)
                 {
+                    // Subtle loot-beam breath at the existing 4 Hz world poll.
+                    // Empty death markers remain dim/short, never look actionable.
+                    if (drop.beamPose != null)
+                    {
+                        float pulse = drop.HasContent
+                            ? 1f + .06f * Mathf.Sin(Time.time * 2.8f) : .48f;
+                        drop.beamPose.localScale = new Vector3(pulse,
+                            drop.HasContent ? 1f : .48f, pulse);
+                    }
                     if (distance > VisualRadius * VisualRadius || !showMarker)
                     {
                         Release(drop);
@@ -378,6 +388,11 @@ namespace Aaris.MapReview
                 ? unusedVisuals.Pop() : CreateVisual();
             if (view == null) return;
             chosen.visual = view;
+            // Cache only when assigning a pooled visual: never Find in Update.
+            chosen.beamPose = view.transform.Find("Vertical loot marker");
+            if (chosen.beamPose != null)
+                chosen.beamPose.localScale = chosen.HasContent
+                    ? Vector3.one : new Vector3(.48f, .48f, .48f);
             view.transform.position = chosen.position;
             view.SetActive(true);
             liveVisuals++;
@@ -391,6 +406,7 @@ namespace Aaris.MapReview
                 unusedVisuals.Push(drop.visual);
             else Destroy(drop.visual);
             drop.visual = null;
+            drop.beamPose = null;
             liveVisuals = Mathf.Max(0, liveVisuals - 1);
         }
 
