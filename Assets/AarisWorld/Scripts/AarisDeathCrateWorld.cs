@@ -33,6 +33,9 @@ namespace Aaris.MapReview
         private readonly List<Drop> drops = new List<Drop>(100);
         private readonly Stack<GameObject> unusedVisuals = new Stack<GameObject>(MaxVisuals);
         private Transform player;
+        // The authoritative capsule changes height during standing, crouch
+        // and prone transitions. Cache the component, not its old height.
+        private CharacterController playerCapsule;
         private float nextPoll;
         private int pickupProbeSerial;
         private int liveVisuals;
@@ -40,7 +43,13 @@ namespace Aaris.MapReview
         private RaycastHit[] pickupHits = new RaycastHit[16];
 
         private void Awake() { instance = this; }
-        internal void Bind(Transform target) { player = target; nextPoll = 0f; }
+        internal void Bind(Transform target)
+        {
+            player = target;
+            playerCapsule = target != null
+                ? target.GetComponent<CharacterController>() : null;
+            nextPoll = 0f;
+        }
 
         internal void Spawn(Vector3 position, AarisWeaponSpec gun,
             int magazine, int reserve, int medkits, uint seed)
@@ -171,7 +180,21 @@ namespace Aaris.MapReview
         // box across a solid building wall must not be looted through it.
         private bool Reachable(Vector3 from, Vector3 to)
         {
-            Vector3 origin = from + Vector3.up * 1.02f;
+            // A standing-height eye ray previously cleared low cover even
+            // while the player was physically prone behind it. Use the LIVE
+            // CharacterController dimensions (also during stance transitions).
+            // Never cache its height across a crouch/prone resize.
+            if (playerCapsule == null && player != null)
+                player.TryGetComponent(out playerCapsule);
+            float rayLift = 1.02f;
+            if (playerCapsule != null)
+            {
+                float footOffset = playerCapsule.center.y -
+                    playerCapsule.height * .5f;
+                rayLift = Mathf.Clamp(footOffset +
+                    playerCapsule.height * .65f, .33f, 1.02f);
+            }
+            Vector3 origin = from + Vector3.up * rayLift;
             Vector3 delta = to + Vector3.up * .32f - origin;
             float distance = delta.magnitude;
             if (distance < .001f) return true;
