@@ -41,7 +41,7 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("targetFound = muzzleHitFound;",firing)
         self.assertIn("muzzleLight.shadows = LightShadows.None;",GUN)
         self.assertIn("if (muzzleLight != null) muzzleLight.enabled = false;",GUN)
-        self.assertIn("casingGroundY = landing.point.y",GUN)
+        self.assertIn("groundY = landing.point.y + 0.012f;",GUN)
         self.assertIn("casingVelocity.y = -casingVelocity.y * 0.28f;",GUN)
         self.assertNotIn("new LineRenderer()",firing)
         self.assertNotIn("GameObject.CreatePrimitive",firing)
