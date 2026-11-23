@@ -1,0 +1,118 @@
+name: Aaris Ultra Gunplay Real Unity PlayMode Acceptance
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/aaris-ultra-gunplay-live-playmode.yml'
+      - 'Tools/CI/ultra_gunplay_playmode_sandbox.sh'
+      - 'Tools/Validation/test_ultra_gunplay_live_gate.py'
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  static-safety:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          lfs: false
+      - name: Check isolated QA script and execution guardrails
+        run: |
+          set -euo pipefail
+          bash -n Tools/CI/ultra_gunplay_playmode_sandbox.sh
+          python3 -m unittest discover -s Tools/Validation -p test_ultra_gunplay_live_gate.py
+          echo AARIS_ULTRA_QA_SCRIPT_GUARDS=PASS
+
+  live-playmode:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.number == 77 &&
+      github.event.comment.user.login == 'sundamunda289-art' &&
+      github.event.comment.body == 'AARIS ULTRA GUNPLAY PLAYMODE'
+    concurrency:
+      group: aaris-ultra-gunplay-live
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      MACHINE: aaris-ai-ubuntu-minimal-gxpgxwqvv9rq29x46
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          lfs: false
+      - name: Run original asset PlayMode and 100 rival soak in a /tmp copy
+        id: run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.CODESPACE_PAT }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/aaris-ultra-gunplay"
+          report="$RUNNER_TEMP/aaris-ultra-gunplay/summary.txt"
+          test -n "$GH_TOKEN" || { echo AARIS_ULTRA_QA_NO_CODESPACE_TOKEN; exit 31; }
+          gh codespace list --json name,state,repository --limit 100 \
+            > "$RUNNER_TEMP/aaris-ultra-gunplay/codespaces.json"
+          jq -e --arg machine "$MACHINE" \
+            '.[] | select(.name == $machine and .state == "Available" and
+            ((.repository // "") | endswith("/Unity-Game-Aris")))' \
+            "$RUNNER_TEMP/aaris-ultra-gunplay/codespaces.json" >/dev/null || {
+              echo AARIS_ULTRA_QA_CODESPACE_UNAVAILABLE; exit 32;
+            }
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          set +e
+          timeout --kill-after=20s 1700s \
+            gh codespace ssh -c "$MACHINE" -- "bash -s -- '$GITHUB_SHA'" \
+            < Tools/CI/ultra_gunplay_playmode_sandbox.sh \
+            > "$report" 2> "$RUNNER_TEMP/aaris-ultra-gunplay/remote-errors.txt"
+          result=$?
+          set -e
+          grep -E '^AARIS_ULTRA_QA_[A-Z0-9_]+=[A-Za-z0-9_./-]+$' "$report" || true
+          test "$result" -eq 0 &&
+            grep -qx 'AARIS_ULTRA_QA_STAGE_gunplay=PASS' "$report" &&
+            grep -qx 'AARIS_ULTRA_QA_STAGE_bot_physics=PASS' "$report" &&
+            grep -qx 'AARIS_ULTRA_QA_STAGE_full_scene=PASS' "$report" &&
+            grep -qx 'AARIS_ULTRA_QA_100_BOTS=PASS' "$report" &&
+            grep -qx 'AARIS_ULTRA_QA_ORIGINAL_WORKTREE_UNCHANGED=yes' "$report" &&
+            grep -qx 'AARIS_ULTRA_QA_RESULT=PASS' "$report" || {
+              echo AARIS_ULTRA_QA_VERDICT=FAIL
+              exit 33
+            }
+          echo AARIS_ULTRA_QA_VERDICT=PASS
+      - name: Upload bounded verification summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aaris-ultra-gunplay-native-${{ github.run_id }}
+          path: ${{ runner.temp }}/aaris-ultra-gunplay/summary.txt
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Report verification result on the owner's control issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ steps.run.outcome }}
+        run: |
+          set -euo pipefail
+          note="$RUNNER_TEMP/aaris-ultra-gunplay-result.md"
+          printf '**AARIS ULTRA GUNPLAY PLAYMODE QA**\n\n' > "$note"
+          printf 'Result: **%s** (isolated real Unity Editor; not an Android FPS result).\n\n' \
+            "$RESULT" >> "$note"
+          if test -f "$RUNNER_TEMP/aaris-ultra-gunplay/summary.txt"; then
+            printf 'Validated summary:\n\n' >> "$note"
+            printf '%s\n' '~~~text' >> "$note"
+            grep -E '^AARIS_ULTRA_QA_[A-Z0-9_]+=[A-Za-z0-9_./-]+$' \
+              "$RUNNER_TEMP/aaris-ultra-gunplay/summary.txt" \
+              | tail -n 25 >> "$note" || true
+            printf '%s\n' '~~~' >> "$note"
+          fi
+          printf '\n[GitHub Actions run](https://github.com/%s/actions/runs/%s)\n' \
+            "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$note"
+          gh issue comment 77 -R "$GITHUB_REPOSITORY" -F "$note"
