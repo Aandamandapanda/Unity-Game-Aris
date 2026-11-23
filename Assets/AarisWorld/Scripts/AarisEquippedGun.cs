@@ -93,13 +93,22 @@ namespace Aaris.MapReview
         private ParticleSystem impactParticles;
         private Transform impactTransform;
         private static Material sharedImpactParticleMaterial;
-        // One reused view-aligned tracer per gun, never a new projectile or
-        // LineRenderer allocation in the high-rate firing loop.
-        // Hitscan remains the single authoritative damage/collision path.
+        // Three tiny view-aligned tracer slots retain every accepted automatic
+        // shot long enough to travel, even at 780 RPM. Slots are built on equip;
+        // no projectile or LineRenderer allocation occurs in the fire loop.
+        // Hitscan alone remains authoritative for damage and cover collision.
+        private const int ExtraTracerSlots = 2;
+        private struct TracerState
+        {
+            internal LineRenderer renderer;
+            internal Vector3 start, end;
+            internal float startedAt, duration, distance;
+        }
+        private readonly TracerState[] tracerTrail = new TracerState[ExtraTracerSlots];
+        private int tracerCursor;
         private LineRenderer tracerRenderer;
         private Vector3 tracerStart, tracerEnd;
         private float tracerStartedAt, tracerDuration, tracerDistance;
-        private int tracerShotCounter;
         public bool Configured => spec != null;
         public bool Automatic => spec != null && spec.automatic;
         public float SecondsBetweenShots => spec != null ? spec.ShotInterval : 1f;
@@ -588,8 +597,8 @@ namespace Aaris.MapReview
             impactParticles.Emit(spec != null && spec.pellets > 1 ? 5 : 3);
         }
 
-        // A short moving streak makes bullet direction visible without changing
-        // hit registration, spawning physics bodies, or adding Update allocations.
+        // One shared material and three prebuilt LineRenderers. The primary
+        // renderer is retained for existing scene/tool introspection.
         private void EnsureTracer()
         {
             if (tracerRenderer != null) return;
@@ -610,49 +619,107 @@ namespace Aaris.MapReview
                 UnityEngine.Rendering.ShadowCastingMode.Off;
             tracerRenderer.receiveShadows = false;
             tracerRenderer.enabled = false;
+            for (int i = 0; i < tracerTrail.Length; i++)
+            {
+                var extra = new GameObject("Aaris Reused Bullet Tracer " + (i + 2));
+                extra.layer = gameObject.layer;
+                extra.transform.SetParent(transform, false);
+                var line = extra.AddComponent<LineRenderer>();
+                line.sharedMaterial = material;
+                line.useWorldSpace = true;
+                line.positionCount = 2;
+                line.widthMultiplier = tracerRenderer.widthMultiplier;
+                line.alignment = LineAlignment.View;
+                line.startColor = tracerRenderer.startColor;
+                line.endColor = tracerRenderer.endColor;
+                line.shadowCastingMode =
+                    UnityEngine.Rendering.ShadowCastingMode.Off;
+                line.receiveShadows = false;
+                line.enabled = false;
+                tracerTrail[i] = new TracerState { renderer = line };
+            }
         }
 
         private void TriggerTracer(Vector3 muzzle, Vector3 impact)
         {
             if (tracerRenderer == null) return;
-            // Presentation follows the actual animated barrel in every stance.
-            // The hitscan cover test remains authoritative for HP and endpoint.
+            // Follow the animated barrel at the moment of shooting; never
+            // move older tracers when the gun or stance changes.
             if (muzzleFlashTransform != null && cachedOwner != null &&
                 transform.IsChildOf(cachedOwner.transform))
                 muzzle = muzzleFlashTransform.position;
             Vector3 flight = impact - muzzle;
             float length = flight.magnitude;
             if (length < 0.12f) return;
-            // Cap the visible streak; long-distance hits retain their actual
-            // damage result while distant tracer pixels do not overdraw terrain.
-            tracerDistance = Mathf.Min(length, 64f);
-            tracerStart = muzzle;
-            tracerEnd = muzzle + flight * (tracerDistance / length);
-            tracerStartedAt = Time.time;
-            tracerDuration = Mathf.Clamp(tracerDistance / 310f, 0.025f, 0.21f);
-            tracerRenderer.SetPosition(0, tracerStart);
-            // Show a real segment on the accepting frame. A zero-length line
-            // can otherwise expire between frames at close range on a phone.
-            tracerRenderer.SetPosition(1, Vector3.MoveTowards(
-                tracerStart, tracerEnd, Mathf.Min(2.1f, tracerDistance)));
-            tracerRenderer.enabled = true;
+            float distance = Mathf.Min(length, 64f);
+            Vector3 end = muzzle + flight * (distance / length);
+            float duration = Mathf.Clamp(distance / 310f, 0.025f, 0.21f);
+            int index = tracerCursor++ % (ExtraTracerSlots + 1);
+            if (index == 0)
+            {
+                tracerStart = muzzle;
+                tracerEnd = end;
+                tracerDistance = distance;
+                tracerStartedAt = Time.time;
+                tracerDuration = duration;
+                tracerRenderer.SetPosition(0, tracerStart);
+                tracerRenderer.SetPosition(1, Vector3.MoveTowards(
+                    tracerStart, tracerEnd, Mathf.Min(2.1f, tracerDistance)));
+                tracerRenderer.enabled = true;
+            }
+            else
+            {
+                TracerState shot = tracerTrail[index - 1];
+                if (shot.renderer == null) return;
+                shot.start = muzzle;
+                shot.end = end;
+                shot.distance = distance;
+                shot.startedAt = Time.time;
+                shot.duration = duration;
+                shot.renderer.SetPosition(0, muzzle);
+                shot.renderer.SetPosition(1, Vector3.MoveTowards(
+                    muzzle, end, Mathf.Min(2.1f, distance)));
+                shot.renderer.enabled = true;
+                tracerTrail[index - 1] = shot;
+            }
         }
 
         private void TickTracer()
         {
-            if (tracerRenderer == null || !tracerRenderer.enabled) return;
-            float elapsed = Time.time - tracerStartedAt;
-            float head = (elapsed + Mathf.Clamp(Time.deltaTime, .001f, .016f)) / tracerDuration;
-            if (elapsed >= tracerDuration)
+            // Each slot advances independently while a held automatic weapon
+            // sends another shot. There is no per-frame allocation or physics.
+            if (tracerRenderer != null && tracerRenderer.enabled)
             {
-                tracerRenderer.enabled = false;
-                return;
+                float elapsed = Time.time - tracerStartedAt;
+                if (elapsed >= tracerDuration)
+                    tracerRenderer.enabled = false;
+                else
+                {
+                    float head = Mathf.Clamp01((elapsed +
+                        Mathf.Clamp(Time.deltaTime, .001f, .016f)) / tracerDuration);
+                    float tail = Mathf.Max(0f, head - 2.1f / tracerDistance);
+                    Vector3 segment = tracerEnd - tracerStart;
+                    tracerRenderer.SetPosition(0, tracerStart + segment * tail);
+                    tracerRenderer.SetPosition(1, tracerStart + segment * head);
+                }
             }
-            head = Mathf.Clamp01(head);
-            float tail = Mathf.Max(0f, head - 2.1f / tracerDistance);
-            Vector3 segment = tracerEnd - tracerStart;
-            tracerRenderer.SetPosition(0, tracerStart + segment * tail);
-            tracerRenderer.SetPosition(1, tracerStart + segment * head);
+            for (int i = 0; i < tracerTrail.Length; i++)
+            {
+                TracerState shot = tracerTrail[i];
+                if (shot.renderer == null || !shot.renderer.enabled) continue;
+                float elapsed = Time.time - shot.startedAt;
+                if (elapsed >= shot.duration)
+                {
+                    shot.renderer.enabled = false;
+                    continue;
+                }
+                float head = Mathf.Clamp01((elapsed +
+                    Mathf.Clamp(Time.deltaTime, .001f, .016f)) / shot.duration);
+                float tail = Mathf.Max(0f, head - 2.1f / shot.distance);
+                Vector3 segment = shot.end - shot.start;
+                shot.renderer.SetPosition(0, shot.start + segment * tail);
+                shot.renderer.SetPosition(1, shot.start + segment * head);
+            }
         }
 
         private void Update()
@@ -730,6 +797,9 @@ namespace Aaris.MapReview
                 muzzleFlashRenderer.enabled = false;
             if (muzzleLight != null) muzzleLight.enabled = false;
             if (tracerRenderer != null) tracerRenderer.enabled = false;
+            for (int i = 0; i < tracerTrail.Length; i++)
+                if (tracerTrail[i].renderer != null)
+                    tracerTrail[i].renderer.enabled = false;
             HideAllCasings();
         }
 
@@ -892,9 +962,10 @@ namespace Aaris.MapReview
                     // Degenerate convergence cannot authorize camera-only damage.
                     targetFound = false;
                 }
-                // One tracer on a bolt/semi shot, every third automatic shot.
-                // Repeated pellets share the visual, rather than spawning 8 trails.
-                if (pellet == 0 && (!spec.automatic || ++tracerShotCounter % 3 == 0))
+                // Every real round gets a streak, including full-auto.
+                // A shotgun's pellets share one tracer; three pooled slots
+                // preserve overlapping automatic rounds until they expire.
+                if (pellet == 0)
                     TriggerTracer(muzzle, impactPoint);
                 if (targetFound)
                 {
