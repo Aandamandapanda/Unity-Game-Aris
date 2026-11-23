@@ -155,6 +155,21 @@ namespace Aaris.MapReview.Editor
                 gunObject.transform.localPosition = Vector3.up * 1.28f;
                 var gun = gunObject.AddComponent<AarisEquippedGun>();
                 gun.Configure(AarisWeaponCatalog.Get("Pistol"), 727u);
+                // No per-equip primitive/Collider allocations: player and
+                // bot metal shells must share one capped, UV-ready mesh.
+                var playerShell = (Renderer)Read(gun, "casingRenderer");
+                var casingMesh = playerShell.GetComponent<MeshFilter>().sharedMesh;
+                Check(casingMesh != null && casingMesh.vertexCount == 50 &&
+                    gun.GetComponentsInChildren<Collider>(true).Length == 0,
+                    "Player casing pool reuses one sealed mesh without Colliders");
+                var prebuiltShells = (Array)Read(gun, "shellTrail");
+                foreach (object shell in prebuiltShells)
+                {
+                    var pose = (Transform)shell.GetType().GetField("pose",
+                        BindingFlags.Instance | BindingFlags.NonPublic).GetValue(shell);
+                    Check(pose.GetComponent<MeshFilter>().sharedMesh == casingMesh,
+                        "Every automatic casing shares the same closed mesh");
+                }
                 Physics.SyncTransforms();
                 Check(gun.TryFire(camera, actor) && gun.Magazine == 14 && targetHp.CurrentHealth < 200f,
                     "Pistol consumes one round and physically damages target");
@@ -239,6 +254,19 @@ namespace Aaris.MapReview.Editor
                 foreach (Light burst in bots.GetComponentsInChildren<Light>())
                     if (burst != light && burst.enabled) activeLights++;
                 Check(activeLights == 2, "Six bot shots keep at most two active barrel lights");
+                var botShellRenderers = bots.GetComponentsInChildren<MeshFilter>(true);
+                int matchedBotCasings = 0;
+                foreach (MeshFilter filter in botShellRenderers)
+                    if (filter.gameObject.name ==
+                        "Aaris Bot Reused Independent Ejected Casing")
+                    {
+                        Check(filter.sharedMesh == casingMesh,
+                            "Nearby bot shell shares the player's capped mesh");
+                        matchedBotCasings++;
+                    }
+                Check(matchedBotCasings == 6 &&
+                    bots.GetComponentsInChildren<Collider>(true).Length == 0,
+                    "Six nearby bot ejections create no transient native Colliders");
                 var slots = (Array)Read(bots, "slots"); var firstSlot = slots.GetValue(0);
                 var botFlash = (Renderer)firstSlot.GetType().GetField("flash", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(firstSlot);
                 Check(botFlash.sharedMaterial == flash.sharedMaterial, "Bots share transparent flame material with player");

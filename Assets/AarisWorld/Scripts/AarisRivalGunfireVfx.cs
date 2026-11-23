@@ -115,8 +115,10 @@ namespace Aaris.MapReview
         {
             // Construct only on a real nearby shot, never for all 100 bots.
             // A casing carries no Rigidbody, collider or separate Update.
-            var casing = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            casing.name = "Aaris Bot Reused Independent Ejected Casing";
+            var casing = new GameObject("Aaris Bot Reused Independent Ejected Casing",
+                typeof(MeshFilter), typeof(MeshRenderer));
+            casing.GetComponent<MeshFilter>().sharedMesh =
+                AarisEquippedGun.SharedCasingMesh();
             casing.transform.SetParent(transform, false);
             var slot = new CasingSlot
             {
@@ -127,8 +129,6 @@ namespace Aaris.MapReview
             slot.renderer.shadowCastingMode = ShadowCastingMode.Off;
             slot.renderer.receiveShadows = false;
             slot.renderer.enabled = false;
-            var hitbox = casing.GetComponent<Collider>();
-            if (hitbox != null) { hitbox.enabled = false; Destroy(hitbox); }
             return slot;
         }
 
