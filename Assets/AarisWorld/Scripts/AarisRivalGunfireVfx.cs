@@ -6,26 +6,37 @@ namespace Aaris.MapReview
     /// <summary>
     /// Shared bot gunfire presentation. Only true physically simulated
     /// near-range gunshots emit; virtual offscreen combat stays math-only.
-    /// Up to six recyclable slots, with no per-bot renderer or Update.
+    /// Six short-lived muzzle/tracer slots and twelve independent ballistic
+    /// casing slots; no per-bot renderer or Update.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class AarisRivalGunfireVfx : MonoBehaviour
     {
         private const int MaximumSlots = 6;
+        private const int MaximumCasingSlots = 12;
         private sealed class Slot
         {
             internal LineRenderer tracer;
-            internal Renderer flash, casing;
-            internal Transform flashPose, casingPose;
-            internal Vector3 origin, end, velocity, spin;
-            internal float shotAt, tracerUntil, flashUntil, casingUntil, groundY;
+            internal Renderer flash;
+            internal Transform flashPose;
+            internal Vector3 origin, end;
+            internal float shotAt, tracerUntil, flashUntil;
+        }
+
+        private sealed class CasingSlot
+        {
+            internal Renderer renderer;
+            internal Transform pose;
+            internal Vector3 velocity, spin;
+            internal float until, groundY;
             internal bool grounded;
         }
 
         private readonly Slot[] slots = new Slot[MaximumSlots];
+        private readonly CasingSlot[] casings = new CasingSlot[MaximumCasingSlots];
         private static Material glowMaterial, brassMaterial, shotgunMaterial;
         private Transform observer;
-        private int nextSlot;
+        private int nextSlot, nextCasingSlot;
 
         internal void Bind(Transform player) { observer = player; }
 
@@ -91,19 +102,26 @@ namespace Aaris.MapReview
             slot.flash.shadowCastingMode = ShadowCastingMode.Off;
             slot.flash.receiveShadows = false;
             slot.flash.enabled = false;
-            var hitbox = flash.GetComponent<Collider>();
-            if (hitbox != null) { hitbox.enabled = false; Destroy(hitbox); }
+            return slot;
+        }
 
+        private CasingSlot CreateCasingSlot()
+        {
+            // Construct only on a real nearby shot, never for all 100 bots.
+            // A casing carries no Rigidbody, collider or separate Update.
             var casing = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            casing.name = "Aaris Bot Reused Ejected Casing";
+            casing.name = "Aaris Bot Reused Independent Ejected Casing";
             casing.transform.SetParent(transform, false);
-            slot.casingPose = casing.transform;
-            slot.casing = casing.GetComponent<MeshRenderer>();
-            slot.casing.sharedMaterial = MaterialFor(true);
-            slot.casing.shadowCastingMode = ShadowCastingMode.Off;
-            slot.casing.receiveShadows = false;
-            slot.casing.enabled = false;
-            hitbox = casing.GetComponent<Collider>();
+            var slot = new CasingSlot
+            {
+                pose = casing.transform,
+                renderer = casing.GetComponent<MeshRenderer>()
+            };
+            slot.renderer.sharedMaterial = MaterialFor(true);
+            slot.renderer.shadowCastingMode = ShadowCastingMode.Off;
+            slot.renderer.receiveShadows = false;
+            slot.renderer.enabled = false;
+            var hitbox = casing.GetComponent<Collider>();
             if (hitbox != null) { hitbox.enabled = false; Destroy(hitbox); }
             return slot;
         }
@@ -138,27 +156,33 @@ namespace Aaris.MapReview
                 : new Vector3(.15f, .09f, .24f);
             slot.flash.enabled = true;
 
-            slot.casing.sharedMaterial = MaterialFor(true, shotgun);
+            // The next short muzzle/tracer slot must never erase an earlier
+            // falling shell. Casings own a separately bounded ring pool.
+            int casingIndex = nextCasingSlot++ % MaximumCasingSlots;
+            CasingSlot casing = casings[casingIndex];
+            if (casing == null)
+                casings[casingIndex] = casing = CreateCasingSlot();
+            casing.renderer.sharedMaterial = MaterialFor(true, shotgun);
             Vector3 port = shooter.position + Vector3.up * 1.32f +
                 shooter.forward * .22f + shooter.right * .18f;
-            slot.casingPose.position = port;
-            slot.casingPose.rotation = shooter.rotation * Quaternion.Euler(90f, 0f, 0f);
-            slot.casingPose.localScale = shotgun
+            casing.pose.position = port;
+            casing.pose.rotation = shooter.rotation * Quaternion.Euler(90f, 0f, 0f);
+            casing.pose.localScale = shotgun
                 ? new Vector3(.008f, .023f, .008f)
                 : new Vector3(.006f, .015f, .006f);
-            slot.velocity = shooter.right * 2.25f + Vector3.up * 1.65f -
+            casing.velocity = shooter.right * 2.25f + Vector3.up * 1.65f -
                 shooter.forward * .2f;
-            slot.spin = new Vector3(520f, 940f, 650f);
-            slot.grounded = false;
-            // One ground probe on the accepted local gunshot, none on the Update loop.
+            casing.spin = new Vector3(520f, 940f, 650f);
+            casing.grounded = false;
+            // One ground probe on an accepted nearby shot, none in Update.
             if (Physics.Raycast(port + Vector3.up * .1f, Vector3.down,
                 out RaycastHit ground, 5.5f, Physics.DefaultRaycastLayers,
                 QueryTriggerInteraction.Ignore) && ground.normal.y > .45f)
-                slot.groundY = ground.point.y + .012f;
-            else slot.groundY = shooter.position.y + .012f;
-            slot.groundY = Mathf.Min(slot.groundY, port.y - .07f);
-            slot.casingUntil = now + .85f;
-            slot.casing.enabled = true;
+                casing.groundY = ground.point.y + .012f;
+            else casing.groundY = shooter.position.y + .012f;
+            casing.groundY = Mathf.Min(casing.groundY, port.y - .07f);
+            casing.until = now + .85f;
+            casing.renderer.enabled = true;
         }
 
         private void Update()
@@ -185,27 +209,31 @@ namespace Aaris.MapReview
                         slot.tracer.SetPosition(1, slot.origin + segment * head);
                     }
                 }
-                if (!slot.casing.enabled) continue;
-                if (now >= slot.casingUntil)
+            }
+            for (int i = 0; i < casings.Length; i++)
+            {
+                CasingSlot casing = casings[i];
+                if (casing == null || !casing.renderer.enabled) continue;
+                if (now >= casing.until)
                 {
-                    slot.casing.enabled = false;
+                    casing.renderer.enabled = false;
                     continue;
                 }
-                if (slot.grounded) continue;
-                slot.velocity += Physics.gravity * dt;
-                Vector3 next = slot.casingPose.position + slot.velocity * dt;
-                if (next.y <= slot.groundY && slot.velocity.y < 0f)
+                if (casing.grounded) continue;
+                casing.velocity += Physics.gravity * dt;
+                Vector3 next = casing.pose.position + casing.velocity * dt;
+                if (next.y <= casing.groundY && casing.velocity.y < 0f)
                 {
-                    next.y = slot.groundY;
-                    slot.velocity = new Vector3(
-                        slot.velocity.x * .58f,
-                        -slot.velocity.y * .28f,
-                        slot.velocity.z * .58f);
-                    slot.spin *= .45f;
-                    if (slot.velocity.y < .5f) slot.grounded = true;
+                    next.y = casing.groundY;
+                    casing.velocity = new Vector3(
+                        casing.velocity.x * .58f,
+                        -casing.velocity.y * .28f,
+                        casing.velocity.z * .58f);
+                    casing.spin *= .45f;
+                    if (casing.velocity.y < .5f) casing.grounded = true;
                 }
-                slot.casingPose.position = next;
-                slot.casingPose.Rotate(slot.spin * dt, Space.World);
+                casing.pose.position = next;
+                casing.pose.Rotate(casing.spin * dt, Space.World);
             }
         }
     }
