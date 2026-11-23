@@ -448,7 +448,7 @@ namespace Aaris.MapReview
             lastDirectorPlayerPosition = playerPosition;
             hasDirectorPlayerPosition = true;
             // Combat cadence is independent from presentation wake-ups.
-            TickDormantRivals(now);
+            TickDormantRivals(Time.time);
             // Drive staged player-attacker selection once per rendered frame.
             // Do not rely on individual bots' staggered 0.35s think ticks.
             RefreshPlayerAttackers();
