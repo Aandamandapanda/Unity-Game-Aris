@@ -753,7 +753,8 @@ namespace Aaris.MapReview
                         TriggerImpactParticles(impactPoint, impactNormal);
                         impactSoundEmitted = true;
                     }
-                    ApplyDamage(target.collider, spec.damage, owner, target.point);
+                    ApplyDamage(target.collider, spec.damage, owner, target.point,
+                        spec.headshotMultiplier);
                 }
             }
             if (cachedMotor != null) cachedMotor.ApplyWeaponRecoil(spec.recoilPitchDegrees,
@@ -789,7 +790,7 @@ namespace Aaris.MapReview
         }
 
         internal static bool ApplyDamage(Collider collider, float amount, GameObject attacker,
-            Vector3? hitPosition)
+            Vector3? hitPosition, float headshotMultiplier = 1.75f)
         {
             if (collider == null) return false;
             for (Transform node = collider.transform; node != null; node = node.parent)
@@ -823,7 +824,7 @@ namespace Aaris.MapReview
                                  bounds.size.y > .28f && hitPosition.Value.y >=
                                     bounds.min.y + bounds.size.y * .79f);
                         }
-                        if (headshot) damage *= 1.75f;
+                        if (headshot) damage *= Mathf.Clamp(headshotMultiplier, 1f, 4f);
                         float before = victim.CurrentHealth;
                         victim.ApplyHitDamage(damage, attacker, headshot);
                         float actualLoss = Mathf.Max(0f, before - victim.CurrentHealth);

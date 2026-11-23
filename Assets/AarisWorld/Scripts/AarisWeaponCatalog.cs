@@ -15,6 +15,8 @@ namespace Aaris.MapReview
         public bool automatic;
         public int rpm, magazineSize, reserveAmmo, pellets;
         public float damage, rangeMetres, spreadDegrees, recoilPitchDegrees;
+        // Per-weapon critical hit balance. Old scene/test specs default to 1.75x.
+        public float headshotMultiplier = 1.75f;
         // "weight" is the authored LOOT SELECTION weight, not kilograms.
         // Keep physical presentation inertia separate so changing gun feel never
         // silently changes spawn distribution.
@@ -37,6 +39,7 @@ namespace Aaris.MapReview
             !string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(modelResource) &&
             rpm >= 20 && rpm <= 1300 && magazineSize > 0 && magazineSize <= 250 &&
             reserveAmmo >= 0 && damage > 0f && damage <= 250f &&
+            headshotMultiplier >= 1f && headshotMultiplier <= 4f &&
             rangeMetres >= 5f && rangeMetres <= 1000f &&
             spreadDegrees >= 0f && spreadDegrees <= 12f &&
             recoilPitchDegrees >= 0f && recoilPitchDegrees <= 20f &&
