@@ -79,6 +79,11 @@ if test -n "$ISSUE"; then
     'CS LFS REPORT') OP=lfs_report ;;
     'CS CHANGES') OP=changes ;;
     # Owner-only, exact known gameplay Codespace; no arbitrary host input.
+    # Explicit original gunplay QA Codespace. Start/status only;
+    # never select another account's machine or mutate its workspace.
+    'CS GUNPLAY INFO') OP=info; MACHINE='aaris-ai-ubuntu-minimal-gxpgxwqvv9rq29x46' ;;
+    'CS GUNPLAY START') OP=start; MACHINE='aaris-ai-ubuntu-minimal-gxpgxwqvv9rq29x46' ;;
+    'CS GUNPLAY STATUS') OP=status; MACHINE='aaris-ai-ubuntu-minimal-gxpgxwqvv9rq29x46' ;;
     'CS WEAPON INFO') OP=info; MACHINE='aaris-ai-ubuntu-minimal-p764pwx4q79536p95' ;;
     'CS WEAPON START') OP=start; MACHINE='aaris-ai-ubuntu-minimal-p764pwx4q79536p95' ;;
     'CS WEAPON STATUS') OP=status; MACHINE='aaris-ai-ubuntu-minimal-p764pwx4q79536p95' ;;
@@ -263,6 +268,17 @@ if test -n "$MACHINE"; then
   # For this single preapproved gameplay machine only, fall back to a
   # direct authenticated GitHub lookup and validate repository ownership.
   # No arbitrary issue-supplied machine names are accepted.
+  # The canonical repo may be checked out by a rotated Codespaces
+  # account (including a fork). Discover the exact approved gunplay host
+  # across that account's machines, as the existing native gate does.
+  if test -z "$CS" && test "$TARGET_CODESPACE" = 'aaris-ai-ubuntu-minimal-gxpgxwqvv9rq29x46'; then
+    CS="$(gh codespace list --json name,repository --limit 100 2>/dev/null |
+      jq -r --arg target "$TARGET_CODESPACE" '
+        [.[] | select(.name == $target and
+          ((.repository // "") | endswith("/Unity-Game-Aris")))] |
+        if length == 1 then .[0].name else empty end
+      ' 2>/dev/null)" || CS=""
+  fi
   if test -z "$CS" && test "$TARGET_CODESPACE" = 'aaris-ai-ubuntu-minimal-p764pwx4q79536p95'; then
     CS="$(gh api "/user/codespaces/$TARGET_CODESPACE" 2>/dev/null |
       jq -r --arg repo "$REPO" --arg target "$TARGET_CODESPACE" '
