@@ -305,6 +305,10 @@ class CombatEndToEndContract(unittest.TestCase):
         self.assertIn("rivalLootWorld.TryTakeForRival(rival, out weapon)", BOTS)
         self.assertIn("if (!HasClearPickupPath(rival, pickup.transform.position)) continue;", body)
         self.assertIn("private bool HasClearPickupPath(Transform looter, Vector3 position)", LOOT)
+        # Shared bot/player gate still excludes only owner colliders and now
+        # respects a live crouch/prone CharacterController.
+        self.assertIn("looter.TryGetComponent(out CharacterController body)", LOOT)
+        self.assertIn("Vector3 eye = looter.position + Vector3.up * eyeHeight;", LOOT)
         self.assertIn("collider.transform.IsChildOf(looter)", LOOT)
         self.assertIn("hits = CompleteRaycastOverflow(sightLine, distance, out sightHits);", LOOT)
         self.assertIn("else if (!remoteLoadoutGiven && AarisWeaponCatalog.Ready)", BOTS)
