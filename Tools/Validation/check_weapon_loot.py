@@ -310,6 +310,12 @@ def run():
     assert "GameObject.CreatePrimitive(PrimitiveType.Cylinder)" in gun_cs
     assert "private void ScheduleCasingEjection()" in gun_cs
     assert "private void EjectCasingNow()" in gun_cs
+    assert "private const int MaximumPendingCasingEjections = 16;" in gun_cs
+    assert "casingDeadlines[tail] = Time.time + delay;" in gun_cs
+    assert "private void TickCasingEjections()" in gun_cs
+    assert "TickCasingEjections();" in gun_cs
+    assert "pendingCasingEjections = 0;" in gun_cs
+    assert "casingEjectAt" not in gun_cs
     assert "casingVelocity += Physics.gravity * dt;" in gun_cs
     assert "ScheduleCasingEjection();" in fire_block
     assert fire_block.index("magazine--;") < fire_block.index("ScheduleCasingEjection();")
