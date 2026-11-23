@@ -313,6 +313,17 @@ namespace Aaris.MapReview.Editor
                     Check((bool)Call(crate, "Reachable", actor.transform.position, new Vector3(1.8f, 0f, 0f)),
                         "Crate ignores owned colliders at stance height=" + height);
                 }
+                // The nearer uncollectable medkit must not monopolize PICK
+                // while the farther gun is actually reachable.
+                Call(crate, "Update");
+                var crateHint = typeof(AarisDeathCrateWorld).GetMethod(
+                    "TryGetNearbyHint", Static);
+                object[] hintArgs = {actor.transform, null, 0f, false};
+                Check((bool)crateHint.Invoke(null, hintArgs) &&
+                    (string)hintArgs[1] == AarisWeaponCatalog.Get("Pistol").displayName &&
+                    (bool)hintArgs[3] &&
+                    AarisDeathCrateWorld.HasPickupNear(actor.transform),
+                    "Actionable crate hint bypasses nearer unavailable medkit");
                 var loot = typeof(AarisDeathCrateWorld).GetMethod("TryLootNearest", Static);
                 Check((bool)loot.Invoke(null, new object[] {actor.transform, inventory}) &&
                     inventory.Current.Spec.id == "Pistol" && inventory.Current.Magazine == 7 && inventory.Current.Reserve == 19,
@@ -322,6 +333,12 @@ namespace Aaris.MapReview.Editor
                     Read(leftoverCrates[0], "gun") == null &&
                     (int)Read(leftoverCrates[0], "medkits") == 1,
                     "PICK skips unavailable medkit, takes farther gun and preserves remaining crate");
+                Call(crate, "Update");
+                hintArgs = new object[] {actor.transform, null, 0f, false};
+                Check((bool)crateHint.Invoke(null, hintArgs) &&
+                    !(bool)hintArgs[3] &&
+                    !AarisDeathCrateWorld.HasPickupNear(actor.transform),
+                    "Uncollectable medkit-only crate never promises PICK");
                 Call(crate, "Spawn", new Vector3(1.8f, 0f, 0f), AarisWeaponCatalog.Get("Pistol"), 5, 11, 1, 884u);
                 var wall = new GameObject("Crate wall"); wall.transform.SetParent(root.transform);
                 wall.transform.position = new Vector3(.9f, 1f, 0f);
