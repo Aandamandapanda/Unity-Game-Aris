@@ -269,8 +269,8 @@ jobs:
           assert root.is_file() and len(root.read_bytes())>50000
           def transfer(name, data):
               encoded=base64.b64encode(data).decode("ascii")
-              return "cat <<'AARIS_EMBEDDED_FILE' | base64 -d > \\"$TEMP/"+name+"\\"\\n"+encoded+"\\nAARIS_EMBEDDED_FILE\\n"
-          wrapper='set -Eeuo pipefail\numask 077\nTEMP="$(mktemp -d /tmp/aaris-pr-csharp.XXXXXXXX)"\ntrap \\'rm -rf -- "$TEMP"\\' EXIT\n'
+              return ("cat <<'AARIS_EMBEDDED_FILE' | base64 -d > " + chr(34) + "$TEMP/" + name + chr(34) + chr(10) + encoded + chr(10) + "AARIS_EMBEDDED_FILE" + chr(10))
+          wrapper = ("set -Eeuo pipefail" + chr(10) + "umask 077" + chr(10) + 'TEMP="$(mktemp -d /tmp/aaris-pr-csharp.XXXXXXXX)"' + chr(10) + "trap 'rm -rf -- " + chr(34) + "$TEMP" + chr(34) + "' EXIT" + chr(10))
           wrapper+=transfer("rival.cs",root.read_bytes())
           wrapper+=transfer("compile.sh",patched.encode())
           wrapper+='AARIS_REMOTE_PATCH_FILE="$TEMP/rival.cs" bash "$TEMP/compile.sh"\n'
