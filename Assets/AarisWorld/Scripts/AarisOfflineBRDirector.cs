@@ -42,6 +42,36 @@ namespace Aaris.MapReview
         // Successfully populated slots stay claimed even if their rival
         // loses later: retry waves must never resurrect defeated opponents.
         private readonly bool[] populatedSlots = new bool[RivalCount];
+        // One central queue replaces per-frame native Update dispatch for
+        // far/unseen agents, without changing their AI combat deadlines.
+        private readonly bool[] dormantRivalSlots = new bool[RivalCount];
+        private int dormantRivalCount;
+
+        internal void RegisterDormantRival(int slot, AarisOfflineRival bot, bool dormant)
+        {
+            if (slot < 0 || slot >= RivalCount || rivals[slot] != bot) return;
+            if (dormantRivalSlots[slot] == dormant) return;
+            dormantRivalSlots[slot] = dormant;
+            dormantRivalCount += dormant ? 1 : -1;
+        }
+
+        public void TickDormantRivals(float now)
+        {
+            if (dormantRivalCount == 0) return;
+            for (int i = 0; i < RivalCount; i++)
+            {
+                if (!dormantRivalSlots[i]) continue;
+                AarisOfflineRival bot = rivals[i];
+                if (bot == null || !bot.IsAlive)
+                {
+                    dormantRivalSlots[i] = false;
+                    dormantRivalCount--;
+                    continue;
+                }
+                if (now >= bot.NextDormantWakeTime)
+                    bot.TickDormantFromDirector();
+            }
+        }
         private const int MaximumSpawnPasses = 4;
         private int spawnPasses = 1;
         private readonly Collider[] spawnHits = new Collider[24];
@@ -307,6 +337,8 @@ namespace Aaris.MapReview
             }
 
             float elapsed = Time.time - startedAt;
+            // Existing 100ms camera/proximity and 350ms combat deadlines.
+            TickDormantRivals(Time.time);
             // Drive staged player-attacker selection once per rendered frame.
             // Do not rely on individual bots' staggered 0.35s think ticks.
             RefreshPlayerAttackers();
@@ -1362,6 +1394,27 @@ namespace Aaris.MapReview
         private bool dormantOutOfVisualRange;
         // Off-camera virtual rivals need no per-render-frame transform reads.
         private bool dormantOffscreenVirtual;
+        private bool centrallyDormant;
+        internal float NextDormantWakeTime => dormantOutOfVisualRange
+            ? Mathf.Min(nextFarSimulation, nextDormantProximityProbe)
+            : Mathf.Min(nextFarSimulation,
+                Mathf.Min(nextDormantProximityProbe, nextCameraProbe));
+
+        internal void TickDormantFromDirector()
+        {
+            // Disabled native Update, unchanged AI simulation code.
+            if (centrallyDormant) Update();
+        }
+
+        private void SetCentralDormancy(bool dormant)
+        {
+            if (centrallyDormant == dormant) return;
+            centrallyDormant = dormant;
+            if (owner != null)
+                owner.RegisterDormantRival(spatialSlot, this, dormant);
+            enabled = !dormant;
+        }
+
         private float nextDormantProximityProbe;
         private const float DormantProximityProbeInterval = 0.10f;
         // A separate low-triangle visual keeps 4x targets visible beyond 155 m
@@ -1869,6 +1922,9 @@ namespace Aaris.MapReview
                 (capsule == null || !capsule.enabled);
             if (dormantOffscreenVirtual)
                 nextDormantProximityProbe = now + DormantProximityProbeInterval;
+            // Only invisible virtual bodies or >485m actors become dormant;
+            // near/on-screen fighting keeps native per-frame callbacks.
+            SetCentralDormancy(dormantOutOfVisualRange || dormantOffscreenVirtual);
             // Camera visibility controls rendering/physical hit receivers,
             // not AI tick frequency: 4x scoped enemies must not turn 100
             // distant AI brains into full-rate Update/PhysX processing.
@@ -2592,6 +2648,8 @@ namespace Aaris.MapReview
 
         private void OnDied(AarisOfflineHealth defeated)
         {
+            // Unregister dead opponents before destruction delay.
+            if (centrallyDormant) SetCentralDormancy(false);
             if (capsule != null) capsule.enabled = false;
             if (owner != null) owner.RivalDefeated(this);
             Destroy(gameObject, 1.2f);
@@ -2599,6 +2657,8 @@ namespace Aaris.MapReview
 
         private void OnDestroy()
         {
+            if (centrallyDormant && owner != null)
+                owner.RegisterDormantRival(spatialSlot, this, false);
             if (owner != null)
                 owner.UntrackRivalPosition(spatialSlot, this);
             if (health != null)
