@@ -121,10 +121,12 @@ class SpatialAttackerCoarseReject(unittest.TestCase):
             'new ProfilerMarker("Aaris.AI.PlayerAttackerSelection")'), 1)
         self.assertIn("private static readonly ProfilerMarker k_PlayerThreat =", SRC)
         self.assertIn("using var aiProfilerScope = k_PlayerThreat.Auto();", SCAN)
-        self.assertTrue(SCAN.lstrip().startswith(
+        self.assertIn(
+            "private void RefreshPlayerAttackers()\n"
+            "        {\n"
             "#if UNITY_EDITOR || DEVELOPMENT_BUILD\n"
             "            using var aiProfilerScope = k_PlayerThreat.Auto();\n"
-            "#endif"))
+            "#endif", SRC)
 
 
 if __name__ == "__main__":
