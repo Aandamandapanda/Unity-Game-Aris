@@ -47,7 +47,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.CODESPACE_PAT }}
-          MACHINE: aaris-ai-ubuntu-minimal-gxpgxwqvv9rq29x46
+          MACHINE: aaris-ai-ubuntu-minimal-5v9wpj77q64424q7
         run: |
           set -euo pipefail
           [[ -n "$GH_TOKEN" ]] || { echo AARIS_GUNPLAY_NATIVE_GATE=no_codespace_token; exit 31; }
