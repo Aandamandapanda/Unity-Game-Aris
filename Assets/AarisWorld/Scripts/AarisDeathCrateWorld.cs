@@ -69,13 +69,19 @@ namespace Aaris.MapReview
         }
 
         internal static bool TryGetNearbyHint(Transform seeker,
-            out string weapon, out float distance)
+            out string weapon, out float distance, out bool canPick)
         {
             weapon = null;
             distance = 0f;
+            canPick = false;
             if (instance == null || instance.player != seeker) return false;
-            Drop drop = instance.Nearest(seeker.position, 48f, false);
+            // Use the same reachable target as the PICK button. Proximity
+            // labels for farther crates must not promise an instant pickup.
+            Drop inReach = instance.cachedPickupNear
+                ? instance.Nearest(seeker.position, PickupRadius, true) : null;
+            Drop drop = inReach ?? instance.Nearest(seeker.position, 48f, false);
             if (drop == null) return false;
+            canPick = inReach != null;
             weapon = drop.gun != null ? drop.gun.Spec.displayName : "MEDKIT";
             distance = Vector3.Distance(seeker.position, drop.position);
             return true;
@@ -125,7 +131,13 @@ namespace Aaris.MapReview
                 instance.Release(drop);
                 instance.drops.Remove(drop);
             }
-            if (taken) instance.nextPoll = 0f;
+            if (taken)
+            {
+                // The HUD's reachability cache must not advertise consumed loot
+                // before the next scheduled quarter-second world poll.
+                instance.cachedPickupNear = false;
+                instance.nextPoll = 0f;
+            }
             return taken;
         }
 
@@ -165,14 +177,24 @@ namespace Aaris.MapReview
             cachedPickupNear = Nearest(here, PickupRadius, true) != null;
             int bestIndex = -1;
             float bestDistance = VisualRadius * VisualRadius;
+            float furthestVisualDistance = -1f;
+            Drop furthestVisible = null;
             for (int i = 0; i < drops.Count; i++)
             {
                 Drop drop = drops[i];
                 float distance = (drop.position - here).sqrMagnitude;
                 if (drop.visual != null)
                 {
-                    if (distance > VisualRadius * VisualRadius)
+                    if (distance > VisualRadius * VisualRadius || !drop.HasContent)
+                    {
                         Release(drop);
+                        continue;
+                    }
+                    if (distance > furthestVisualDistance)
+                    {
+                        furthestVisualDistance = distance;
+                        furthestVisible = drop;
+                    }
                     continue;
                 }
                 if (distance < bestDistance && drop.HasContent)
@@ -181,7 +203,16 @@ namespace Aaris.MapReview
                     bestDistance = distance;
                 }
             }
-            if (bestIndex < 0 || liveVisuals >= MaxVisuals) return;
+            if (bestIndex < 0) return;
+            // When all 16 visuals are in use, recycle the farthest one for
+            // a nearer unseen crate. A single swap per 0.25s poll keeps the
+            // closest firefight loot visible without building extra models.
+            if (liveVisuals >= MaxVisuals)
+            {
+                if (furthestVisible == null ||
+                    bestDistance + 0.25f >= furthestVisualDistance) return;
+                Release(furthestVisible);
+            }
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (unusedVisuals.Count == 0 &&
                 !AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild()) return;

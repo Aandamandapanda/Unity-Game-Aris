@@ -196,14 +196,17 @@ namespace Aaris.MapReview
                 closest = pickup;
                 closestSquare = distanceSquare;
             }
-            // Show the same object the PICK action will prefer when a crate
-            // is closer than a floor weapon; do not mislead the player.
+            // A reachable crate wins the PICK tap even when a floor gun is
+            // closer. Distant crates are discovery hints, never pickup prompts.
             if (AarisDeathCrateWorld.TryGetNearbyHint(nearbyGunOwner,
-                out string crateLabel, out float crateDistance) &&
-                (closest == null || crateDistance * crateDistance < closestSquare))
+                out string crateLabel, out float crateDistance,
+                out bool cratePickupReady) &&
+                (cratePickupReady || closest == null ||
+                 crateDistance * crateDistance < closestSquare))
             {
                 nearbyGunHint.text = "DEATH CRATE  " + crateLabel +
-                    "  " + Mathf.RoundToInt(crateDistance) + "m  PICK";
+                    "  " + Mathf.RoundToInt(crateDistance) + "m" +
+                    (cratePickupReady ? "  PICK" : "");
                 nearbyGunHint.enabled = true;
                 return;
             }
