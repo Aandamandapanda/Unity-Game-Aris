@@ -307,7 +307,9 @@ def run():
     # One reusable, collider-free visual casing gives shell motion without
     # spawning Rigidbody debris on every automatic round.
     assert "private Renderer casingRenderer;" in gun_cs
-    assert "GameObject.CreatePrimitive(PrimitiveType.Cylinder)" in gun_cs
+    assert "GameObject.CreatePrimitive(PrimitiveType.Cylinder)" not in gun_cs
+    assert "SharedCasingMesh()" in gun_cs
+    assert "typeof(MeshFilter), typeof(MeshRenderer)" in gun_cs
     assert "private void ScheduleCasingEjection()" in gun_cs
     assert "private void EjectCasingNow()" in gun_cs
     assert "private const int MaximumPendingCasingEjections = 16;" in gun_cs
