@@ -197,6 +197,48 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
                         world.index("CreateVisual();"))
         self.assertIn("nextPoll = Time.time + 0.25f;", world)
 
+    def test_uncollectable_nearer_crate_does_not_block_other_pickup(self):
+        self.assertIn("internal int lastPickupProbe;", CRATE)
+        self.assertIn("private int pickupProbeSerial;", CRATE)
+        take = CRATE.split("internal static bool TryLootNearest(",1)[1].split(
+            "// Check line of sight only",1)[0]
+        self.assertIn("int probe = ++instance.pickupProbeSerial;", take)
+        self.assertIn("int attempts = instance.drops.Count;", take)
+        self.assertIn("drop.lastPickupProbe = probe;", take)
+        self.assertIn("instance.Nearest(seeker.position, PickupRadius,", take)
+        self.assertIn("true, probe);", take)
+        self.assertIn("if (drop == null) break;", take)
+        self.assertIn("if (taken)", take)
+        self.assertIn("return true;", take)
+        self.assertIn("return false;", take)
+        select = CRATE.split("private Drop Nearest(",1)[1].split(
+            "private void Update()",1)[0]
+        self.assertIn("int excludeProbe = 0", select)
+        self.assertIn("drop.lastPickupProbe == excludeProbe", select)
+        self.assertIn("if (mustReach && !Reachable(point, drop.position))", select)
+        self.assertNotIn("new List<", take)
+        self.assertNotIn("new GameObject(", take)
+
+    def test_death_crate_visuals_share_lit_cube_mesh_without_colliders(self):
+        self.assertIn("private static Mesh beamMesh, crateCubeMesh;", CRATE)
+        mesh = CRATE.split("private static Mesh CrateCubeMesh()",1)[1].split(
+            "private static void Part(",1)[0]
+        self.assertIn("if (crateCubeMesh != null) return crateCubeMesh;", mesh)
+        self.assertIn("var vertices = new Vector3[24];", mesh)
+        self.assertIn("var triangles = new int[36];", mesh)
+        self.assertIn("result.normals = normals;", mesh)
+        self.assertIn("result.uv = uv;", mesh)
+        self.assertIn("result.UploadMeshData(true);", mesh)
+        part = CRATE.split("private static void Part(",1)[1].split(
+            "private static Mesh BeamGeometry()",1)[0]
+        self.assertIn("new GameObject(label, typeof(MeshFilter), typeof(MeshRenderer))", part)
+        self.assertIn("part.GetComponent<MeshFilter>().sharedMesh = CrateCubeMesh();", part)
+        self.assertIn("renderer.sharedMaterial = material;", part)
+        self.assertIn("renderer.shadowCastingMode = ShadowCastingMode.Off;", part)
+        self.assertNotIn("GameObject.CreatePrimitive", part)
+        self.assertNotIn("GetComponent<Collider>", part)
+        self.assertNotIn("AddComponent<Collider>", part)
+
     def test_full_slot_exchange_reserves_drop_and_rolls_back_on_failure(self):
         exchange = INVENTORY.split("internal bool TryPickupDeathCrateGun(",1)[1].split(
             "internal int AddDeathCrateAmmo",1)[0]

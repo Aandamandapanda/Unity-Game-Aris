@@ -21,16 +21,20 @@ namespace Aaris.MapReview
             internal AarisWeaponState gun;
             internal int looseAmmo, medkits;
             internal GameObject visual;
+            // One PICK interaction can bypass an uncollectable closer crate
+            // without allocating temporary candidate collections.
+            internal int lastPickupProbe;
             internal bool HasContent => gun != null || medkits > 0;
         }
 
         private static AarisDeathCrateWorld instance;
         private static Material metal, trim, beamMaterial;
-        private static Mesh beamMesh;
+        private static Mesh beamMesh, crateCubeMesh;
         private readonly List<Drop> drops = new List<Drop>(100);
         private readonly Stack<GameObject> unusedVisuals = new Stack<GameObject>(MaxVisuals);
         private Transform player;
         private float nextPoll;
+        private int pickupProbeSerial;
         private int liveVisuals;
         private bool cachedPickupNear;
         private RaycastHit[] pickupHits = new RaycastHit[16];
@@ -95,54 +99,72 @@ namespace Aaris.MapReview
         {
             if (instance == null || instance.player != seeker || inventory == null ||
                 Time.timeScale <= 0f) return false;
-            Drop drop = instance.Nearest(seeker.position, PickupRadius, true);
-            if (drop == null) return false;
-
-            bool taken = false;
-            // A full two-slot inventory needs a reserved, reachable floor
-            // record for the outgoing hand gun BEFORE changing ownership.
-            // The inventory routes that case through its normal loot world.
-            if (drop.gun != null)
+            // A nearer medkit-only crate can be uncollectable when supplies
+            // are full (or medical UI is absent). Do not let it permanently
+            // block a reachable gun/medkit in the same pickup radius.
+            int probe = ++instance.pickupProbeSerial;
+            if (probe <= 0)
             {
-                AarisWeaponState transfer = new AarisWeaponState(drop.gun.Spec,
-                    drop.gun.Magazine, drop.looseAmmo, 0f, 0f, false,
-                    drop.gun.SpreadSeed);
-                if (inventory.TryPickupDeathCrateGun(transfer))
+                // Handle unlikely integer rollover without stale exclusions.
+                probe = instance.pickupProbeSerial = 1;
+                for (int i = 0; i < instance.drops.Count; i++)
+                    instance.drops[i].lastPickupProbe = 0;
+            }
+            int attempts = instance.drops.Count;
+            for (int i = 0; i < attempts; i++)
+            {
+                Drop drop = instance.Nearest(seeker.position, PickupRadius,
+                    true, probe);
+                if (drop == null) break;
+                drop.lastPickupProbe = probe;
+
+                bool taken = false;
+                // A full two-slot inventory needs a reserved, reachable floor
+                // record for the outgoing hand gun BEFORE changing ownership.
+                // The inventory routes that case through its normal loot world.
+                if (drop.gun != null)
                 {
-                    drop.gun = null;
-                    drop.looseAmmo = 0;
-                    taken = true;
+                    AarisWeaponState transfer = new AarisWeaponState(drop.gun.Spec,
+                        drop.gun.Magazine, drop.looseAmmo, 0f, 0f, false,
+                        drop.gun.SpreadSeed);
+                    if (inventory.TryPickupDeathCrateGun(transfer))
+                    {
+                        drop.gun = null;
+                        drop.looseAmmo = 0;
+                        taken = true;
+                    }
+                }
+                // If both gun slots are full, loose ammo can still be collected.
+                // Unused rounds remain in the crate until there is reserve space.
+                if (drop.gun != null && drop.looseAmmo > 0)
+                {
+                    int added = inventory.AddDeathCrateAmmo(drop.gun.Spec,
+                        drop.looseAmmo);
+                    drop.looseAmmo -= added;
+                    taken |= added > 0;
+                }
+                if (drop.medkits > 0 &&
+                    seeker.TryGetComponent(out AarisOfflineTacticalHUD medical))
+                {
+                    int added = medical.AddDeathCrateMedkits(drop.medkits);
+                    drop.medkits -= added;
+                    taken |= added > 0;
+                }
+                if (!drop.HasContent)
+                {
+                    instance.Release(drop);
+                    instance.drops.Remove(drop);
+                }
+                if (taken)
+                {
+                    // The HUD's reachability cache must not advertise consumed
+                    // loot before the next quarter-second world poll.
+                    instance.cachedPickupNear = false;
+                    instance.nextPoll = 0f;
+                    return true;
                 }
             }
-            // If both gun slots are full, loose ammo can still be collected.
-            // Unused rounds remain in the crate until there is reserve space.
-            if (drop.gun != null && drop.looseAmmo > 0)
-            {
-                int added = inventory.AddDeathCrateAmmo(drop.gun.Spec,
-                    drop.looseAmmo);
-                drop.looseAmmo -= added;
-                taken |= added > 0;
-            }
-            if (drop.medkits > 0 &&
-                seeker.TryGetComponent(out AarisOfflineTacticalHUD medical))
-            {
-                int added = medical.AddDeathCrateMedkits(drop.medkits);
-                drop.medkits -= added;
-                taken |= added > 0;
-            }
-            if (!drop.HasContent)
-            {
-                instance.Release(drop);
-                instance.drops.Remove(drop);
-            }
-            if (taken)
-            {
-                // The HUD's reachability cache must not advertise consumed loot
-                // before the next scheduled quarter-second world poll.
-                instance.cachedPickupNear = false;
-                instance.nextPoll = 0f;
-            }
-            return taken;
+            return false;
         }
 
         // Check line of sight only for crates within pickup reach. A nearby
@@ -169,14 +191,17 @@ namespace Aaris.MapReview
             return true;
         }
 
-        private Drop Nearest(Vector3 point, float radius, bool mustReach)
+        private Drop Nearest(Vector3 point, float radius, bool mustReach,
+            int excludeProbe = 0)
         {
             float best = radius * radius;
             Drop selected = null;
             for (int i = 0; i < drops.Count; i++)
             {
                 Drop drop = drops[i];
-                if (!drop.HasContent || Mathf.Abs(drop.position.y - point.y) > 3f)
+                if (!drop.HasContent || (excludeProbe != 0 &&
+                    drop.lastPickupProbe == excludeProbe) ||
+                    Mathf.Abs(drop.position.y - point.y) > 3f)
                     continue;
                 float d2 = (drop.position - point).sqrMagnitude;
                 if (d2 >= best) continue;
@@ -287,16 +312,75 @@ namespace Aaris.MapReview
             return cached;
         }
 
+        // Unity's CreatePrimitive allocates a BoxCollider per mesh, even when
+        // the collider is immediately disabled and Destroy-scheduled. Sixteen
+        // streamed crates previously built 48 throwaway native colliders.
+        // Share one lit, UV-complete cube mesh across every crate part instead.
+        private static Mesh CrateCubeMesh()
+        {
+            if (crateCubeMesh != null) return crateCubeMesh;
+            var result = new Mesh { name = "Aaris Shared Death Crate Cube" };
+            Vector3[] faceNormals =
+            {
+                Vector3.forward, Vector3.back, Vector3.right,
+                Vector3.left, Vector3.up, Vector3.down
+            };
+            Vector3[] faceRights =
+            {
+                Vector3.right, Vector3.left, Vector3.back,
+                Vector3.forward, Vector3.right, Vector3.right
+            };
+            Vector3[] faceUps =
+            {
+                Vector3.up, Vector3.up, Vector3.up,
+                Vector3.up, Vector3.back, Vector3.forward
+            };
+            var vertices = new Vector3[24];
+            var normals = new Vector3[24];
+            var uv = new Vector2[24];
+            var triangles = new int[36];
+            for (int face = 0; face < 6; face++)
+            {
+                int vi = face * 4;
+                int ti = face * 6;
+                Vector3 center = faceNormals[face] * .5f;
+                Vector3 side = faceRights[face] * .5f;
+                Vector3 up = faceUps[face] * .5f;
+                vertices[vi] = center - side - up;
+                vertices[vi + 1] = center + side - up;
+                vertices[vi + 2] = center + side + up;
+                vertices[vi + 3] = center - side + up;
+                for (int j = 0; j < 4; j++)
+                    normals[vi + j] = faceNormals[face];
+                uv[vi] = Vector2.zero;
+                uv[vi + 1] = Vector2.right;
+                uv[vi + 2] = Vector2.one;
+                uv[vi + 3] = Vector2.up;
+                triangles[ti] = vi;
+                triangles[ti + 1] = vi + 1;
+                triangles[ti + 2] = vi + 2;
+                triangles[ti + 3] = vi;
+                triangles[ti + 4] = vi + 2;
+                triangles[ti + 5] = vi + 3;
+            }
+            result.vertices = vertices;
+            result.normals = normals;
+            result.uv = uv;
+            result.triangles = triangles;
+            result.RecalculateBounds();
+            result.UploadMeshData(true);
+            crateCubeMesh = result;
+            return result;
+        }
+
         private static void Part(Transform root, string label,
             Vector3 offset, Vector3 scale, Material material)
         {
-            var part = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            part.name = label;
+            var part = new GameObject(label, typeof(MeshFilter), typeof(MeshRenderer));
             part.transform.SetParent(root, false);
             part.transform.localPosition = offset;
             part.transform.localScale = scale;
-            Collider collider = part.GetComponent<Collider>();
-            if (collider != null) { collider.enabled = false; Destroy(collider); }
+            part.GetComponent<MeshFilter>().sharedMesh = CrateCubeMesh();
             MeshRenderer renderer = part.GetComponent<MeshRenderer>();
             renderer.sharedMaterial = material;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
