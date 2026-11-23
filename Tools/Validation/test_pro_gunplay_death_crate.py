@@ -13,6 +13,7 @@ RIVAL = read("AarisOfflineBRDirector.cs")
 CRATE = read("AarisDeathCrateWorld.cs")
 FX = read("AarisRivalGunfireVfx.cs")
 INVENTORY = read("AarisWeaponInventory.cs")
+FLOOR = read("AarisWeaponLootWorld.cs")
 MEDICAL = read("AarisOfflineTacticalHUD.cs")
 HUD = read("AarisWeaponHUD.cs")
 SPEC = read("AarisWeaponCatalog.cs")
@@ -45,6 +46,38 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("casingVelocity.y = -casingVelocity.y * 0.28f;",GUN)
         self.assertNotIn("new LineRenderer()",firing)
         self.assertNotIn("GameObject.CreatePrimitive",firing)
+
+    def test_every_automatic_round_has_a_separate_reusable_streak(self):
+        self.assertIn("private const int ExtraTracerSlots = 2;", GUN)
+        self.assertIn("new TracerState[ExtraTracerSlots]", GUN)
+        self.assertIn("tracerCursor++ % (ExtraTracerSlots + 1)", GUN)
+        self.assertIn("tracerTrail[index - 1] = shot;", GUN)
+        fire = GUN.split("public bool TryFire(", 1)[1].split(
+            "private static bool IsAuthoredHeadHit", 1)[0]
+        self.assertIn("if (pellet == 0)", fire)
+        self.assertIn("TriggerTracer(muzzle, impactPoint);", fire)
+        self.assertNotIn("++tracerShotCounter % 3", fire)
+        # Three slots outlive the longest rendered 64m streak at full-auto RPM.
+        min_interval = 60.0 / max(w["rpm"] for w in CAT["weapons"])
+        longest_tracer = min(64.0 / 310.0, 0.21)
+        self.assertGreater(3 * min_interval, longest_tracer)
+        update = GUN.split("private void TickTracer()", 1)[1].split(
+            "private void Update()", 1)[0]
+        self.assertIn("for (int i = 0; i < tracerTrail.Length; i++)", update)
+        self.assertIn("shot.renderer.SetPosition(1, shot.start + segment * head)", update)
+        self.assertNotIn("new GameObject(", update)
+
+    def test_rival_scavenging_preserves_floor_rounds_for_death_crate(self):
+        self.assertIn("out AarisWeaponState acquired", FLOOR)
+        self.assertIn("acquired = pickup.State;", FLOOR)
+        self.assertNotIn("acquired = pickup.Spec;", FLOOR)
+        self.assertIn("out AarisWeaponState weapon", RIVAL)
+        self.assertIn("owner.TryLootForRival(transform, out scavenged);", RIVAL)
+        self.assertIn("carriedGun = scavenged.Spec;", RIVAL)
+        self.assertIn("carriedMagazine = Mathf.Clamp(scavenged.Magazine, 0,", RIVAL)
+        self.assertIn("carriedReserve = Mathf.Max(0, scavenged.Reserve);", RIVAL)
+        self.assertIn("carriedMagazine = found.magazineSize;", RIVAL)
+        self.assertIn("owner.DropRivalLoot(transform.position, carriedGun,", RIVAL)
 
     def test_automatic_shells_survive_until_ground_bounce(self):
         import math
