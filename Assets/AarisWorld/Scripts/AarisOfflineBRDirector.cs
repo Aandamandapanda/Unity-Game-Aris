@@ -651,11 +651,46 @@ namespace Aaris.MapReview
         internal bool CanEngage => Time.timeScale > 0f && started && playerHealth != null &&
             !playerHealth.IsDead && matchEnd != null && !matchEnd.IsFinished;
 
+        // Skip the 100-slot attack scan when no live, visible rival is within
+        // the 42m player-interest band. The existing spatial grid is kept
+        // updated by physical AND time-sliced virtual movement.
+        private bool HasPotentialPlayerAttacker()
+        {
+            if (player == null) return false;
+            BootstrapRivalSpatialIndex();
+            Vector3 pos = player.position;
+            int cx = RivalCell(pos.x), cz = RivalCell(pos.z);
+            const float rangeSqr = 42f * 42f;
+            for (int x = cx - 1; x <= cx + 1; x++)
+                for (int z = cz - 1; z <= cz + 1; z++)
+                {
+                    long key = RivalCellKey(x, z);
+                    for (int i = rivalBucketHeads[RivalBucket(x, z)]; i >= 0;
+                         i = rivalSpatialNext[i])
+                    {
+                        if (rivalSpatialKeys[i] != key) continue;
+                        AarisOfflineRival rival = rivals[i];
+                        if (rival != null && rival.IsAlive && rival.HasVisibleBody &&
+                            (rival.transform.position - pos).sqrMagnitude < rangeSqr)
+                            return true;
+                    }
+                }
+            return false;
+        }
+
         private void RefreshPlayerAttackers()
         {
             if (attackerScanCursor < 0)
             {
                 if (Time.time < nextAttackerSelection) return;
+                if (!HasPotentialPlayerAttacker())
+                {
+                    // No valid local player threat. Invalidate old slots;
+                    // remote rival-vs-rival combat is completely independent.
+                    attackerOne = attackerTwo = null;
+                    nextAttackerSelection = Time.time + .3f;
+                    return;
+                }
                 // Build the new two-attacker set incrementally. Keep the last
                 // complete selection active until this sweep finishes.
                 attackerScanCursor = 0;
