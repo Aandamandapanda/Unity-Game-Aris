@@ -4,6 +4,9 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+using Unity.Profiling;
+#endif
 using UnityEngine.Rendering;
 using UnityEngine.UI;
 
@@ -18,6 +21,16 @@ namespace Aaris.MapReview
     public sealed class AarisOfflineBRDirector : MonoBehaviour
     {
         private const int RivalCount = 100;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        // CPU attribution for the real Android Development Build. In a release
+        // player these markers and scopes are stripped by the preprocessor.
+        private static readonly ProfilerMarker k_DormantScan =
+            new ProfilerMarker("Aaris.AI.DormantScheduler");
+        private static readonly ProfilerMarker k_SpatialHunt =
+            new ProfilerMarker("Aaris.AI.SpatialOpponentLookup");
+        private static readonly ProfilerMarker k_RemoteCombat =
+            new ProfilerMarker("Aaris.AI.RemoteCombatTick");
+#endif
         private const float OceanCutoff = -37.35f;
         private static readonly float[] ZoneRadii = { 1080f, 660f, 360f, 175f, 65f };
         private static readonly float[] CloseStarts = { 45f, 165f, 285f, 400f };
@@ -65,6 +78,9 @@ namespace Aaris.MapReview
 
         public void TickDormantRivals(float now)
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            using var aiProfilerScope = k_DormantScan.Auto();
+#endif
             if (dormantRivalCount == 0 || now < nextDormantSweepAt) return;
             // All existing AI deadlines retain priority. Recompute only after
             // some rival has become due; dormant registration can lower this
@@ -819,6 +835,11 @@ namespace Aaris.MapReview
         private readonly int[] rivalSpatialPrevious = new int[RivalCount];
         private readonly int[] rivalSpatialBuckets = new int[RivalCount];
         private readonly long[] rivalSpatialKeys = new long[RivalCount];
+        // Last authoritative rival locations, updated on every movement tick,
+        // including moves that stay inside a 110m cell. Remote candidate
+        // selection reads these structs instead of crossing into native
+        // Transform.position for every spatial-index collision/neighbor.
+        private readonly Vector3[] rivalSpatialPositions = new Vector3[RivalCount];
         private readonly bool[] rivalSpatialRegistered = new bool[RivalCount];
         private bool rivalBucketsInitialized;
         private int indexedRivals;
@@ -864,6 +885,7 @@ namespace Aaris.MapReview
             Vector3 position)
         {
             if (slot < 0 || slot >= RivalCount || rivals[slot] != bot) return;
+            rivalSpatialPositions[slot] = position;
             PrepareRivalBuckets();
             int x = RivalCell(position.x), z = RivalCell(position.z);
             long key = RivalCellKey(x, z);
@@ -903,6 +925,9 @@ namespace Aaris.MapReview
         internal bool FindRivalOpponent(AarisOfflineRival self,
             out Transform victim, out AarisOfflineHealth victimHealth)
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            using var aiProfilerScope = k_SpatialHunt.Auto();
+#endif
             victim = null; victimHealth = null;
             if (self == null) return false;
             BootstrapRivalSpatialIndex();
@@ -923,7 +948,7 @@ namespace Aaris.MapReview
                         if (rivalSpatialKeys[i] != key) continue;
                         AarisOfflineRival bot = rivals[i];
                         if (bot == null || bot == self || !bot.IsAlive) continue;
-                        float d = (bot.transform.position - origin).sqrMagnitude;
+                        float d = (rivalSpatialPositions[i] - origin).sqrMagnitude;
                         // Preserve strict 110m range and old slot-order ties.
                         if (d >= RivalHuntRadius * RivalHuntRadius ||
                             d > nearest || (d == nearest && i >= nearestIndex))
@@ -2309,6 +2334,9 @@ namespace Aaris.MapReview
         // PhysX movement, projectiles, animation, IK or weapon models.
         private void TickVirtualCombat(float now, float dt)
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            using var aiProfilerScope = k_RemoteCombat.Auto();
+#endif
             if (now >= nextThink)
             {
                 nextThink = now + 0.55f + NextVirtualRandom() * 0.15f;
