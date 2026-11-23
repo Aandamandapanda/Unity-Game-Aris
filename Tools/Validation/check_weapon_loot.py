@@ -294,7 +294,12 @@ def run():
     assert fire_block.index("magazine--;") < fire_block.index("TriggerMuzzleFlash();")
     assert "CreatePrimitive" not in fire_block
     assert "TriggerTracer(muzzle, impactPoint);" in fire_block
-    assert "++tracerShotCounter % 3 == 0" in fire_block
+    # Every accepted automatic round now gets its own prebuilt streak.
+    assert "++tracerShotCounter % 3 == 0" not in fire_block
+    assert "private const int ExtraTracerSlots = 2;" in gun_cs
+    assert "tracerCursor++ % (ExtraTracerSlots + 1)" in gun_cs
+    assert "if (pellet == 0)" in fire_block
+    assert "tracerTrail[index - 1] = shot;" in gun_cs
     assert "new LineRenderer" not in fire_block
     assert "AddComponent<LineRenderer>" not in fire_block
     assert "new GameObject" not in fire_block
