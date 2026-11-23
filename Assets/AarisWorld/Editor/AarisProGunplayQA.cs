@@ -318,11 +318,13 @@ namespace Aaris.MapReview.Editor
                 Call(crate, "Update");
                 var crateHint = typeof(AarisDeathCrateWorld).GetMethod(
                     "TryGetNearbyHint", Static);
+                var hasPickupNear = typeof(AarisDeathCrateWorld).GetMethod(
+                    "HasPickupNear", Static);
                 object[] hintArgs = {actor.transform, null, 0f, false};
                 Check((bool)crateHint.Invoke(null, hintArgs) &&
                     (string)hintArgs[1] == AarisWeaponCatalog.Get("Pistol").displayName &&
                     (bool)hintArgs[3] &&
-                    AarisDeathCrateWorld.HasPickupNear(actor.transform),
+                    (bool)hasPickupNear.Invoke(null, new object[] {actor.transform}),
                     "Actionable crate hint bypasses nearer unavailable medkit");
                 var loot = typeof(AarisDeathCrateWorld).GetMethod("TryLootNearest", Static);
                 Check((bool)loot.Invoke(null, new object[] {actor.transform, inventory}) &&
@@ -337,7 +339,7 @@ namespace Aaris.MapReview.Editor
                 hintArgs = new object[] {actor.transform, null, 0f, false};
                 Check((bool)crateHint.Invoke(null, hintArgs) &&
                     !(bool)hintArgs[3] &&
-                    !AarisDeathCrateWorld.HasPickupNear(actor.transform),
+                    !(bool)hasPickupNear.Invoke(null, new object[] {actor.transform}),
                     "Uncollectable medkit-only crate never promises PICK");
                 Call(crate, "Spawn", new Vector3(1.8f, 0f, 0f), AarisWeaponCatalog.Get("Pistol"), 5, 11, 1, 884u);
                 var wall = new GameObject("Crate wall"); wall.transform.SetParent(root.transform);
