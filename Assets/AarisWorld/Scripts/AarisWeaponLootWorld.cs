@@ -848,10 +848,20 @@ namespace Aaris.MapReview
         private bool HasClearPickupPath(Transform looter, Vector3 position)
         {
             if (looter == null) return false;
-            // Range is not enough: a weapon behind a solid wall must not be
-            // collected through that wall. Ignore only the player's own
-            // colliders, not all colliders on the player layer.
-            Vector3 eye = looter.position + Vector3.up * .95f;
+            // Match the death-crate pickup gate: a fixed standing-height
+            // ray can pass OVER low cover when the player is actually
+            // crouching or crawling. Read the current collision capsule on
+            // each nearby attempt, including a newly changed stance. Bots
+            // without a CharacterController retain the original fallback.
+            // Only the requesting looter's colliders are ignored.
+            float eyeHeight = .95f;
+            if (looter.TryGetComponent(out CharacterController body))
+            {
+                float footOffset = body.center.y - body.height * .5f;
+                eyeHeight = Mathf.Clamp(footOffset +
+                    body.height * .65f, .33f, .95f);
+            }
+            Vector3 eye = looter.position + Vector3.up * eyeHeight;
             Vector3 target = position + Vector3.up * .24f;
             Vector3 toTarget = target - eye;
             float distance = toTarget.magnitude;
