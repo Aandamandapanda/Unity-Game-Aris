@@ -18,14 +18,14 @@ class WeaponFeedbackContract(unittest.TestCase):
         self.assertIn("damageable.ApplyDamage(damage, attacker);", fn)
         self.assertIn("canRegister = tracked.CurrentHealth < before;", fn)
         self.assertLess(fn.index("victim.ApplyHitDamage(damage, attacker, headshot);"),
-                        fn.index("AarisWeaponHUD.NotifyHit(attacker);"))
+                        fn.index("AarisWeaponHUD.NotifyHit(attacker, headshot);"))
         self.assertIn("!node.IsChildOf(attacker.transform)", fn)
 
     def test_confirmed_marker_matches_hp_loss(self):
         route = GUN.split("internal static bool ApplyDamage(Collider collider, float amount, GameObject attacker,", 1)[1]
         self.assertIn("canRegister = actualLoss > 0f;", route)
         self.assertLess(route.index("canRegister = actualLoss > 0f;"),
-                        route.index("AarisWeaponHUD.NotifyHit(attacker);"))
+                        route.index("AarisWeaponHUD.NotifyHit(attacker, headshot);"))
 
     def test_hit_marker_prebuilt_and_nonblocking(self):
         build = HUD.split("private void CreateHitMarker(", 1)[1].split(
@@ -37,7 +37,13 @@ class WeaponFeedbackContract(unittest.TestCase):
         for token in ("new ", "Instantiate(", "Destroy(", "FindObject", "GetComponent("):
             self.assertNotIn(token, update)
         self.assertIn("attacker != instance.inventory.gameObject", update)
-        self.assertIn("Time.unscaledTime + 0.13f", update)
+        self.assertIn("now + (critical ? 0.21f : 0.13f)", update)
+        self.assertIn("if (headshot) instance.criticalHitMarkerUntil", update)
+        self.assertIn("now < instance.criticalHitMarkerUntil", update)
+        self.assertIn("instance.hitMarkerStrokes.Length", update)
+        self.assertIn("stroke.color != tint", update)
+        self.assertIn("hitMarkerStrokes[i] = graphic;", build)
+        self.assertIn("AarisWeaponHUD.NotifyHit(attacker, headshot);", GUN)
 
     def test_pooled_tapered_muzzle_flash(self):
         build = GUN.split("private void EnsureMuzzleFlash()", 1)[1].split(
