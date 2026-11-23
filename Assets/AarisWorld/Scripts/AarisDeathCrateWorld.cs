@@ -119,42 +119,42 @@ namespace Aaris.MapReview
                 drop.lastPickupProbe = probe;
 
                 bool taken = false;
-            // A full two-slot inventory needs a reserved, reachable floor
-            // record for the outgoing hand gun BEFORE changing ownership.
-            // The inventory routes that case through its normal loot world.
-            if (drop.gun != null)
-            {
-                AarisWeaponState transfer = new AarisWeaponState(drop.gun.Spec,
-                    drop.gun.Magazine, drop.looseAmmo, 0f, 0f, false,
-                    drop.gun.SpreadSeed);
-                if (inventory.TryPickupDeathCrateGun(transfer))
+                // A full two-slot inventory needs a reserved, reachable floor
+                // record for the outgoing hand gun BEFORE changing ownership.
+                // The inventory routes that case through its normal loot world.
+                if (drop.gun != null)
                 {
-                    drop.gun = null;
-                    drop.looseAmmo = 0;
-                    taken = true;
+                    AarisWeaponState transfer = new AarisWeaponState(drop.gun.Spec,
+                        drop.gun.Magazine, drop.looseAmmo, 0f, 0f, false,
+                        drop.gun.SpreadSeed);
+                    if (inventory.TryPickupDeathCrateGun(transfer))
+                    {
+                        drop.gun = null;
+                        drop.looseAmmo = 0;
+                        taken = true;
+                    }
                 }
-            }
-            // If both gun slots are full, loose ammo can still be collected.
-            // Unused rounds remain in the crate until there is reserve space.
-            if (drop.gun != null && drop.looseAmmo > 0)
-            {
-                int added = inventory.AddDeathCrateAmmo(drop.gun.Spec,
-                    drop.looseAmmo);
-                drop.looseAmmo -= added;
-                taken |= added > 0;
-            }
-            if (drop.medkits > 0 &&
-                seeker.TryGetComponent(out AarisOfflineTacticalHUD medical))
-            {
-                int added = medical.AddDeathCrateMedkits(drop.medkits);
-                drop.medkits -= added;
-                taken |= added > 0;
-            }
-            if (!drop.HasContent)
-            {
-                instance.Release(drop);
-                instance.drops.Remove(drop);
-            }
+                // If both gun slots are full, loose ammo can still be collected.
+                // Unused rounds remain in the crate until there is reserve space.
+                if (drop.gun != null && drop.looseAmmo > 0)
+                {
+                    int added = inventory.AddDeathCrateAmmo(drop.gun.Spec,
+                        drop.looseAmmo);
+                    drop.looseAmmo -= added;
+                    taken |= added > 0;
+                }
+                if (drop.medkits > 0 &&
+                    seeker.TryGetComponent(out AarisOfflineTacticalHUD medical))
+                {
+                    int added = medical.AddDeathCrateMedkits(drop.medkits);
+                    drop.medkits -= added;
+                    taken |= added > 0;
+                }
+                if (!drop.HasContent)
+                {
+                    instance.Release(drop);
+                    instance.drops.Remove(drop);
+                }
                 if (taken)
                 {
                     // The HUD's reachability cache must not advertise consumed
