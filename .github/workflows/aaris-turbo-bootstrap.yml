@@ -216,7 +216,8 @@ jobs:
        github.event.issue.number == 77 &&
        github.event.comment.user.login == 'sundamunda289-art' &&
        (github.event.comment.body == 'TURBO START' ||
-        startsWith(github.event.comment.body, 'TURBO START ')))
+        startsWith(github.event.comment.body, 'TURBO START ') ||
+        startsWith(github.event.comment.body, 'TURBO RESTART ')))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -240,7 +241,10 @@ jobs:
           test -n "$GH_TOKEN" || { echo "TURBO_CODESPACE_PAT_MISSING"; exit 10; }
           REQUEST="$INPUT_MACHINE"
           if test -n "$ISSUE_BODY"; then
-            REQUEST="$(printf '%s' "$ISSUE_BODY" | sed -E 's/^TURBO START ?//')"
+            REQUEST="$(printf '%s' "$ISSUE_BODY" | sed -E 's/^TURBO (START|RESTART) ?//')"
+            if [[ "$ISSUE_BODY" == 'TURBO RESTART '* ]] && [[ -z "$REQUEST" || "$REQUEST" == auto ]]; then
+              echo "TURBO_RESTART_EXACT_MACHINE_REQUIRED"; exit 21
+            fi
           fi
           if test -n "$REQUEST" && test "$REQUEST" != auto; then
             [[ "$REQUEST" =~ ^[A-Za-z0-9][A-Za-z0-9-]{2,119}$ ]] || {
@@ -325,6 +329,30 @@ jobs:
           set -euo pipefail
           STATE="$(gh codespace view -c "$CODESPACE" --json state --jq .state)"
           printf 'TURBO_INITIAL_STATE=%s\n' "$STATE"
+          # Owner-only exact-name restart of the already selected Codespace.
+          # No creation, rebuild, reset, repository alteration or other-machine stop.
+          if [[ "$ISSUE_BODY" == 'TURBO RESTART '* ]]; then
+            case "$STATE" in
+              Available)
+                echo "TURBO_RESTART_STOP_REQUESTED"
+                gh codespace stop -c "$CODESPACE" || { echo "TURBO_RESTART_STOP_FAILED"; exit 22; }
+                STOPPED=0
+                for i in $(seq 1 60); do
+                  sleep 5
+                  STOP_STATE="$(gh codespace view -c "$CODESPACE" --json state --jq .state 2>/dev/null || true)"
+                  case "$STOP_STATE" in
+                    Shutdown|Stopped) STATE="$STOP_STATE"; STOPPED=1; break ;;
+                    Available|ShuttingDown) ;;
+                    *) echo "TURBO_RESTART_UNSAFE_STOP_STATE"; exit 23 ;;
+                  esac
+                done
+                test "$STOPPED" = 1 || { echo "TURBO_RESTART_STOP_NOT_CONFIRMED"; exit 24; }
+                echo "TURBO_RESTART_SHUTDOWN_CONFIRMED"
+                ;;
+              Shutdown|Stopped) echo "TURBO_RESTART_ALREADY_STOPPED" ;;
+              *) echo "TURBO_RESTART_UNSAFE_INITIAL_STATE"; exit 25 ;;
+            esac
+          fi
           # Do not confuse a machine still shutting down with a machine starting.
           if test "$STATE" = ShuttingDown; then
             for i in $(seq 1 30); do
