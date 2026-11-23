@@ -215,6 +215,32 @@ namespace Aaris.MapReview.Editor
                 Check((bool)Call(world, "HasClearPickupPath", actor.transform, pickup),
                     "Bot can reach unobstructed nearby ground weapon", report);
 
+                // The same path is used by the local player. A ray from a
+                // fixed standing eye could peek above this low wall while
+                // the actual crouched/prone capsule cannot. Prove it against
+                // real PhysX at five successive stance heights.
+                var capsule = Capsule(actor);
+                var lowWall = new GameObject("Low cover for stance pickup audit");
+                lowWall.transform.SetParent(root.transform, false);
+                lowWall.transform.position = actor.transform.position +
+                    new Vector3(0f, .26f, .9f);
+                lowWall.AddComponent<BoxCollider>().size =
+                    new Vector3(1f, .52f, .12f);
+                float[] heights = {1.8f, 1.2f, .5f, 1.8f, .5f};
+                for (int i = 0; i < heights.Length; i++)
+                {
+                    capsule.height = heights[i];
+                    capsule.center = Vector3.up * heights[i] * .5f;
+                    Physics.SyncTransforms();
+                    bool clear = (bool)Call(world, "HasClearPickupPath",
+                        actor.transform, pickup);
+                    Check(clear == (heights[i] > 1.6f),
+                        "Ground gun pickup obeys standing/crouch/prone cover " +
+                        heights[i] + " case=" + i, report);
+                }
+                Object.DestroyImmediate(lowWall);
+                Physics.SyncTransforms();
+
                 var wall = new GameObject("Physical wall between bot and gun");
                 wall.transform.SetParent(root.transform, false);
                 wall.transform.position = actor.transform.position +
