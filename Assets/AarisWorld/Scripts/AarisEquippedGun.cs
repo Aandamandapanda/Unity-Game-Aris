@@ -84,7 +84,15 @@ namespace Aaris.MapReview
         private Renderer casingRenderer;
         private Transform casingTransform;
         private Vector3 casingVelocity, casingAngularVelocity;
-        private float casingUntil, casingEjectAt = -1f;
+        private float casingUntil;
+        // Each accepted round owns its delayed ejection. A single deadline
+        // was overwritten when the next 780-RPM shot arrived before Update on
+        // a slow phone, silently deleting the preceding shell. A fixed ring
+        // needs no per-shot allocations and never changes damage timing.
+        private const int MaximumPendingCasingEjections = 16;
+        private readonly float[] casingDeadlines =
+            new float[MaximumPendingCasingEjections];
+        private int casingDeadlineHead, pendingCasingEjections;
         private float casingGroundY;
         private bool casingRested;
         private static Material sharedBrassMaterial, sharedShotgunShellMaterial;
@@ -420,12 +428,40 @@ namespace Aaris.MapReview
             if (casingRenderer == null || spec == null) return;
             float delay = spec.category == "Shotgun" ? 0.31f :
                 spec.category == "Sniper" ? 0.29f : 0.025f;
-            casingEjectAt = Time.time + delay;
+            // The ring is larger than any plausible pending burst for all
+            // authored fire rates. On pathological saturation, release the
+            // oldest shell instead of silently losing the cartridge.
+            if (pendingCasingEjections == casingDeadlines.Length)
+            {
+                casingDeadlineHead = (casingDeadlineHead + 1) %
+                    MaximumPendingCasingEjections;
+                pendingCasingEjections--;
+                EjectCasingNow();
+            }
+            int tail = (casingDeadlineHead + pendingCasingEjections) %
+                MaximumPendingCasingEjections;
+            casingDeadlines[tail] = Time.time + delay;
+            pendingCasingEjections++;
+        }
+
+        private void TickCasingEjections()
+        {
+            // A new shot may schedule its own deadline before this component's
+            // Update in the same frame. Never overwrite the older shot.
+            // The deadlines are FIFO because every shot in a weapon category
+            // uses the same mechanical delay. No array shifts or GC.
+            while (pendingCasingEjections > 0 &&
+                Time.time >= casingDeadlines[casingDeadlineHead])
+            {
+                casingDeadlineHead = (casingDeadlineHead + 1) %
+                    MaximumPendingCasingEjections;
+                pendingCasingEjections--;
+                EjectCasingNow();
+            }
         }
 
         private void EjectCasingNow()
         {
-            casingEjectAt = -1f;
             if (casingRenderer == null || casingTransform == null || spec == null)
                 return;
             // Each accepted shot claims the next prebuilt visual. At 780 RPM
@@ -499,7 +535,8 @@ namespace Aaris.MapReview
 
         private void HideAllCasings()
         {
-            casingEjectAt = -1f;
+            pendingCasingEjections = 0;
+            casingDeadlineHead = 0;
             HideCasing();
             for (int i = 0; i < shellTrail.Length; i++)
             {
@@ -732,12 +769,13 @@ namespace Aaris.MapReview
                 muzzleFlashRenderer.enabled = false;
                 if (muzzleLight != null) muzzleLight.enabled = false;
             }
-            if (casingEjectAt >= 0f && Time.time >= casingEjectAt)
-                EjectCasingNow();
+            TickCasingEjections();
             if (casingRenderer != null && casingRenderer.enabled &&
                 casingTransform != null)
             {
-                float dt = Mathf.Min(Time.deltaTime, 0.05f);
+                // Visual ballistic motion must not run at half speed on
+                // 10-15 FPS phones. Keep an upper bound for extreme hitches.
+                float dt = Mathf.Min(Time.deltaTime, 0.12f);
                 if (!casingRested)
                 {
                     casingVelocity += Physics.gravity * dt;
@@ -773,7 +811,9 @@ namespace Aaris.MapReview
                     continue;
                 }
                 if (slot.rested) continue;
-                float dt = Mathf.Min(Time.deltaTime, 0.05f);
+                // Visual ballistic motion must not run at half speed on
+                // 10-15 FPS phones. Keep an upper bound for extreme hitches.
+                float dt = Mathf.Min(Time.deltaTime, 0.12f);
                 slot.velocity += Physics.gravity * dt;
                 Vector3 next = slot.pose.position + slot.velocity * dt;
                 if (next.y <= slot.groundY && slot.velocity.y < 0f)
