@@ -53,6 +53,13 @@ class CentralDormantSchedulerTests(unittest.TestCase):
                  "Assets/AarisWorld/Editor/AarisBotFrameBenchmark.cs").read_text()
         self.assertIn("director.TickDormantRivals(Time.time);", bench)
 
+    def test_real_scene_soak_drives_queue_when_director_disabled(self):
+        qa = (Path(__file__).resolve().parents[2] /
+              "Assets/AarisWorld/Editor/AarisFullSceneCombatSoak.cs").read_text()
+        self.assertIn("director.enabled = false;", qa)
+        self.assertIn("if (stage >= 3 && director != null && !director.enabled)", qa)
+        self.assertIn("director.TickDormantRivals(Time.time);", qa)
+
 
 if __name__ == "__main__":
     unittest.main()
