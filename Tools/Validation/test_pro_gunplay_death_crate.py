@@ -203,6 +203,19 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn('(cratePickupReady ? "  PICK" : "")', HUD)
         self.assertIn("instance.cachedPickupNear = false;", CRATE)
 
+    def test_full_or_absent_medical_inventory_cannot_claim_pickable_crate(self):
+        medical = read("AarisOfflineTacticalHUD.cs")
+        self.assertIn("internal bool CanReceiveDeathCrateMedkits =>", medical)
+        self.assertIn("AcceptsTacticalInput && medkits < maxMedkits", medical)
+        self.assertIn("int excludeProbe = 0, bool actionableOnly = false", CRATE)
+        self.assertIn("medical.CanReceiveDeathCrateMedkits", CRATE)
+        self.assertIn("drop.medkits <= 0 || !canTakeMedkits", CRATE)
+        self.assertIn("Nearest(here, PickupRadius, true, 0, true)", CRATE)
+        self.assertIn("Nearest(seeker.position, PickupRadius, true, 0, true)", CRATE)
+        fixture = (ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text()
+        self.assertIn("Uncollectable medkit-only crate never promises PICK", fixture)
+        self.assertIn("Actionable crate hint bypasses nearer unavailable medkit", fixture)
+
     def test_visual_budget_keeps_closest_crates_when_saturated(self):
         world = CRATE.split("private void Update()", 1)[1].split(
             "private void Release(Drop drop)", 1)[0]
