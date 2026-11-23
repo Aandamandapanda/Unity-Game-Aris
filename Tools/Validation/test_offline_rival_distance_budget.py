@@ -180,7 +180,7 @@ class FarRivalBudget(unittest.TestCase):
             "private void TickVirtualCombat(", 1)[0]
         exit_block = update.split("if (cameraRelevant != lastCameraRelevant)", 1)[1].split(
             "lastCameraRelevant = cameraRelevant;", 1)[0]
-        self.assertIn("if (!cameraRelevant && lastCameraRelevant)", exit_block)
+        self.assertIn("if (!cameraRelevant && playerDistanceSqr >= 55f * 55f)", exit_block)
         self.assertIn("playerDistanceSqr >= 55f * 55f", exit_block)
         self.assertIn("visualRoot.SetActive(false);", exit_block)
         self.assertIn("if (hasAnimations && graph.IsValid()) graph.Stop();", exit_block)
@@ -188,9 +188,35 @@ class FarRivalBudget(unittest.TestCase):
         self.assertIn("if (virtualBody && capsule != null && capsule.enabled)", exit_block)
         self.assertIn("capsule.enabled = false;", exit_block)
         self.assertNotIn("new ", exit_block)
-        self.assertLess(update.index("if (!cameraRelevant && lastCameraRelevant)"),
+        self.assertLess(update.index("if (!cameraRelevant && playerDistanceSqr >= 55f * 55f)"),
                         update.index("if (farSimulation && now < nextFarSimulation && !justEnteredCamera) return;"))
         self.assertIn("nextCameraProbe = now + 0.12f;", update)
+
+    def test_leaving_485m_eviction_precedes_far_tick_gate(self):
+        bot = SOURCE.split("internal sealed class AarisOfflineRival", 1)[1]
+        update = bot.split("private void Update()", 1)[1].split(
+            "private void TickVirtualCombat(", 1)[0]
+        outside = update.split(
+            "// Exiting the 485m representation band must evict immediately.", 1)[1].split(
+            "// Camera visibility controls rendering/physical hit receivers", 1)[0]
+        for required in (
+            "cameraRelevant = false;",
+            "if (lastCameraRelevant) nextVisualCheck = now;",
+            "visualRoot.SetActive(false);",
+            "graph.Stop();",
+            "farVisualRoot.SetActive(false);",
+            "virtualBody = true;",
+            "capsule.enabled = false;",
+            "lastCameraRelevant = false;",
+        ):
+            self.assertIn(required, outside)
+        self.assertLess(
+            update.index("// Exiting the 485m representation band"),
+            update.index("if (farSimulation && now < nextFarSimulation && !justEnteredCamera) return;"))
+        # Only renderer/collider admission is changed. The far simulation
+        # scheduler and remote HP/damage path still use their original tick.
+        self.assertIn("if (!simulationDue) return;", update)
+        self.assertIn("TickVirtualCombat(now, dt);", update)
 
     def test_near_bot_is_full_frame_rate(self):
         for fps in (15, 30, 60, 120):

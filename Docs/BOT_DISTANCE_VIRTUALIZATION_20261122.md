@@ -26,3 +26,24 @@ Previously a freshly visible 90m+ rival bypassed its 0.35-second math-AI gate in
 The camera-entry fast path now admits only presentation and any required physical bullet receiver. Movement, AI decisions, ammunition, damage, and remote kill attribution are executed **only when the existing simulation tick is due**. Camera exits shut down far LOD meshes, offscreen 55m+ Humanoid rigs/PlayableGraphs and virtual-body hit receivers immediately on the staggered 0.12-second visibility probe, rather than retaining them until the next 0.35-second AI tick. The <55m close-threat exception and 165/185m collision hysteresis remain intact. No bot count, damage formula, remote combat frequency, scene or visual asset is changed.
 
 `Tools/Validation/test_offline_rival_distance_budget.py` includes a 100-agent 30-FPS camera-sweep model that checks AI tick parity and source-contract assertions for early native culling. Static tests cannot prove actual Android CPU/GPU frame time. The safe-sync workflow must reject any overlap with other agents' tracked or untracked files; do not reset, stash, clean, or force checkout to bypass that protection.
+
+## Immediate native eviction on distance transition — 2026-11-23
+
+Previously, turning away from a close rival while backing across 55m could
+leave a full Humanoid active until the next 550ms visual tick if the rival was
+*already* marked camera-irrelevant. Likewise, leaving 485m in a vehicle or
+after a teleport could retain an active distant mesh, stopped/not-yet-stopped
+animation, or stationary hit receiver until a later simulation/visual tick.
+
+The 120ms camera probe now evicts offscreen 55m+ full models even without a
+fresh camera state edge. Exiting 485m evicts the local model, far LOD, playable
+graph and any physical hit receiver immediately on the next 100ms dormant
+proximity probe (or first active Update); the 350ms AI tick and abstract combat
+damage remain independent and unchanged. The <55m close-threat exception,
+165/185m hysteresis on return, physical scope-hit admission, authored model
+quality, 100 logical slots, two player attacker limit and kill feed remain
+unaltered.
+
+The source-contract regression checks both paths. This is not an on-device
+GPU/thermal measurement; native Unity compile and real Android profiling are
+still required before claiming a complete fix.

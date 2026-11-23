@@ -1763,7 +1763,7 @@ namespace Aaris.MapReview
                     // Entering OR leaving the viewport changes expensive visual/receiver
                     // admission immediately rather than waiting for a second 0.55s tick.
                     if (cameraRelevant != lastCameraRelevant) nextVisualCheck = now;
-                    if (!cameraRelevant && lastCameraRelevant)
+                    if (!cameraRelevant && playerDistanceSqr >= 55f * 55f)
                     {
                         // Evict offscreen visuals and remote hit receivers on
                         // this 120ms camera probe, NOT the slower 350ms AI tick.
@@ -1784,7 +1784,24 @@ namespace Aaris.MapReview
             }
             else
             {
+                // Exiting the 485m representation band must evict immediately.
+                // Otherwise a camera-visible distant mesh and its stationary
+                // PhysX receiver survive until the next 350ms simulation or
+                // 550ms visual tick after a vehicle move or player teleport.
                 cameraRelevant = false;
+                if (lastCameraRelevant) nextVisualCheck = now;
+                if (visualRoot != null && visualRoot.activeSelf)
+                {
+                    visualRoot.SetActive(false);
+                    if (hasAnimations && graph.IsValid()) graph.Stop();
+                }
+                if (farVisualRoot != null && farVisualRoot.activeSelf)
+                    farVisualRoot.SetActive(false);
+                // Enter abstract-body mode without executing an extra AI or
+                // damage tick, and unregister a stale far bullet receiver.
+                virtualBody = true;
+                if (capsule != null && capsule.enabled)
+                    capsule.enabled = false;
                 lastCameraRelevant = false;
             }
             // Camera visibility controls rendering/physical hit receivers,
