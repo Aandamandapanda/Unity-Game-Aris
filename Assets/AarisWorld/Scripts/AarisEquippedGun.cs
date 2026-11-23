@@ -61,6 +61,8 @@ namespace Aaris.MapReview
         // automatic fire never allocates particles, lights or GameObjects.
         private Renderer muzzleFlashRenderer;
         private Transform muzzleFlashTransform;
+        // One short, shadowless local light; only active during a real shot.
+        private Light muzzleLight;
         private float muzzleFlashUntil;
         private static Material sharedMuzzleFlashMaterial;
         private static Mesh sharedMuzzleFlameMesh;
@@ -70,6 +72,8 @@ namespace Aaris.MapReview
         private Transform casingTransform;
         private Vector3 casingVelocity, casingAngularVelocity;
         private float casingUntil, casingEjectAt = -1f;
+        private float casingGroundY;
+        private bool casingRested;
         private static Material sharedBrassMaterial, sharedShotgunShellMaterial;
         // One pre-created impact emitter per equipped gun. Emit() reuses the
         // native particle buffer; automatic fire never creates impact objects.
@@ -117,6 +121,17 @@ namespace Aaris.MapReview
             EnsureImpactParticles();
             EnsureTracer();
             RefreshReload();
+        }
+
+        // Exact ammo transfer for death-crate loot; never generates cartridges.
+        internal int AddReserve(int amount)
+        {
+            if (spec == null || amount <= 0) return 0;
+            RefreshReload();
+            int cap = Mathf.Max(spec.reserveAmmo * 2, spec.magazineSize * 3);
+            int received = Mathf.Min(amount, Mathf.Max(0, cap - reserve));
+            reserve += received;
+            return received;
         }
 
         public AarisWeaponState CaptureState()
@@ -228,6 +243,18 @@ namespace Aaris.MapReview
                 UnityEngine.Rendering.ShadowCastingMode.Off;
             muzzleFlashRenderer.receiveShadows = false;
             muzzleFlashRenderer.enabled = false;
+            // Point-light shadows cost six cubemap faces in URP. Never cast any.
+            var lightObject = new GameObject("Aaris Shadowless Barrel Burst");
+            lightObject.transform.SetParent(flash.transform, false);
+            lightObject.transform.localPosition = Vector3.zero;
+            muzzleLight = lightObject.AddComponent<Light>();
+            muzzleLight.type = LightType.Point;
+            muzzleLight.color = new Color(1f, 0.60f, 0.25f);
+            muzzleLight.range = 2.3f;
+            muzzleLight.intensity = 1.5f;
+            muzzleLight.shadows = LightShadows.None;
+            muzzleLight.renderMode = LightRenderMode.ForcePixel;
+            muzzleLight.enabled = false;
         }
 
         private void TriggerMuzzleFlash()
@@ -247,6 +274,7 @@ namespace Aaris.MapReview
             muzzleFlashUntil = Time.time +
                 Mathf.Clamp(spec.ShotInterval * 0.42f, 0.022f, 0.045f);
             muzzleFlashRenderer.enabled = true;
+            if (muzzleLight != null) muzzleLight.enabled = true;
         }
 
         private static Material CasingMaterial(bool shotgun)
@@ -335,12 +363,24 @@ namespace Aaris.MapReview
             float backSpeed = UnityEngine.Random.Range(0.12f, 0.48f);
             casingVelocity = transform.right * sideSpeed +
                 transform.up * upSpeed - transform.forward * backSpeed;
+            // Ground is resolved once per ejection, never from per-frame physics.
+            // Avoid the owner's feet by starting above the ejection port.
+            if (Physics.Raycast(port + Vector3.up * 0.12f, Vector3.down,
+                out RaycastHit landing, 5.5f, Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.Ignore) && landing.normal.y > 0.45f)
+                casingGroundY = landing.point.y + 0.012f;
+            else
+                casingGroundY = cachedOwner != null
+                    ? cachedOwner.transform.position.y + 0.012f
+                    : port.y - 1.15f;
+            casingGroundY = Mathf.Min(casingGroundY, port.y - 0.07f);
+            casingRested = false;
             casingAngularVelocity = new Vector3(
                 UnityEngine.Random.Range(520f, 980f),
                 UnityEngine.Random.Range(760f, 1320f),
                 UnityEngine.Random.Range(420f, 860f));
             casingUntil = Time.time +
-                (spec.category == "Shotgun" ? 0.42f : 0.32f);
+                (spec.category == "Shotgun" ? 1.1f : 0.85f);
             casingRenderer.enabled = true;
         }
 
@@ -348,6 +388,7 @@ namespace Aaris.MapReview
         {
             casingEjectAt = -1f;
             if (casingRenderer != null) casingRenderer.enabled = false;
+            casingRested = false;
             if (casingTransform != null && casingTransform.parent != transform)
             {
                 casingTransform.SetParent(transform, false);
@@ -505,16 +546,32 @@ namespace Aaris.MapReview
             TickTracer();
             if (muzzleFlashRenderer != null && muzzleFlashRenderer.enabled &&
                 Time.time >= muzzleFlashUntil)
+            {
                 muzzleFlashRenderer.enabled = false;
+                if (muzzleLight != null) muzzleLight.enabled = false;
+            }
             if (casingEjectAt >= 0f && Time.time >= casingEjectAt)
                 EjectCasingNow();
             if (casingRenderer != null && casingRenderer.enabled &&
                 casingTransform != null)
             {
                 float dt = Mathf.Min(Time.deltaTime, 0.05f);
-                casingVelocity += Physics.gravity * dt;
-                casingTransform.position += casingVelocity * dt;
-                casingTransform.Rotate(casingAngularVelocity * dt, Space.World);
+                if (!casingRested)
+                {
+                    casingVelocity += Physics.gravity * dt;
+                    Vector3 next = casingTransform.position + casingVelocity * dt;
+                    if (next.y <= casingGroundY && casingVelocity.y < 0f)
+                    {
+                        next.y = casingGroundY;
+                        casingVelocity.y = -casingVelocity.y * 0.28f;
+                        casingVelocity.x *= 0.58f;
+                        casingVelocity.z *= 0.58f;
+                        casingAngularVelocity *= 0.45f;
+                        if (casingVelocity.y < 0.5f) casingRested = true;
+                    }
+                    casingTransform.position = next;
+                    casingTransform.Rotate(casingAngularVelocity * dt, Space.World);
+                }
                 if (Time.time >= casingUntil) HideCasing();
             }
         }
@@ -523,6 +580,7 @@ namespace Aaris.MapReview
         {
             if (muzzleFlashRenderer != null)
                 muzzleFlashRenderer.enabled = false;
+            if (muzzleLight != null) muzzleLight.enabled = false;
             if (tracerRenderer != null) tracerRenderer.enabled = false;
             HideCasing();
         }

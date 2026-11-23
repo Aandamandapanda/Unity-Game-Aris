@@ -40,6 +40,7 @@ namespace Aaris.MapReview
         private readonly Vector2[] centers = new Vector2[5];
         private readonly AarisOfflineRival[] rivals = new AarisOfflineRival[RivalCount];
         private static AarisOfflineBRDirector activeDirector;
+        private AarisDeathCrateWorld deathCrates;
         // Opt-in 1Hz phone diagnostics only. No extra work in normal play.
         internal struct RivalPerfSample
         {
@@ -387,6 +388,9 @@ namespace Aaris.MapReview
             terrains = Terrain.activeTerrains;
             CacheTerrainProbeMetadata();
             nearbyColliders = FindFirstObjectByType<AarisNearbyColliders>();
+            deathCrates = GetComponent<AarisDeathCrateWorld>();
+            if (deathCrates == null) deathCrates = gameObject.AddComponent<AarisDeathCrateWorld>();
+            deathCrates.Bind(player);
             StartCoroutine(PrewarmRivalVisuals());
         }
 
@@ -773,6 +777,13 @@ namespace Aaris.MapReview
                 "  >  " + victim.name;
             killFeedClearAt = Time.time + 5.5f;
             recentKillFeed.gameObject.SetActive(true);
+        }
+
+        internal void DropRivalLoot(Vector3 position, AarisWeaponSpec gun,
+            int magazine, int reserve, int medkits, uint seed)
+        {
+            if (deathCrates != null)
+                deathCrates.Spawn(position, gun, magazine, reserve, medkits, seed);
         }
 
         internal void RivalDefeated(AarisOfflineRival rival)
@@ -2903,7 +2914,12 @@ namespace Aaris.MapReview
             // Unregister dead opponents before destruction delay.
             if (centrallyDormant) SetCentralDormancy(false);
             if (capsule != null) capsule.enabled = false;
-            if (owner != null) owner.RivalDefeated(this);
+            if (owner != null)
+            {
+                owner.DropRivalLoot(transform.position, carriedGun,
+                    carriedMagazine, carriedReserve, medkits, remoteLootSeed);
+                owner.RivalDefeated(this);
+            }
             Destroy(gameObject, 1.2f);
         }
 

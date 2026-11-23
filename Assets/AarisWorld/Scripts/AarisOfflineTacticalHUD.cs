@@ -89,6 +89,16 @@ namespace Aaris.MapReview
             motor != null && motor.isActiveAndEnabled &&
             (medicalHealth == null || !medicalHealth.IsDead);
 
+        // Atomic transfer from a bot crate, capped by the player's authored kit capacity.
+        internal int AddDeathCrateMedkits(int amount)
+        {
+            if (!AcceptsTacticalInput || amount <= 0) return 0;
+            int received = Mathf.Min(amount, Mathf.Max(0, maxMedkits - medkits));
+            medkits += received;
+            if (received > 0) shownMedkits = -1;
+            return received;
+        }
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Boot()
         {

@@ -198,7 +198,14 @@ namespace Aaris.MapReview
             }
             if (closest == null)
             {
-                nearbyGunHint.enabled = false;
+                if (AarisDeathCrateWorld.TryGetNearbyHint(nearbyGunOwner,
+                    out string crateLabel, out float crateDistance))
+                {
+                    nearbyGunHint.text = "DEATH CRATE  " + crateLabel +
+                        "  " + Mathf.RoundToInt(crateDistance) + "m  PICK";
+                    nearbyGunHint.enabled = true;
+                }
+                else nearbyGunHint.enabled = false;
                 return;
             }
             Vector3 toGun = closest.transform.position - playerPosition;
