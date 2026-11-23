@@ -1056,6 +1056,40 @@ namespace Aaris.MapReview
         }
 
         /// <summary>
+        /// Reserve a genuine streamed floor drop before replacing the hand gun
+        /// with a death-crate gun when both weapon slots are occupied.
+        /// The outgoing gun is not destroyed if terrain, capacity or model
+        /// preload fails. One optional visual is deferred to another frame.
+        /// </summary>
+        internal bool TryExchangeDeathCrateGun(AarisWeaponState incoming)
+        {
+            if (!isActiveAndEnabled || Time.timeScale <= 0f ||
+                inventory == null || !inventory.isActiveAndEnabled ||
+                player == null || player != inventory.transform ||
+                !HasLandingAuthority || !inventory.RequiresExchangeDrop ||
+                inventory.Current == null || incoming == null ||
+                incoming.Spec == null || !incoming.Spec.Valid ||
+                !TryFindDropSpot(out Vector3 point, requireReachable: true))
+                return false;
+
+            AarisWeaponState outgoing = inventory.Current.CaptureState();
+            AarisDroppedWeapon reserved = CreateDropped(outgoing, point, 1.25f,
+                deferVisual: true);
+            if (reserved == null) return false;
+            if (!inventory.TryPickup(incoming, out AarisWeaponState displaced))
+            {
+                UndoDrop(reserved);
+                return false;
+            }
+            // The saved record contains the complete outgoing magazine,
+            // reserve and reload state. Incoming crate ammo is consumed only
+            // after this method reports a successful replacement.
+            requestPickupUntil = 0f;
+            nextRefresh = 0f;
+            return true;
+        }
+
+        /// <summary>
         /// Preserve the equipped gun on validated ground before removing it.
         /// If no safe floor is found, keep the gun in hand; never delete it.
         /// </summary>
