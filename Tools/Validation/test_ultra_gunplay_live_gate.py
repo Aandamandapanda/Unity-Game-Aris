@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-SH = (ROOT / "Tools/Codespaces/ultra_gunplay_playmode_sandbox.sh").read_text()
+SH = (ROOT / "Tools/CI/ultra_gunplay_playmode_sandbox.sh").read_text()
 YML = (ROOT / ".github/workflows/aaris-ultra-gunplay-live-playmode.yml").read_text()
 
 
@@ -47,7 +47,7 @@ class GunplayLiveGateContracts(unittest.TestCase):
         for key in ("gunplay", "bot_physics", "full_scene"):
             self.assertIn(f"AARIS_ULTRA_QA_STAGE_{key}=PASS", YML)
         self.assertIn("github.event_name == 'pull_request'", YML)
-        self.assertIn("bash -n Tools/Codespaces/ultra_gunplay_playmode_sandbox.sh", YML)
+        self.assertIn("bash -n Tools/CI/ultra_gunplay_playmode_sandbox.sh", YML)
 
 
 if __name__ == "__main__":
