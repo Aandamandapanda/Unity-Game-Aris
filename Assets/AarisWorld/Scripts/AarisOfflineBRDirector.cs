@@ -28,8 +28,6 @@ namespace Aaris.MapReview
             new ProfilerMarker("Aaris.AI.DormantScheduler");
         private static readonly ProfilerMarker k_SpatialHunt =
             new ProfilerMarker("Aaris.AI.SpatialOpponentLookup");
-        private static readonly ProfilerMarker k_RemoteCombat =
-            new ProfilerMarker("Aaris.AI.RemoteCombatTick");
 #endif
         private const float OceanCutoff = -37.35f;
         private static readonly float[] ZoneRadii = { 1080f, 660f, 360f, 175f, 65f };
@@ -1400,6 +1398,10 @@ namespace Aaris.MapReview
     [DisallowMultipleComponent]
     internal sealed class AarisOfflineRival : MonoBehaviour
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private static readonly ProfilerMarker k_RemoteCombat =
+            new ProfilerMarker("Aaris.AI.RemoteCombatTick");
+#endif
         private AarisOfflineBRDirector owner;
         private AarisOfflineHealth health, targetHealth;
         private Transform target;
