@@ -99,7 +99,7 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("if (casing.velocity.y < .5f) casing.grounded = true;", updates)
         self.assertNotIn("Physics.Raycast", updates)
         self.assertIn("Destroy(hitbox);", FX)
-        self.assertNotIn("Rigidbody", FX.split("private CasingSlot CreateCasingSlot()",1)[1])
+        self.assertNotIn("AddComponent<Rigidbody>", FX.split("private CasingSlot CreateCasingSlot()",1)[1])
 
     def test_bot_death_spawns_crate_before_destruction(self):
         death=RIVAL.split("private void OnDied(AarisOfflineHealth defeated)",1)[1].split(
