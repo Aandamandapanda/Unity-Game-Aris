@@ -16,7 +16,7 @@ class CentralDormantSchedulerTests(unittest.TestCase):
         self.assertIn("owner.RegisterDormantRival(spatialSlot, this, dormant)", BOT)
 
     def test_deadlines_not_modified_by_central_queue(self):
-        self.assertIn("TickDormantRivals(Time.time);", DIRECTOR)
+        self.assertRegex(DIRECTOR, r"TickDormantRivals\((?:Time\.time|now)\);")
         self.assertIn("now >= bot.NextDormantWakeTime", DIRECTOR)
         self.assertIn("if (centrallyDormant) Update();", BOT)
         self.assertIn("Mathf.Min(nextFarSimulation, nextDormantProximityProbe)", BOT)
