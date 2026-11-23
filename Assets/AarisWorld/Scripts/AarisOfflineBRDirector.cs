@@ -923,7 +923,7 @@ namespace Aaris.MapReview
             return bot == attackerOne || bot == attackerTwo;
         }
 
-        internal bool TryLootForRival(Transform rival, out AarisWeaponSpec weapon)
+        internal bool TryLootForRival(Transform rival, out AarisWeaponState weapon)
         {
             weapon = null;
             if (rivalLootWorld == null && Time.time >= nextLootWorldLookup)
@@ -2185,15 +2185,29 @@ namespace Aaris.MapReview
             {
                 nextLootAt = now + 3.5f;
                 AarisWeaponSpec found = null;
+                AarisWeaponState scavenged = null;
                 if (playerDistanceSqr < 76f * 76f)
-                    owner.TryLootForRival(transform, out found);
+                    owner.TryLootForRival(transform, out scavenged);
                 else if (!remoteLoadoutGiven && AarisWeaponCatalog.Ready)
                 {
                     remoteLoadoutGiven = true;
                     found = AarisWeaponCatalog.Select(ref remoteLootSeed, false);
                 }
-                if (found != null)
+                if (scavenged != null && scavenged.Spec != null)
                 {
+                    // Nearby bots inherit the actual physical pickup's rounds.
+                    // OnDied will therefore return only genuinely unspent ammo
+                    // to the player's death crate, never a free full reload.
+                    carriedGun = scavenged.Spec;
+                    carriedMagazine = Mathf.Clamp(scavenged.Magazine, 0,
+                        carriedGun.magazineSize);
+                    carriedReserve = Mathf.Max(0, scavenged.Reserve);
+                }
+                else if (found != null)
+                {
+                    // Distant virtual encounter gets its one seeded loadout;
+                    // unlike an existing physical floor pickup, it has no
+                    // previously authored magazine state to preserve.
                     carriedGun = found;
                     carriedMagazine = found.magazineSize;
                     carriedReserve = found.reserveAmmo;
