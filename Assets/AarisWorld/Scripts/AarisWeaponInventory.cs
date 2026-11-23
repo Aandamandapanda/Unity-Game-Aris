@@ -69,9 +69,10 @@ namespace Aaris.MapReview
         public bool HasAnyGun => equipped != null && equipped.Configured;
         public bool FistMode => fistMode;
         public bool RequiresExchangeDrop => equipped != null && stowed != null;
-        public bool PickupAvailable =>
-            (lootWorld != null && lootWorld.HasPickupInRange) ||
-            AarisDeathCrateWorld.HasPickupNear(transform);
+        // Do not leave a seemingly live PICK while the input owner is paused.
+        public bool PickupAvailable => AcceptsPlayerWeaponInput &&
+            ((lootWorld != null && lootWorld.HasPickupInRange) ||
+             AarisDeathCrateWorld.HasPickupNear(transform));
 
         private static bool HasAuthoredTexture(Material material)
         {
@@ -432,9 +433,26 @@ namespace Aaris.MapReview
                 lootWorld.RequestPickup();
         }
 
+        // No physical query or FBX load during the 0.25s crate hint scan.
+        // Two occupied slots need an active floor world to preserve the
+        // outgoing weapon before accepting another.
+        internal bool CanPickupDeathCrateGun =>
+            AcceptsPlayerWeaponInput &&
+            (!RequiresExchangeDrop ||
+             (lootWorld != null && lootWorld.isActiveAndEnabled));
+
+        internal bool CanReceiveDeathCrateAmmo(AarisWeaponSpec spec)
+        {
+            if (!AcceptsPlayerWeaponInput || spec == null) return false;
+            return (equipped != null && equipped.Spec != null &&
+                    equipped.Spec.id == spec.id && equipped.HasReserveSpace) ||
+                   (stowed != null && stowed.Spec != null &&
+                    stowed.Spec.id == spec.id && stowed.HasReserveSpace);
+        }
+
         internal bool TryPickupDeathCrateGun(AarisWeaponState incoming)
         {
-            if (!AcceptsPlayerWeaponInput || incoming == null) return false;
+            if (!CanPickupDeathCrateGun || incoming == null) return false;
             if (RequiresExchangeDrop)
                 return lootWorld != null && lootWorld.TryExchangeDeathCrateGun(incoming);
             return TryPickup(incoming, out AarisWeaponState displaced) &&
