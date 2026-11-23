@@ -74,6 +74,8 @@ jobs:
         run: python3 Tools/Validation/check_weapon_loot.py
       - name: Stress one-gun pickup, drop and exchange invariants
         run: python3 Tools/Validation/check_single_weapon_transactions.py
+      - name: Verify bot death-crate and gunfire integration
+        run: python3 Tools/Validation/test_pro_gunplay_death_crate.py
       - name: Verify armed locomotion and masked upper-body handling
         run: python3 Tools/Validation/check_armed_locomotion.py
       - name: Verify off-screen gun visual pacing and camera-free beacon budget
