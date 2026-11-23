@@ -96,6 +96,16 @@ namespace Aaris.MapReview
         // Renderer-only brass must never consume UnityEngine.Random state:
         // visual speed/spin variation is independent of gameplay and audio.
         private uint casingVisualSeed = 0xA15C0DEu;
+        // Visuals must not advance the global Unity or gameplay spread RNG.
+        private uint muzzleVisualSeed = 0xF1A5C1u;
+        private float NextMuzzleVisualRange(float minimum, float maximum)
+        {
+            muzzleVisualSeed = unchecked(
+                muzzleVisualSeed * 1664525u + 1013904223u);
+            float unit = (muzzleVisualSeed & 0x00FFFFFFu) *
+                (1f / 16777216f);
+            return minimum + (maximum - minimum) * unit;
+        }
         private float NextCasingVisualRange(float minimum, float maximum)
         {
             casingVisualSeed = unchecked(
@@ -156,6 +166,7 @@ namespace Aaris.MapReview
             reserve = Mathf.Max(0, state.Reserve);
             spreadSeed = state.SpreadSeed;
             casingVisualSeed = state.SpreadSeed ^ 0xA15C0DEu;
+            muzzleVisualSeed = state.SpreadSeed ^ 0xF1A5C1u;
             nextFire = state.NextShotAt;
             reloadUntil = state.ReloadUntil;
             reloading = state.Reloading;
@@ -357,13 +368,13 @@ namespace Aaris.MapReview
                 spec.category == "Shotgun" ? 0.19f :
                 spec.category == "Sniper" ? 0.15f :
                 spec.category == "SMG" ? 0.09f : 0.115f;
-            // Slight size/roll variance avoids a frozen decal look. This uses
-            // Unity's scalar RNG only; no temporary meshes or particles.
-            float stretch = UnityEngine.Random.Range(0.80f, 1.22f);
+            // Per-gun visual variance without global combat RNG mutation
+            // or per-shot native allocations.
+            float stretch = NextMuzzleVisualRange(0.80f, 1.22f);
             muzzleFlashTransform.localScale =
                 new Vector3(size * stretch, size * stretch, size * stretch);
             muzzleFlashTransform.localRotation =
-                Quaternion.Euler(0f, 0f, UnityEngine.Random.Range(0f, 360f));
+                Quaternion.Euler(0f, 0f, NextMuzzleVisualRange(0f, 360f));
             muzzleFlashUntil = Time.time +
                 Mathf.Clamp(spec.ShotInterval * 0.42f, 0.022f, 0.045f);
             muzzleFlashRenderer.enabled = true;
@@ -778,9 +789,11 @@ namespace Aaris.MapReview
             Vector3 flight = impact - muzzle;
             float length = flight.magnitude;
             if (length < 0.12f) return;
-            float distance = Mathf.Min(length, 64f);
-            Vector3 end = muzzle + flight * (distance / length);
-            float duration = Mathf.Clamp(distance / 310f, 0.025f, 0.21f);
+            // Full physical path, not the former 64m sniper/DMR cut-off.
+            // Only a tiny moving 2.1m segment is drawn by pooled renderers.
+            float distance = length;
+            Vector3 end = impact;
+            float duration = Mathf.Clamp(distance / 1250f, 0.025f, 0.21f);
             int index = tracerCursor++ % (ExtraTracerSlots + 1);
             if (index == 0)
             {

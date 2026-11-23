@@ -79,15 +79,38 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("if (pellet == 0)", fire)
         self.assertIn("TriggerTracer(muzzle, impactPoint);", fire)
         self.assertNotIn("++tracerShotCounter % 3", fire)
-        # Three slots outlive the longest rendered 64m streak at full-auto RPM.
+        # Three slots outlive even the capped sniper-range streak lifetime.
         min_interval = 60.0 / max(w["rpm"] for w in CAT["weapons"])
-        longest_tracer = min(64.0 / 310.0, 0.21)
+        longest_tracer = 0.21
         self.assertGreater(3 * min_interval, longest_tracer)
         update = GUN.split("private void TickTracer()", 1)[1].split(
             "private void Update()", 1)[0]
         self.assertIn("for (int i = 0; i < tracerTrail.Length; i++)", update)
         self.assertIn("shot.renderer.SetPosition(1, shot.start + segment * head)", update)
         self.assertNotIn("new GameObject(", update)
+
+    def test_full_range_streaks_and_cosmetic_rng_isolation(self):
+        flash = GUN.split("private void TriggerMuzzleFlash()", 1)[1].split(
+            "private static Material CasingMaterial", 1)[0]
+        tracer = GUN.split("private void TriggerTracer(", 1)[1].split(
+            "private void TickTracer()", 1)[0]
+        bot = FX.split("private void EmitWithBarrel(", 1)[1].split(
+            "internal void EmitForGun(", 1)[0]
+        self.assertIn("float distance = length;", tracer)
+        self.assertIn("Vector3 end = impact;", tracer)
+        self.assertIn("Mathf.Clamp(distance / 1250f, 0.025f, 0.21f)", tracer)
+        self.assertNotIn("Mathf.Min(length, 64f)", tracer)
+        self.assertIn("slot.end = target;", bot)
+        self.assertIn("Mathf.Clamp(length / 1250f, .025f, .18f)", bot)
+        self.assertNotIn("Mathf.Min(length, 50f)", bot)
+        self.assertIn("muzzleVisualSeed = state.SpreadSeed ^ 0xF1A5C1u;", GUN)
+        self.assertIn("NextMuzzleVisualRange(0.80f, 1.22f)", flash)
+        self.assertIn("NextMuzzleVisualRange(0f, 360f)", flash)
+        self.assertNotIn("UnityEngine.Random", flash)
+        self.assertIn("Muzzle flame variation never changes global combat RNG",
+                      (ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text("utf-8"))
+        self.assertIn("Long-range hit tracer reaches real impact with bounded lifetime",
+                      (ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text("utf-8"))
 
     def test_rival_scavenging_preserves_floor_rounds_for_death_crate(self):
         self.assertIn("out AarisWeaponState acquired", FLOOR)

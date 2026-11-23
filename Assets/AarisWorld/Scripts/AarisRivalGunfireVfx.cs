@@ -199,11 +199,11 @@ namespace Aaris.MapReview
             if (slot == null) slots[index] = slot = CreateSlot();
             float now = Time.time;
             slot.origin = from;
-            slot.end = from + (target - from) *
-                (Mathf.Min(length, 50f) / length);
+            // Complete the streak at the intended hit, not a 50m cutoff.
+            slot.end = target;
             slot.shotAt = now;
             slot.tracerUntil = now +
-                Mathf.Clamp(Mathf.Min(length, 50f) / 350f, .025f, .14f);
+                Mathf.Clamp(length / 1250f, .025f, .18f);
             slot.flashUntil = now + .045f;
             slot.tracer.SetPosition(0, from);
             slot.tracer.SetPosition(1, Vector3.MoveTowards(from, slot.end, 1.65f));
