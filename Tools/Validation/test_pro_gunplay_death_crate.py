@@ -94,6 +94,26 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("Vertical loot marker",CRATE)
         self.assertIn("ground.point.y",CRATE)
 
+    def test_crate_hint_matches_actual_pickup_priority_and_range(self):
+        self.assertIn("out string weapon, out float distance, out bool canPick", CRATE)
+        self.assertIn("instance.Nearest(seeker.position, PickupRadius, true)", CRATE)
+        self.assertIn("canPick = inReach != null;", CRATE)
+        self.assertIn("Drop drop = inReach ?? instance.Nearest", CRATE)
+        self.assertIn("cratePickupReady || closest == null", HUD)
+        self.assertIn('(cratePickupReady ? "  PICK" : "")', HUD)
+        self.assertIn("instance.cachedPickupNear = false;", CRATE)
+
+    def test_visual_budget_keeps_closest_crates_when_saturated(self):
+        world = CRATE.split("private void Update()", 1)[1].split(
+            "private void Release(Drop drop)", 1)[0]
+        self.assertIn("Drop furthestVisible = null;", world)
+        self.assertIn("if (liveVisuals >= MaxVisuals)", world)
+        self.assertIn("Release(furthestVisible);", world)
+        self.assertIn("bestDistance + 0.25f >= furthestVisualDistance", world)
+        self.assertLess(world.index("Release(furthestVisible);"),
+                        world.index("CreateVisual();"))
+        self.assertIn("nextPoll = Time.time + 0.25f;", world)
+
     def test_atomic_pickup_cannot_destroy_full_inventory_weapon(self):
         take=CRATE.split("internal static bool TryLootNearest(",1)[1].split(
             "// Check line of sight only",1)[0]
