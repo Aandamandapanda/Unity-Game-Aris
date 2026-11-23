@@ -21,6 +21,7 @@ namespace Aaris.MapReview
             internal AarisWeaponState gun;
             internal int looseAmmo, medkits;
             internal GameObject visual;
+            internal bool pendingGroundSnap;
             // Depleted bots leave an honest, briefly visible empty marker.
             internal float markerUntil;
             // One PICK interaction can bypass an uncollectable closer crate
@@ -68,11 +69,29 @@ namespace Aaris.MapReview
             // Do not mint resources when a bot spent everything. An empty
             // death marker is visible but never actionable or permanent.
             bool emptyMarker = state == null && medkits <= 0;
-            // OnDied disables the victim's capsule, but another nearby living
-            // rival may still cover the downward ray. Inspect complete hits
-            // and choose the highest stationary support below the dead feet.
-            // This preserves elevated bridges/floors without floating crates
-            // on a living bot or a vehicle. Queries run only on actual deaths.
+            // No distant loot renderer exists: delay physics until within
+            // the 95m interaction/visual band, preserving bridge-floor snapping.
+            bool deferGroundSnap = player != null &&
+                (position - player.position).sqrMagnitude >
+                    (VisualRadius + 20f) * (VisualRadius + 20f);
+            if (!deferGroundSnap)
+                position = SnapToStationaryGround(position);
+            drops.Add(new Drop
+            {
+                position = position,
+                pendingGroundSnap = deferGroundSnap,
+                gun = state,
+                looseAmmo = state != null ? Mathf.Max(0, reserve) : 0,
+                medkits = Mathf.Max(0, medkits),
+                markerUntil = emptyMarker ? Time.time + 18f : 0f
+            });
+            // Do not allocate meshes, lights or native materials on the death hit.
+            nextPoll = 0f;
+        }
+
+        private Vector3 SnapToStationaryGround(Vector3 position)
+        {
+            // Ignore moving actors and use highest stationary support.
             Vector3 probe = position + Vector3.up * 1.85f;
             int groundCount = AarisPhysicsHitBuffer.Raycast(
                 new Ray(probe, Vector3.down), 5.5f,
@@ -94,16 +113,7 @@ namespace Aaris.MapReview
             }
             if (bestSupportY > float.NegativeInfinity)
                 position.y = bestSupportY;
-            drops.Add(new Drop
-            {
-                position = position,
-                gun = state,
-                looseAmmo = state != null ? Mathf.Max(0, reserve) : 0,
-                medkits = Mathf.Max(0, medkits),
-                markerUntil = emptyMarker ? Time.time + 18f : 0f
-            });
-            // Do not allocate meshes, lights or native materials on the death hit.
-            nextPoll = 0f;
+            return position;
         }
 
         internal static bool HasPickupNear(Transform seeker)
@@ -269,7 +279,8 @@ namespace Aaris.MapReview
             for (int i = 0; i < drops.Count; i++)
             {
                 Drop drop = drops[i];
-                if (!drop.HasContent || (excludeProbe != 0 &&
+                if (drop.pendingGroundSnap ||
+                    !drop.HasContent || (excludeProbe != 0 &&
                     drop.lastPickupProbe == excludeProbe) ||
                     Mathf.Abs(drop.position.y - point.y) > 3f)
                     continue;
@@ -297,7 +308,8 @@ namespace Aaris.MapReview
                 Time.time < nextPoll) return;
             nextPoll = Time.time + 0.25f;
             Vector3 here = player.position;
-            cachedPickupNear = Nearest(here, PickupRadius, true, 0, true) != null;
+            // At most two formerly-distant floor probes per 250ms scan.
+            int groundSnapBudget = 2;
             int bestIndex = -1;
             float bestDistance = VisualRadius * VisualRadius;
             float furthestVisualDistance = -1f;
@@ -313,6 +325,18 @@ namespace Aaris.MapReview
                     continue;
                 }
                 float distance = (drop.position - here).sqrMagnitude;
+                if (drop.pendingGroundSnap &&
+                    distance < (VisualRadius + 20f) * (VisualRadius + 20f) &&
+                    groundSnapBudget > 0)
+                {
+                    drop.position = SnapToStationaryGround(drop.position);
+                    drop.pendingGroundSnap = false;
+                    groundSnapBudget--;
+                    distance = (drop.position - here).sqrMagnitude;
+                }
+                // Until floor admission finishes, never draw or let the
+                // player take a crate at stale vertical coordinates.
+                if (drop.pendingGroundSnap) continue;
                 if (drop.visual != null)
                 {
                     if (distance > VisualRadius * VisualRadius || !showMarker)
@@ -333,6 +357,8 @@ namespace Aaris.MapReview
                     bestDistance = distance;
                 }
             }
+            // PICK cache must observe newly snapped floors on the same poll.
+            cachedPickupNear = Nearest(here, PickupRadius, true, 0, true) != null;
             if (bestIndex < 0) return;
             // When all 16 visuals are in use, recycle the farthest one for
             // a nearer unseen crate. A single swap per 0.25s poll keeps the
