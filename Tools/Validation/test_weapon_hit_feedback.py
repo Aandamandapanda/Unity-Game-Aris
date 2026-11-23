@@ -45,6 +45,14 @@ class WeaponFeedbackContract(unittest.TestCase):
         self.assertIn("hitMarkerStrokes[i] = graphic;", build)
         self.assertIn("AarisWeaponHUD.NotifyHit(attacker, headshot);", GUN)
 
+    def test_native_real_damage_headshot_to_marker_transition_coverage(self):
+        qa = (ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text()
+        self.assertIn("Real headshot HP loss produces distinct critical HUD marker", qa)
+        self.assertIn("Following shotgun body pellet cannot erase critical cue", qa)
+        self.assertIn("Expired critical marker restores nonblocking body tint", qa)
+        self.assertIn('Set(feedback, "criticalHitMarkerUntil"', qa)
+        self.assertIn("strokes[i].raycastTarget = false;", qa)
+
     def test_pooled_tapered_muzzle_flash(self):
         build = GUN.split("private void EnsureMuzzleFlash()", 1)[1].split(
             "private void TriggerMuzzleFlash()", 1)[0]

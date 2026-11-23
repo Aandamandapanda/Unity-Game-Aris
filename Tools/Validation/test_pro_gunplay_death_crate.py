@@ -203,6 +203,25 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn('(cratePickupReady ? "  PICK" : "")', HUD)
         self.assertIn("instance.cachedPickupNear = false;", CRATE)
 
+    def test_crate_reach_ray_obeys_live_stance_capsule(self):
+        self.assertIn("private CharacterController playerCapsule;", CRATE)
+        self.assertIn("playerCapsule = target != null", CRATE)
+        self.assertIn("if (playerCapsule == null && player != null)", CRATE)
+        self.assertIn("player.TryGetComponent(out playerCapsule);", CRATE)
+        self.assertIn("playerCapsule.center.y -", CRATE)
+        self.assertIn("playerCapsule.height * .65f", CRATE)
+        self.assertIn("Vector3 origin = from + Vector3.up * rayLift;", CRATE)
+        # Midpoint of a real 0.58m wall: standing ray clears, while
+        # crouch and prone rays hit. A return to standing must clear again.
+        heights = [1.8, 1.2, .5, 1.8, .5]
+        for height in heights:
+            origin_height = max(.33, min(1.02, height * .65))
+            half_path_height = (origin_height + .32) * .5
+            self.assertEqual(half_path_height > .58, height > 1.6)
+        qa = (ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text()
+        self.assertIn("Low cover obeys standing/crouch/prone LOS height=", qa)
+        self.assertIn("lowCoverCollider.enabled = false;", qa)
+
     def test_full_or_absent_medical_inventory_cannot_claim_pickable_crate(self):
         medical = read("AarisOfflineTacticalHUD.cs")
         self.assertIn("internal bool CanReceiveDeathCrateMedkits =>", medical)

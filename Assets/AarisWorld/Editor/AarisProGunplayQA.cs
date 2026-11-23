@@ -7,6 +7,7 @@ using System.Text;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
 namespace Aaris.MapReview.Editor
@@ -313,6 +314,32 @@ namespace Aaris.MapReview.Editor
                     Check((bool)Call(crate, "Reachable", actor.transform.position, new Vector3(1.8f, 0f, 0f)),
                         "Crate ignores owned colliders at stance height=" + height);
                 }
+                // A low solid wall permits standing reach over its top but
+                // must stop a crouched or crawling pickup LOS. This also
+                // tests the real CharacterController height changing back
+                // and forth without caching an obsolete eye height.
+                var lowCover = new GameObject("Low prone-blocking crate wall");
+                lowCover.transform.SetParent(root.transform);
+                lowCover.transform.position = new Vector3(.9f, .29f, 0f);
+                var lowCoverCollider = lowCover.AddComponent<BoxCollider>();
+                lowCoverCollider.size = new Vector3(.12f, .58f, 1.2f);
+                float[] stanceHeights = {1.8f, 1.2f, .5f, 1.8f, .5f};
+                for (int stanceCase = 0; stanceCase < stanceHeights.Length; stanceCase++)
+                {
+                    float height = stanceHeights[stanceCase];
+                    capsule.height = height;
+                    capsule.center = Vector3.up * height * .5f;
+                    Physics.SyncTransforms();
+                    bool reachable = (bool)Call(crate, "Reachable",
+                        actor.transform.position, new Vector3(1.8f, 0f, 0f));
+                    Check(reachable == (height > 1.6f),
+                        "Low cover obeys standing/crouch/prone LOS height=" +
+                        height + " case=" + stanceCase);
+                }
+                lowCoverCollider.enabled = false;
+                Object.Destroy(lowCover);
+                Physics.SyncTransforms();
+
                 // The nearer uncollectable medkit must not monopolize PICK
                 // while the farther gun is actually reachable.
                 Call(crate, "Update");
@@ -348,6 +375,45 @@ namespace Aaris.MapReview.Editor
                 Physics.SyncTransforms();
                 Check(!(bool)loot.Invoke(null, new object[] {actor.transform, inventory}), "Crate cannot be looted through solid wall");
                 Object.Destroy(wall);
+                // Validate true HP-confirmed headshot -> HUD tint, followed
+                // by body pellets which must preserve the critical marker,
+                // then expire back to a normal gold body hit.
+                var hitUiRoot = new GameObject("Temporary hit marker test");
+                hitUiRoot.transform.SetParent(root.transform);
+                var feedback = hitUiRoot.AddComponent<AarisWeaponHUD>();
+                Set(feedback, "inventory", inventory);
+                var markerRoot = new GameObject("Hit marker", typeof(RectTransform));
+                markerRoot.transform.SetParent(hitUiRoot.transform, false);
+                Set(feedback, "hitMarker", markerRoot.GetComponent<RectTransform>());
+                var strokes = (Image[])Read(feedback, "hitMarkerStrokes");
+                for (int i = 0; i < strokes.Length; i++)
+                {
+                    var child = new GameObject("Prebuilt stroke",
+                        typeof(RectTransform), typeof(Image));
+                    child.transform.SetParent(markerRoot.transform, false);
+                    strokes[i] = child.GetComponent<Image>();
+                    strokes[i].raycastTarget = false;
+                }
+                markerRoot.SetActive(false);
+                typeof(AarisWeaponHUD).GetField("instance", Static).SetValue(null,
+                    feedback);
+                float beforeCritical = targetHp.CurrentHealth;
+                damage.Invoke(null, new object[] {hitbox, 9f, actor,
+                    (Vector3?)(target.transform.position + Vector3.up * 1.75f), 2f});
+                Check(targetHp.CurrentHealth < beforeCritical - 15f &&
+                    markerRoot.activeSelf && strokes[0].color.g < .45f,
+                    "Real headshot HP loss produces distinct critical HUD marker");
+                damage.Invoke(null, new object[] {hitbox, 4f, actor,
+                    (Vector3?)(target.transform.position + Vector3.up * .8f), 2f});
+                Check(strokes[0].color.g < .45f,
+                    "Following shotgun body pellet cannot erase critical cue");
+                Set(feedback, "criticalHitMarkerUntil", Time.unscaledTime - 1f);
+                damage.Invoke(null, new object[] {hitbox, 4f, actor,
+                    (Vector3?)(target.transform.position + Vector3.up * .8f), 2f});
+                Check(strokes[0].color.g > .8f &&
+                    !strokes[0].raycastTarget,
+                    "Expired critical marker restores nonblocking body tint");
+
                 // Exercise the production health event -> rival OnDied ->
                 // director -> crate chain, including duplicate fatal hits.
                 var director = root.AddComponent<AarisOfflineBRDirector>();
