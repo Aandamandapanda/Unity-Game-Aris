@@ -98,10 +98,11 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
             "internal void EmitForGun(", 1)[0]
         self.assertIn("float distance = length;", tracer)
         self.assertIn("Vector3 end = impact;", tracer)
-        self.assertIn("Mathf.Clamp(distance / 1250f, 0.025f, 0.21f)", tracer)
+        self.assertIn("Mathf.Clamp(Mathf.Max(distance / 1250f,", tracer)
+        self.assertIn("frameFloor), 0.055f, 0.21f)", tracer)
         self.assertNotIn("Mathf.Min(length, 64f)", tracer)
         self.assertIn("slot.end = target;", bot)
-        self.assertIn("Mathf.Clamp(length / 1250f, .025f, .18f)", bot)
+        self.assertIn("Mathf.Clamp(Mathf.Max(length / 1250f, frameFloor), .055f, .21f)", bot)
         self.assertNotIn("Mathf.Min(length, 50f)", bot)
         self.assertIn("muzzleVisualSeed = state.SpreadSeed ^ 0xF1A5C1u;", GUN)
         self.assertIn("NextMuzzleVisualRange(0.80f, 1.22f)", flash)
@@ -123,6 +124,36 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("carriedReserve = Mathf.Max(0, scavenged.Reserve);", RIVAL)
         self.assertIn("carriedMagazine = found.magazineSize;", RIVAL)
         self.assertIn("owner.DropRivalLoot(transform.position, carriedGun,", RIVAL)
+
+    def test_weapon_class_tracer_and_shadowless_light_profiles(self):
+        # Tuned at equip; all three player streak renderers share the profile.
+        profile = GUN.split("private void ApplyTracerWeaponProfile()", 1)[1].split(
+            "private void TriggerTracer(", 1)[0]
+        self.assertIn("ApplyTracerWeaponProfile();", GUN)
+        self.assertIn("tracerRenderer.widthMultiplier = width;", profile)
+        self.assertIn("tracerTrail[i].renderer.widthMultiplier = width;", profile)
+        self.assertIn("muzzleLight.intensity = intensity;", profile)
+        self.assertIn("muzzleLight.range =", profile)
+        for category in ("Pistol", "SMG", "Sniper", "Shotgun", "DMR", "BattleRifle"):
+            self.assertIn('"' + category + '"', profile)
+        self.assertNotIn("new GameObject(", profile)
+        # The shared bot slot resets calibre after reuse by another gun.
+        bot = FX.split("internal void EmitForGun(", 1)[1].split(
+            "private void Update()", 1)[0]
+        self.assertIn("flash.tracer.widthMultiplier =", bot)
+        self.assertIn('gun.id == "BattleRifle"', bot)
+        self.assertNotIn("new GameObject(", bot)
+
+    def test_streamed_crate_beam_pulses_without_frame_allocations(self):
+        scan = CRATE.split("private void Update()", 1)[1].split(
+            "private void Release(", 1)[0]
+        self.assertIn("drop.beamPose.localScale", scan)
+        self.assertIn("Mathf.Sin(Time.time * 2.8f)", scan)
+        self.assertIn('view.transform.Find("Vertical loot marker")', scan)
+        self.assertIn("chosen.HasContent", scan)
+        self.assertIn("drop.beamPose = null;", CRATE)
+        self.assertNotIn("new Material(", scan)
+        self.assertNotIn("new GameObject(", scan)
 
     def test_shell_ejection_deadlines_are_lossless_under_slow_frames(self):
         firing = GUN.split("public bool TryFire(",1)[1].split(
@@ -277,11 +308,13 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("hit.point.y > position.y + 0.35f", spawn)
         self.assertIn("hit.point.y <= bestSupportY", spawn)
         self.assertIn("position.y = bestSupportY;", spawn)
-        self.assertLess(spawn.index("if (state == null && medkits <= 0) return;"),
+        self.assertIn("bool emptyMarker = state == null && medkits <= 0;", spawn)
+        self.assertLess(spawn.index("bool emptyMarker ="),
                         spawn.index("AarisPhysicsHitBuffer.Raycast("))
         fixture = (ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text()
         self.assertIn("Crate ignores living rival cap and anchors on real floor", fixture)
-        self.assertIn("Empty death crate skips physics and creates no record", fixture)
+        self.assertIn("Depleted rival leaves a temporary empty death marker", fixture)
+        self.assertIn("Expired empty marker is cleaned without phantom loot", fixture)
 
     def test_crate_hint_matches_actual_pickup_priority_and_range(self):
         self.assertIn("out string weapon, out float distance, out bool canPick", CRATE)
@@ -441,7 +474,9 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
     def test_spent_medkits_do_not_respawn_in_death_crates(self):
         spawn = CRATE.split("internal void Spawn(",1)[1].split(
             "internal static bool HasPickupNear",1)[0]
-        self.assertIn("if (state == null && medkits <= 0) return;",spawn)
+        self.assertIn("bool emptyMarker = state == null && medkits <= 0;",spawn)
+        self.assertIn("markerUntil = emptyMarker ? Time.time + 18f : 0f",spawn)
+        self.assertIn("if (!drop.HasContent", CRATE)
         self.assertIn("medkits = Mathf.Max(0, medkits)",spawn)
         self.assertNotIn("Mathf.Max(1, medkits)",spawn)
 

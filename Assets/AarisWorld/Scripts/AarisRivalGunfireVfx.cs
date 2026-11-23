@@ -290,6 +290,14 @@ namespace Aaris.MapReview
                 gun.id == "BattleRifle" ? 1.14f : 1f;
             // Scale the shared tapered flame without creating a material or
             // extra Light. Distinct low-profile pistol and bright sniper shots.
+            // Bot rounds use the same fine-calibre streak profile as the player.
+            // Slots are reused, so reset width on every accepted different gun.
+            flash.tracer.widthMultiplier = gun.category == "Pistol" ? .007f :
+                gun.category == "SMG" ? .008f :
+                gun.category == "Sniper" ? .011f :
+                gun.category == "Shotgun" ? .010f :
+                gun.category == "DMR" ? .0095f :
+                gun.id == "BattleRifle" ? .0105f : .009f;
             flash.flashPose.localScale *= scale;
             flash.burst.intensity = 1.2f * scale;
             if (gun.category == "Pistol") casing.pose.localScale *= .76f;

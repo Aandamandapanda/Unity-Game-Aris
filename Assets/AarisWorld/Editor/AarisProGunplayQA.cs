@@ -356,9 +356,15 @@ namespace Aaris.MapReview.Editor
                 Check((firstVelocity - secondVelocity).sqrMagnitude > .001f,
                     "Nearby bot cartridge ejections have distinct ballistic velocities");
                 var slots = (Array)Read(bots, "slots"); var firstSlot = slots.GetValue(0);
-                Check((float)Read(firstSlot, "tracerUntil") -
-                    (float)Read(firstSlot, "shotAt") >= .055f,
-                    "Bot thin tracer survives low-FPS presentation");
+                // Lifetime is stored as absolute float Time.time. Subtracting
+                // two rounded timestamps can lose sub-millisecond precision;
+                // accept 54ms for the nominal 55ms minimum and still reject
+                // genuinely one-frame or invisible streaks.
+                float botTracerLifetime = (float)Read(firstSlot, "tracerUntil") -
+                    (float)Read(firstSlot, "shotAt");
+                Check(botTracerLifetime >= .054f,
+                    "Bot thin tracer survives low-FPS presentation (" +
+                    botTracerLifetime.ToString("F5") + "s)");
                 var botFlash = (Renderer)firstSlot.GetType().GetField("flash", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(firstSlot);
                 Check(botFlash.sharedMaterial == flash.sharedMaterial, "Bots share transparent flame material with player");
 
