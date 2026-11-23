@@ -987,7 +987,7 @@ namespace Aaris.MapReview
             for (int i = 0; i < activeDirector.rivals.Length; i++)
             {
                 AarisOfflineRival bot = activeDirector.rivals[i];
-                if (bot == null || !bot.IsAlive || !bot.HasVisibleBody) continue;
+                if (bot == null || !bot.IsAlive) continue;
                 Vector3 delta = bot.transform.position + Vector3.up * 1.12f - origin;
                 float sqrDistance = delta.sqrMagnitude;
                 if (sqrDistance < .0625f || sqrDistance > maximumRangeSqr) continue;
@@ -997,6 +997,8 @@ namespace Aaris.MapReview
                 if (projected <= 0f ||
                     projected * projected <= threshold * threshold * sqrDistance)
                     continue;
+                // Check native renderers only after range and cone rejection.
+                if (!bot.HasVisibleBody) continue;
                 float distance = Mathf.Sqrt(sqrDistance);
                 float alignment = projected / distance;
                 if (alignment <= threshold) continue;
@@ -1084,7 +1086,7 @@ namespace Aaris.MapReview
             {
                 AarisOfflineRival bot = activeDirector.rivals[i];
                 if (bot == null || bot == first || bot == second || bot == third ||
-                    !bot.IsAlive || !bot.HasVisibleBody) continue;
+                    !bot.IsAlive) continue;
                 Vector3 delta = bot.transform.position + Vector3.up * 1.12f - origin;
                 float sqr = delta.sqrMagnitude;
                 if (sqr < .0625f || sqr > maxRangeSqr) continue;
@@ -1092,6 +1094,7 @@ namespace Aaris.MapReview
                 float cutoff = used < AimBudget ? minimumDot : aimDots[AimBudget - 1];
                 if (projected <= 0f || projected * projected <= cutoff * cutoff * sqr)
                     continue;
+                if (!bot.HasVisibleBody) continue;
                 float distance = Mathf.Sqrt(sqr);
                 float score = projected / distance;
                 if (score <= cutoff) continue;
