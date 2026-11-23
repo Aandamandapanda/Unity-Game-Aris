@@ -19,6 +19,8 @@ namespace Aaris.MapReview
         // Two prebuilt strokes allow a distinct critical-hit marker with no
         // per-hit GameObjects, materials, or sprite allocations.
         private readonly Image[] hitMarkerStrokes = new Image[2];
+        private static readonly Color NormalHitTint = new Color(1f, .86f, .45f, .95f);
+        private static readonly Color CriticalHitTint = new Color(1f, .31f, .13f, 1f);
         private AarisWeaponInventory inventory;
         private Text nearbyGunHint;
         private RectTransform hitMarker;
@@ -159,8 +161,7 @@ namespace Aaris.MapReview
             // pellet arrives in the same shotgun shot.
             if (headshot) instance.criticalHitMarkerUntil = now + 0.21f;
             bool critical = now < instance.criticalHitMarkerUntil;
-            Color tint = critical ? new Color(1f, .31f, .13f, 1f) :
-                new Color(1f, .86f, .45f, .95f);
+            Color tint = critical ? CriticalHitTint : NormalHitTint;
             for (int i = 0; i < instance.hitMarkerStrokes.Length; i++)
             {
                 Image stroke = instance.hitMarkerStrokes[i];
