@@ -156,6 +156,8 @@ class SpatialRivalIndexContract(unittest.TestCase):
         self.assertIn("using var aiProfilerScope = k_DormantScan.Auto();", DIRECTOR)
         self.assertIn("using var aiProfilerScope = k_SpatialHunt.Auto();", DIRECTOR)
         self.assertIn("using var aiProfilerScope = k_RemoteCombat.Auto();", RIVAL)
+        self.assertIn("private static readonly ProfilerMarker k_RemoteCombat =", RIVAL)
+        self.assertNotIn("private static readonly ProfilerMarker k_RemoteCombat =", DIRECTOR)
         for field in ("k_DormantScan", "k_SpatialHunt", "k_RemoteCombat"):
             statement = f"using var aiProfilerScope = {field}.Auto();"
             offset = SRC.index(statement)
