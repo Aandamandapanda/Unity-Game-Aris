@@ -369,7 +369,9 @@ namespace Aaris.MapReview
                 category == "Sniper" ? "sniper_shot" :
                 category == "Shotgun" ? "shotgun_shot" :
                 id == "BattleRifle" ? "battle_rifle_shot" : "ar_shot";
-            instance.OneShot(sound, position, 0.85f, UnityEngine.Random.Range(0.97f, 1.035f));
+            float pitch = category == "Pistol" ? 1.24f : 1f;
+            instance.OneShot(sound, position, category == "Pistol" ? 0.68f : 0.85f,
+                pitch * UnityEngine.Random.Range(0.97f, 1.035f));
             instance.Schedule("shell_drop", position, 0.14f, 0.16f);
             if (category == "Sniper" || category == "Shotgun")
                 instance.Schedule("bolt_reload", position, 0.36f, 0.44f);

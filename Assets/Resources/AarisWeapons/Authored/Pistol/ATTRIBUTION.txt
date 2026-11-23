@@ -1,0 +1,4 @@
+Compact Pistol: original geometry and material values authored for Unity-Game-Aris, 2026-11-23.
+No third-party model, image, sound or texture is copied by this asset.
+Rebuild with Aaris/Weapons/Bake original compact pistol in Unity 6000.3.26f1.
+Dimensions: approximately 0.235 m long; 0.86 kg gameplay handling mass.

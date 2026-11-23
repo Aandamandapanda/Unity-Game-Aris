@@ -600,15 +600,15 @@ namespace Aaris.MapReview.Editor
             // Includes every authored optical category: no scope, normal,
             // 2x and 4x. Real gun model must equip, actual reticle turn red,
             // ammo decrease, and enemy HP decrease via a physical bullet.
-            string[] guns = { "Shotgun", "SMG", "AssaultRifle", "Sniper" };
+            string[] guns = { "Shotgun", "SMG", "AssaultRifle", "Sniper", "Pistol" };
             string[] expected = {
-                "NO SCOPE ADS", "NORMAL ADS", "2X ADS", "4X ADS"
+                "NO SCOPE ADS", "NORMAL ADS", "2X ADS", "4X ADS", "NORMAL ADS"
             };
             int verified = 0;
             for (int i = 0; i < guns.Length; i++)
             {
                 var spec = AarisWeaponCatalog.Get(guns[i]);
-                if (spec == null || spec.scopePower != (i == 0 ? 0 : i == 1 ? 1 : i == 2 ? 2 : 4))
+                if (spec == null || spec.scopePower != (i == 0 ? 0 : i == 2 ? 2 : i == 3 ? 4 : 1))
                     throw new InvalidOperationException("AUTHORED_SCOPE_MISSING_" + guns[i]);
                 AarisWeaponState dropped;
                 if (!inventory.TryPickup(new AarisWeaponState(spec, (uint)(100 + i)), out dropped) ||
@@ -754,7 +754,8 @@ namespace Aaris.MapReview.Editor
             if (directionLabel.gameObject.activeSelf)
                 throw new InvalidOperationException("SELF_DAMAGE_STALE_ENEMY_DIRECTION");
             Note("PASS self damage clears the old enemy hit direction");
-            Note("SCOPE_TIERS_VERIFIED=" + verified + "/4");
+            Note("SCOPE_TIERS_VERIFIED=4/4");
+            Note("WEAPON_SCOPE_SHOTS_VERIFIED=" + verified + "/" + guns.Length);
         }
 
         private static void ForceHudAimRefresh(AarisCombatFeedbackHUD hud)

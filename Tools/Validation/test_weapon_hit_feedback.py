@@ -11,17 +11,18 @@ LOOT = (S / "AarisWeaponPickup.cs").read_text()
 
 class WeaponFeedbackContract(unittest.TestCase):
     def test_only_damage_receiver_issues_hit_feedback(self):
-        fn = GUN.split("internal static void ApplyDamage(", 1)[1]
+        fn = GUN.split("internal static bool ApplyDamage(", 1)[1]
         self.assertIn("if (!(damageScratch[i] is IAarisDamageable damageable)) continue;", fn)
         self.assertIn("!health.IsDead", fn)
         self.assertIn("victim.ApplyHitDamage(damage, attacker, headshot);", fn)
-        self.assertIn("else damageable.ApplyDamage(damage, attacker);", fn)
+        self.assertIn("damageable.ApplyDamage(damage, attacker);", fn)
+        self.assertIn("canRegister = tracked.CurrentHealth < before;", fn)
         self.assertLess(fn.index("victim.ApplyHitDamage(damage, attacker, headshot);"),
                         fn.index("AarisWeaponHUD.NotifyHit(attacker);"))
         self.assertIn("!node.IsChildOf(attacker.transform)", fn)
 
     def test_confirmed_marker_matches_hp_loss(self):
-        route = GUN.split("internal static void ApplyDamage(Collider collider, float amount, GameObject attacker,", 1)[1]
+        route = GUN.split("internal static bool ApplyDamage(Collider collider, float amount, GameObject attacker,", 1)[1]
         self.assertIn("canRegister = actualLoss > 0f;", route)
         self.assertLess(route.index("canRegister = actualLoss > 0f;"),
                         route.index("AarisWeaponHUD.NotifyHit(attacker);"))

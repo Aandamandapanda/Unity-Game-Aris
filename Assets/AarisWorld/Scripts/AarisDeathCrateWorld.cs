@@ -33,6 +33,7 @@ namespace Aaris.MapReview
         private float nextPoll;
         private int liveVisuals;
         private bool cachedPickupNear;
+        private RaycastHit[] pickupHits = new RaycastHit[16];
 
         private void Awake() { instance = this; }
         internal void Bind(Transform target) { player = target; nextPoll = 0f; }
@@ -146,11 +147,26 @@ namespace Aaris.MapReview
 
         // Check line of sight only for crates within pickup reach. A nearby
         // box across a solid building wall must not be looted through it.
-        private static bool Reachable(Vector3 from, Vector3 to)
+        private bool Reachable(Vector3 from, Vector3 to)
         {
-            return !Physics.Linecast(from + Vector3.up * 1.02f,
-                to + Vector3.up * 0.32f, Physics.DefaultRaycastLayers,
-                QueryTriggerInteraction.Ignore);
+            Vector3 origin = from + Vector3.up * 1.02f;
+            Vector3 delta = to + Vector3.up * .32f - origin;
+            float distance = delta.magnitude;
+            if (distance < .001f) return true;
+            int count = AarisPhysicsHitBuffer.Raycast(new Ray(origin, delta / distance),
+                distance, Physics.DefaultRaycastLayers, ref pickupHits, 256,
+                out RaycastHit[] hits);
+            // At prone/stance transitions the pickup ray may begin above the
+            // capsule and cross it. Own bodies and held-gun attachments must
+            // not be mistaken for a wall between the player and the crate.
+            for (int i = 0; i < count; i++)
+            {
+                Collider hit = hits[i].collider;
+                if (hit == null || (player != null &&
+                    hit.transform.IsChildOf(player))) continue;
+                return false;
+            }
+            return true;
         }
 
         private Drop Nearest(Vector3 point, float radius, bool mustReach)

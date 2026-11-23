@@ -66,6 +66,7 @@ namespace Aaris.MapReview
         private float muzzleFlashUntil;
         private static Material sharedMuzzleFlashMaterial;
         private static Mesh sharedMuzzleFlameMesh;
+        private static RaycastHit[] casingGroundHits = new RaycastHit[16];
         // Ten renderer-only shell slots survive automatic fire long enough
         // to hit the ground. No Rigidbody or Collider instances are simulated.
         // The original primary slot is retained for save/test compatibility.
@@ -191,6 +192,32 @@ namespace Aaris.MapReview
         // Shared tapered flame can be reused by close-range rival slots.
         internal static Mesh SharedMuzzleFlameMesh() => MuzzleFlameMesh();
 
+        internal static Material SharedGunfireGlowMaterial() => MuzzleFlashMaterial();
+
+        // A casing must land on the floor, never on its shooter's capsule or
+        // weapon attachments. Retained NonAlloc storage is shared by nearby
+        // bot and player shells; this runs once per ejection, not per frame.
+        internal static bool TryFindCasingGround(Vector3 port, Transform shooter,
+            out RaycastHit landing)
+        {
+            landing = default(RaycastHit);
+            int count = AarisPhysicsHitBuffer.Raycast(
+                new Ray(port + Vector3.up * .12f, Vector3.down), 5.5f,
+                Physics.DefaultRaycastLayers, ref casingGroundHits, 256,
+                out RaycastHit[] hits);
+            float nearest = float.PositiveInfinity;
+            for (int i = 0; i < count; i++)
+            {
+                RaycastHit hit = hits[i];
+                if (hit.collider == null || hit.normal.y <= .45f ||
+                    (shooter != null && hit.collider.transform.IsChildOf(shooter)) ||
+                    hit.distance >= nearest) continue;
+                nearest = hit.distance;
+                landing = hit;
+            }
+            return landing.collider != null;
+        }
+
         // Shared ten-vertex geometry replaces an opaque-looking yellow quad.
         // Built once; no mesh, texture, particle or object allocation per shot.
         private static Mesh MuzzleFlameMesh()
@@ -276,7 +303,8 @@ namespace Aaris.MapReview
         {
             if (muzzleFlashRenderer == null || muzzleFlashTransform == null ||
                 spec == null) return;
-            float size = spec.category == "Shotgun" ? 0.19f :
+            float size = spec.category == "Pistol" ? 0.065f :
+                spec.category == "Shotgun" ? 0.19f :
                 spec.category == "Sniper" ? 0.15f :
                 spec.category == "SMG" ? 0.09f : 0.115f;
             // Slight size/roll variance avoids a frozen decal look. This uses
@@ -416,9 +444,9 @@ namespace Aaris.MapReview
                 UnityEngine.Random.Range(420f, 860f));
             float groundY;
             // One physics query per ejected shell; never a per-frame raycast.
-            if (Physics.Raycast(port + Vector3.up * 0.12f, Vector3.down,
-                out RaycastHit landing, 5.5f, Physics.DefaultRaycastLayers,
-                QueryTriggerInteraction.Ignore) && landing.normal.y > 0.45f)
+            if (TryFindCasingGround(port,
+                cachedOwner != null ? cachedOwner.transform : transform,
+                out RaycastHit landing))
                 groundY = landing.point.y + 0.012f;
             else
                 groundY = cachedOwner != null
@@ -587,6 +615,11 @@ namespace Aaris.MapReview
         private void TriggerTracer(Vector3 muzzle, Vector3 impact)
         {
             if (tracerRenderer == null) return;
+            // Presentation follows the actual animated barrel in every stance.
+            // The hitscan cover test remains authoritative for HP and endpoint.
+            if (muzzleFlashTransform != null && cachedOwner != null &&
+                transform.IsChildOf(cachedOwner.transform))
+                muzzle = muzzleFlashTransform.position;
             Vector3 flight = impact - muzzle;
             float length = flight.magnitude;
             if (length < 0.12f) return;
@@ -598,15 +631,19 @@ namespace Aaris.MapReview
             tracerStartedAt = Time.time;
             tracerDuration = Mathf.Clamp(tracerDistance / 310f, 0.025f, 0.21f);
             tracerRenderer.SetPosition(0, tracerStart);
-            tracerRenderer.SetPosition(1, tracerStart);
+            // Show a real segment on the accepting frame. A zero-length line
+            // can otherwise expire between frames at close range on a phone.
+            tracerRenderer.SetPosition(1, Vector3.MoveTowards(
+                tracerStart, tracerEnd, Mathf.Min(2.1f, tracerDistance)));
             tracerRenderer.enabled = true;
         }
 
         private void TickTracer()
         {
             if (tracerRenderer == null || !tracerRenderer.enabled) return;
-            float head = (Time.time - tracerStartedAt) / tracerDuration;
-            if (head >= 1f)
+            float elapsed = Time.time - tracerStartedAt;
+            float head = (elapsed + Mathf.Clamp(Time.deltaTime, .001f, .016f)) / tracerDuration;
+            if (elapsed >= tracerDuration)
             {
                 tracerRenderer.enabled = false;
                 return;
