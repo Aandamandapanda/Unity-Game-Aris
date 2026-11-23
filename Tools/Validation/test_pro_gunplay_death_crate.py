@@ -448,7 +448,8 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("gun.presentationLengthMetres * .60f, .27f, .78f", FX)
         self.assertIn("gun.presentationLengthMetres * .25f, .075f, .34f", FX)
         self.assertIn("shooter.forward * barrelReach;", FX)
-        self.assertIn("shooter.forward * portReach + shooter.right * .18f;", FX)
+        self.assertIn("shooter.forward * reach + shooter.right * .18f;", FX)
+        self.assertIn("casing.pose.position = EjectionPort(shooter, portReach);", FX)
         self.assertIn("EmitWithBarrel(shooter, target, gun.category == \"Shotgun\"", FX)
         lengths = {w["id"]: w["presentationLengthMetres"]
                    for w in CAT["weapons"]}
@@ -467,6 +468,50 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
             "private void Update()", 1)[0]
         self.assertNotIn("new GameObject(", shot)
         self.assertNotIn("AddComponent", shot)
+
+
+
+    def test_delayed_bot_brass_uses_live_receiver_and_one_ejection_ground_probe(self):
+        # Sniper/shotgun receiver may travel between the muzzle report and
+        # the pump/bolt's mechanical ejection deadline.
+        self.assertIn("private void BeginCasingFlight(CasingSlot casing)", FX)
+        self.assertIn("Transform shooter = casing.shooter;", FX)
+        self.assertIn("port = EjectionPort(shooter, casing.portReach);", FX)
+        self.assertIn("casing.pose.position = port;", FX)
+        self.assertIn("casing.velocity = shooter.right * casing.sideSpeed", FX)
+        self.assertIn("casing.shooter = shooter;", FX)
+        self.assertIn("casing.portReach = portReach;", FX)
+        self.assertIn("delay > 0f);", FX)
+        shot = FX.split("private void EmitWithBarrel(", 1)[1].split(
+            "// Weapon-specific bot presentation", 1)[0]
+        self.assertIn("if (!delayedCasing) BeginCasingFlight(casing);", shot)
+        update = FX.split("private void Update()", 1)[1]
+        self.assertIn("casing.queued && now >= casing.ejectAt", update)
+        self.assertIn("BeginCasingFlight(casing);", update)
+        self.assertLess(update.index("casing.queued = false;"),
+                        update.index("BeginCasingFlight(casing);"))
+        self.assertLess(update.index("BeginCasingFlight(casing);"),
+                        update.index("casing.renderer.enabled = true;"))
+        # The call is in a one-time shell launch method, not the flight loop.
+        self.assertEqual(FX.count("AarisEquippedGun.TryFindCasingGround("), 1)
+        self.assertNotIn("Physics.Raycast(", update)
+
+    def test_bot_shell_variation_does_not_mutate_combat_random_stream(self):
+        self.assertIn("private uint casingVariation = 0x9E3779B9u;", FX)
+        self.assertIn("private float NextCasingVariation()", FX)
+        self.assertIn("unchecked(casingVariation * 1664525u + 1013904223u)", FX)
+        shot = FX.split("private void EmitWithBarrel(", 1)[1].split(
+            "// Weapon-specific bot presentation", 1)[0]
+        self.assertIn("casing.sideSpeed = 2.05f + NextCasingVariation()", shot)
+        self.assertIn("casing.upSpeed = 1.35f + NextCasingVariation()", shot)
+        self.assertIn("casing.backSpeed = .12f + NextCasingVariation()", shot)
+        self.assertIn("casing.spin = new Vector3(", shot)
+        self.assertNotIn("UnityEngine.Random.Range", shot)
+        self.assertNotIn("new GameObject(", shot)
+        self.assertIn("Nearby bot cartridge ejections have distinct ballistic velocities",
+                      (ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text())
+        self.assertIn("Delayed bolt brass originates at moving shooter with actual floor",
+                      (ROOT / "Assets/AarisWorld/Editor/AarisProGunplayQA.cs").read_text())
 
 
 if __name__ == "__main__":
