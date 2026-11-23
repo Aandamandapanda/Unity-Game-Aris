@@ -200,7 +200,9 @@ namespace Aaris.MapReview
         private void Update()
         {
             float now = Time.time;
-            float dt = Mathf.Min(Time.deltaTime, .05f);
+            // Match player casings: 10-15 FPS Android frames still advance
+            // the metal shell through real elapsed time, with a hitch cap.
+            float dt = Mathf.Min(Time.deltaTime, .12f);
             for (int i = 0; i < slots.Length; i++)
             {
                 Slot slot = slots[i];

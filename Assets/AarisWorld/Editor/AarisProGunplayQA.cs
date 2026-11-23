@@ -201,6 +201,38 @@ namespace Aaris.MapReview.Editor
                 Check(visibleAuto == 3,
                     "Three rapid automatic bullets retain three independent thin tracers");
 
+                // Recreate a slow-frame ordering hazard: several accepted
+                // rounds arrive before the casing component's next Update.
+                // None may overwrite an earlier scheduled metal casing.
+                automatic.transform.localPosition = Vector3.up * 1.28f;
+                for (int i = 0; i < 3; i++)
+                    Call(automatic, "ScheduleCasingEjection");
+                Check((int)Read(automatic, "pendingCasingEjections") == 3,
+                    "Three pending automatic shells retain their own deadlines");
+                float[] ejectionDeadlines = (float[])Read(automatic, "casingDeadlines");
+                for (int i = 0; i < 3; i++)
+                    ejectionDeadlines[i] = Time.time - .001f;
+                Call(automatic, "TickCasingEjections");
+                var metalSlots = (Array)Read(automatic, "shellTrail");
+                int liveCasings = ((Renderer)Read(automatic, "casingRenderer")).enabled
+                    ? 1 : 0;
+                for (int i = 0; i < metalSlots.Length; i++)
+                {
+                    object shell = metalSlots.GetValue(i);
+                    var shellRenderer = (Renderer)shell.GetType()
+                        .GetField("renderer", BindingFlags.Instance |
+                            BindingFlags.NonPublic).GetValue(shell);
+                    if (shellRenderer != null && shellRenderer.enabled)
+                        liveCasings++;
+                }
+                Check((int)Read(automatic, "pendingCasingEjections") == 0 &&
+                    (int)Read(automatic, "shellCursor") == 3 && liveCasings == 3,
+                    "All three queued shells eject into independent physical visuals");
+                Call(automatic, "ScheduleCasingEjection");
+                automatic.enabled = false;
+                Check((int)Read(automatic, "pendingCasingEjections") == 0,
+                    "Gun disable cancels delayed shell ejection without orphaned shots");
+
                 var bots = root.AddComponent<AarisRivalGunfireVfx>(); Call(bots, "Bind", actor.transform);
                 for (int i = 0; i < 6; i++) Call(bots, "Emit", actor.transform, new Vector3(0f, 1.2f, 4f), false);
                 int activeLights = 0;

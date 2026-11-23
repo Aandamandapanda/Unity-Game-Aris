@@ -79,6 +79,32 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
         self.assertIn("carriedMagazine = found.magazineSize;", RIVAL)
         self.assertIn("owner.DropRivalLoot(transform.position, carriedGun,", RIVAL)
 
+    def test_shell_ejection_deadlines_are_lossless_under_slow_frames(self):
+        firing = GUN.split("public bool TryFire(",1)[1].split(
+            "private static bool IsAuthoredHeadHit",1)[0]
+        self.assertIn("ScheduleCasingEjection();", firing)
+        self.assertIn("private const int MaximumPendingCasingEjections = 16;", GUN)
+        self.assertIn("new float[MaximumPendingCasingEjections]", GUN)
+        self.assertIn("pendingCasingEjections++;", GUN)
+        self.assertIn("casingDeadlines[tail] = Time.time + delay;", GUN)
+        self.assertIn("private void TickCasingEjections()", GUN)
+        self.assertIn("Time.time >= casingDeadlines[casingDeadlineHead]", GUN)
+        self.assertIn("EjectCasingNow();", GUN)
+        self.assertIn("TickCasingEjections();", GUN.split("private void Update()",1)[1])
+        self.assertIn("pendingCasingEjections = 0;", GUN)
+        self.assertNotIn("casingEjectAt", GUN)
+        self.assertIn("float dt = Mathf.Min(Time.deltaTime, 0.12f);", GUN)
+        self.assertIn("float dt = Mathf.Min(Time.deltaTime, .12f);", FX)
+        self.assertNotIn("float dt = Mathf.Min(Time.deltaTime, .05f);", FX)
+        # At a 10Hz frame time the old 50ms cap halved falling speed.
+        for fps in (10, 12, 15, 30, 60, 90):
+            delta = 1.0 / fps
+            self.assertAlmostEqual(min(delta, .12), delta)
+        delayed = GUN.split("private void ScheduleCasingEjection()",1)[1].split(
+            "private void EjectCasingNow()",1)[0]
+        self.assertNotIn("new GameObject(", delayed)
+        self.assertNotIn("GameObject.CreatePrimitive", delayed)
+
     def test_automatic_shells_survive_until_ground_bounce(self):
         import math
         self.assertIn("private const int ExtraShellSlots = 9;", GUN)
