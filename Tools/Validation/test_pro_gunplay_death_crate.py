@@ -196,7 +196,7 @@ class ProGunplayAndDeathCrate(unittest.TestCase):
 
     def test_crate_hint_matches_actual_pickup_priority_and_range(self):
         self.assertIn("out string weapon, out float distance, out bool canPick", CRATE)
-        self.assertIn("instance.Nearest(seeker.position, PickupRadius, true)", CRATE)
+        self.assertIn("instance.Nearest(seeker.position, PickupRadius, true, 0, true)", CRATE)
         self.assertIn("canPick = inReach != null;", CRATE)
         self.assertIn("Drop drop = inReach ?? instance.Nearest", CRATE)
         self.assertIn("cratePickupReady || closest == null", HUD)
