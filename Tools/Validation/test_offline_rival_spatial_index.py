@@ -106,7 +106,9 @@ class SpatialRivalIndexContract(unittest.TestCase):
         self.assertIn("for (int x = cx - 1; x <= cx + 1; x++)", hunt)
         self.assertIn("for (int z = cz - 1; z <= cz + 1; z++)", hunt)
         self.assertIn("rivalSpatialKeys[i] != key", hunt)
-        self.assertIn("bot.transform.position - origin", hunt)
+        self.assertIn("rivalSpatialPositions[i] - origin", hunt)
+        self.assertNotIn("bot.transform.position - origin", hunt)
+        self.assertIn("private readonly Vector3[] rivalSpatialPositions =", DIRECTOR)
         self.assertNotIn("for (int i = 0; i < rivals.Length; i++)", hunt)
         self.assertNotIn("new List", hunt)
 
@@ -120,6 +122,48 @@ class SpatialRivalIndexContract(unittest.TestCase):
         self.assertIn("owner.UntrackRivalPosition(spatialSlot, this);", RIVAL)
         self.assertIn('Set(brain, "spatialSlot", i);', BENCH)
         self.assertIn("private const float RivalHuntRadius = 110f;", DIRECTOR)
+
+    def test_every_move_refreshes_position_cache_even_inside_same_cell(self):
+        track = DIRECTOR.split("internal void TrackRivalPosition(", 1)[1].split(
+            "private void BootstrapRivalSpatialIndex", 1)[0]
+        self.assertLess(track.index("rivalSpatialPositions[slot] = position;"),
+                        track.index("if (rivalSpatialRegistered[slot] &&"))
+        self.assertIn("TrackRivalPosition(index, rival, point);", DIRECTOR)
+        self.assertIn("owner.TrackRivalPosition(spatialSlot, this, next);", RIVAL)
+        self.assertIn("owner.TrackRivalPosition(spatialSlot, this, transform.position);", RIVAL)
+        grid = ModelIndex()
+        grid.set(0, (0., 0., 0.))
+        grid.set(1, (50., 0., 0.))
+        grid.set(2, (90., 0., 0.))
+        self.assertEqual(grid.query(0), 1)
+        # Moving in the exact same 110m cell must change opponent priority.
+        grid.set(2, (9., 0., 0.))
+        self.assertEqual(grid.query(0), 2)
+        grid.set(2, (90., 0., 0.))
+        self.assertEqual(grid.query(0), 1)
+        # Y still contributes to true 3D range; no 2D false targets.
+        grid.set(1, (10., 140., 0.))
+        self.assertIsNone(grid.query(1))
+        self.assertEqual(grid.query(0), 2)
+
+    def test_dev_only_profiler_labels_are_stripped_from_release_players(self):
+        labels = ("Aaris.AI.DormantScheduler",
+                  "Aaris.AI.SpatialOpponentLookup",
+                  "Aaris.AI.RemoteCombatTick")
+        for label in labels:
+            self.assertEqual(SRC.count('new ProfilerMarker("' + label + '")'), 1)
+        self.assertIn("using Unity.Profiling;", SRC)
+        self.assertIn("using var aiProfilerScope = k_DormantScan.Auto();", DIRECTOR)
+        self.assertIn("using var aiProfilerScope = k_SpatialHunt.Auto();", DIRECTOR)
+        self.assertIn("using var aiProfilerScope = k_RemoteCombat.Auto();", RIVAL)
+        self.assertIn("private static readonly ProfilerMarker k_RemoteCombat =", RIVAL)
+        self.assertNotIn("private static readonly ProfilerMarker k_RemoteCombat =", DIRECTOR)
+        for field in ("k_DormantScan", "k_SpatialHunt", "k_RemoteCombat"):
+            statement = f"using var aiProfilerScope = {field}.Auto();"
+            offset = SRC.index(statement)
+            self.assertIn("#if UNITY_EDITOR || DEVELOPMENT_BUILD",
+                          SRC[offset - 90:offset])
+            self.assertTrue(SRC[offset + len(statement):].lstrip().startswith("#endif"))
 
     def test_negative_coordinates_boundaries_and_ties(self):
         g = ModelIndex()
