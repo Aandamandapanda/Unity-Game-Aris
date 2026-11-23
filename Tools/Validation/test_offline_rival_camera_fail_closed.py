@@ -36,6 +36,21 @@ class RemoteCameraFailClosed(unittest.TestCase):
         self.assertIn("cachedRivalCamera = Camera.main;", method)
         self.assertIn("cachedRivalCamera.WorldToViewportPoint(", method)
 
+    def test_far_clipped_rivals_do_not_materialize_hidden_render_or_physics(self):
+        method = DIRECTOR.split("internal bool IsDistantRivalOnScreen(", 1)[1].split(
+            "internal bool TryVirtualGround(", 1)[0]
+        self.assertIn("v.z <= cachedRivalCamera.farClipPlane + 2f", method)
+        self.assertIn("v.x >= -0.07f && v.x <= 1.07f", method)
+        self.assertIn("v.y >= -0.1f && v.y <= 1.1f", method)
+        # Camera projection's x/y can look valid outside the far clipping
+        # plane, but rendering and native receiver admission must not be.
+        def admitted(depth, far_clip):
+            return depth > 0 and depth <= far_clip + 2
+        self.assertFalse(admitted(450, 250))
+        self.assertFalse(admitted(700, 485))
+        self.assertTrue(admitted(249, 250))
+        self.assertTrue(admitted(251, 250))  # 2m silhouette margin
+
     def test_startup_remote_bodies_remain_math_only(self):
         init = RIVAL.split("internal void Initialize(", 1)[1].split(
             "private CharacterController EnsurePhysicalReceiver(", 1)[0]
