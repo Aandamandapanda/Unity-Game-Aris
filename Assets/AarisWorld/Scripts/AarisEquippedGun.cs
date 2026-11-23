@@ -96,6 +96,7 @@ namespace Aaris.MapReview
         private float casingGroundY;
         private bool casingRested;
         private static Material sharedBrassMaterial, sharedShotgunShellMaterial;
+        private static Mesh sharedCasingMesh;
         // One pre-created impact emitter per equipped gun. Emit() reuses the
         // native particle buffer; automatic fire never creates impact objects.
         private ParticleSystem impactParticles;
@@ -366,28 +367,90 @@ namespace Aaris.MapReview
             return material;
         }
 
+
+        // Unity CreatePrimitive(Cylinder) creates a native Collider that must be
+        // destroyed for every pooled shell. One UV/normal-complete, sealed mesh
+        // is instead shared by player and nearby bot ejections.
+        // Geometry matches the built-in cylinder: height 2, radius .5.
+        internal static Mesh SharedCasingMesh()
+        {
+            if (sharedCasingMesh != null) return sharedCasingMesh;
+            const int sides = 12;
+            var vertices = new Vector3[sides * 4 + 2];
+            var normals = new Vector3[vertices.Length];
+            var uvs = new Vector2[vertices.Length];
+            var triangles = new int[sides * 12];
+            int topCenter = sides * 4;
+            int bottomCenter = topCenter + 1;
+            vertices[topCenter] = Vector3.up;
+            vertices[bottomCenter] = Vector3.down;
+            normals[topCenter] = Vector3.up;
+            normals[bottomCenter] = Vector3.down;
+            uvs[topCenter] = uvs[bottomCenter] = new Vector2(.5f, .5f);
+            for (int i = 0; i < sides; i++)
+            {
+                float angle = i * Mathf.PI * 2f / sides;
+                float x = Mathf.Cos(angle), z = Mathf.Sin(angle);
+                Vector3 radial = new Vector3(x, 0f, z);
+                int top = i * 2, bottom = top + 1;
+                int topRim = sides * 2 + i, bottomRim = sides * 3 + i;
+                Vector3 rim = radial * .5f;
+                vertices[top] = vertices[topRim] = rim + Vector3.up;
+                vertices[bottom] = vertices[bottomRim] = rim + Vector3.down;
+                normals[top] = normals[bottom] = radial;
+                normals[topRim] = Vector3.up;
+                normals[bottomRim] = Vector3.down;
+                float u = (float)i / sides;
+                uvs[top] = new Vector2(u, 1f);
+                uvs[bottom] = new Vector2(u, 0f);
+                uvs[topRim] = uvs[bottomRim] =
+                    new Vector2(x * .5f + .5f, z * .5f + .5f);
+                int next = (i + 1) % sides;
+                int j = i * 6;
+                triangles[j] = top;
+                triangles[j + 1] = next * 2;
+                triangles[j + 2] = bottom;
+                triangles[j + 3] = next * 2;
+                triangles[j + 4] = next * 2 + 1;
+                triangles[j + 5] = bottom;
+                j = sides * 6 + i * 6;
+                // Flat cap normals and independent UV rings avoid dark,
+                // open-ended brass tubes at close camera distances.
+                triangles[j] = topCenter;
+                triangles[j + 1] = sides * 2 + next;
+                triangles[j + 2] = topRim;
+                triangles[j + 3] = bottomCenter;
+                triangles[j + 4] = bottomRim;
+                triangles[j + 5] = sides * 3 + next;
+            }
+            var mesh = new Mesh { name = "Aaris Shared Closed Bullet Casing" };
+            mesh.vertices = vertices;
+            mesh.normals = normals;
+            mesh.uv = uvs;
+            mesh.triangles = triangles;
+            mesh.RecalculateBounds();
+            mesh.UploadMeshData(true);
+            sharedCasingMesh = mesh;
+            return mesh;
+        }
+
         private void EnsureCasingVisual()
         {
             if (casingRenderer != null || spec == null) return;
             bool shotgun = spec.category == "Shotgun";
             Material material = CasingMaterial(shotgun);
             if (material == null) return;
-            GameObject casing = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            GameObject casing = new GameObject(
+                shotgun ? "Aaris Pooled Shotgun Shell" : "Aaris Pooled Brass Casing",
+                typeof(MeshFilter), typeof(MeshRenderer));
             casing.layer = gameObject.layer;
-            casing.name = shotgun ? "Aaris Pooled Shotgun Shell" :
-                "Aaris Pooled Brass Casing";
+            casing.GetComponent<MeshFilter>().sharedMesh = SharedCasingMesh();
             casing.transform.SetParent(transform, false);
             casing.transform.localPosition = Vector3.zero;
             casing.transform.localRotation = Quaternion.identity;
             casing.transform.localScale = shotgun
                 ? new Vector3(0.009f, 0.024f, 0.009f)
                 : new Vector3(0.006f, 0.015f, 0.006f);
-            Collider shellCollider = casing.GetComponent<Collider>();
-            if (shellCollider != null)
-            {
-                shellCollider.enabled = false;
-                Destroy(shellCollider);
-            }
             casingRenderer = casing.GetComponent<Renderer>();
             casingTransform = casing.transform;
             casingRenderer.sharedMaterial = material;
@@ -398,17 +461,12 @@ namespace Aaris.MapReview
             for (int i = 0; i < ExtraShellSlots; i++)
             {
                 // Allocate one time when a gun is equipped, not at 780 RPM.
-                var extra = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                extra.name = "Aaris Pooled Casing " + (i + 2);
+                var extra = new GameObject("Aaris Pooled Casing " + (i + 2),
+                    typeof(MeshFilter), typeof(MeshRenderer));
                 extra.layer = gameObject.layer;
+                extra.GetComponent<MeshFilter>().sharedMesh = SharedCasingMesh();
                 extra.transform.SetParent(transform, false);
                 extra.transform.localScale = casing.transform.localScale;
-                var collider = extra.GetComponent<Collider>();
-                if (collider != null)
-                {
-                    collider.enabled = false;
-                    Destroy(collider);
-                }
                 var renderer = extra.GetComponent<Renderer>();
                 renderer.sharedMaterial = material;
                 renderer.shadowCastingMode =
