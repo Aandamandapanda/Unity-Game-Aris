@@ -32,7 +32,11 @@ namespace Aaris.MapReview
         private static readonly string[] Keys =
         {
             "plane_engine_loop", "jump_whoosh", "wind_rush_loop",
-            "canopy_glide_loop", "parachute_open", "parachute_land", "step_dirt", "step_road",
+            "canopy_glide_loop", "parachute_open", "parachute_land",
+            // Load player-confirmation speech first in Android's deferred
+            // sequence. It is not needed for the cold drop frame, but must be
+            // resident before the player can reasonably reach the first fight.
+            "first_kill", "one_more_kill", "step_dirt", "step_road",
             "step_water", "jump_start", "land_thud", "smg_shot",
             "ar_shot", "battle_rifle_shot", "sniper_shot", "shotgun_shot",
             "bolt_reload", "shell_drop", "bullet_impact", "punch_hit",
@@ -274,7 +278,8 @@ namespace Aaris.MapReview
             key == "jump_start" || key == "land_thud" || key == "jump_whoosh" ||
             key == "parachute_open" || key == "parachute_land" ||
             key == "grenade_pin" || key == "grenade_throw" ||
-            key == "car_start" || key == "gloo_deploy";
+            key == "car_start" || key == "gloo_deploy" ||
+            key == "first_kill" || key == "one_more_kill";
 
         private void OneShot(string name, Vector3 point, float volume = 1f,
             float pitch = 1f, bool forceWorld = false)
@@ -438,6 +443,17 @@ namespace Aaris.MapReview
         public static void BulletImpact(Vector3 position)
         {
             if (instance != null) instance.OneShot("bullet_impact", position, 0.36f);
+        }
+
+        /// <summary>
+        /// Local-only confirmation for an authoritative player elimination.
+        /// Bot-vs-bot and zone deaths never call this path.
+        /// </summary>
+        public static void PlayerElimination(bool firstKill, Vector3 position)
+        {
+            if (instance == null || !instance.isActiveAndEnabled) return;
+            instance.OneShot(firstKill ? "first_kill" : "one_more_kill",
+                position, 1f);
         }
 
         /// <summary>Called only after the actual weapon accepts a reload.</summary>

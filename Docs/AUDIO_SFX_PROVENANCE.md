@@ -1,9 +1,17 @@
 # Offline gameplay sound effects
 
-Unity packages 44 mono AudioClips under Assets/Resources/SFX. No clips are downloaded during play.
+Unity packages 47 mono AudioClips under Assets/Resources/SFX. No clips are downloaded during play.
 
 - 29 deterministic original WAVs use 22,050 Hz, 16-bit mono PCM. Tools/Audio/generate_sfx.py generates the clips and their AudioImporter metadata. Run it with --check to verify their bytes. The Gloo Wall deployment clip was created for this integration.
 - 15 recorded Kenney Impact Sounds OGG clips provide grass and concrete footsteps, punch impacts and landing or metal impacts. The [publisher lists CC0](https://kenney.nl/assets/impact-sounds). The binaries were carried over unchanged from review/offline-mobile-audio-20261109. Their original blob hashes were checked in [run 42548737813](https://github.com/sundamunda289-art/Unity-Game-Aris/actions/runs/42548737813) against the [pinned sample mirror](https://github.com/GeorgeQLe/assets-sfx-combat/tree/9662dc1bed3b06ae753045915f9accfac044c7ce/assets/kenney/impact-sounds/Audio).
+- Two player-only kill announcements were synthesized offline with the
+  permissively licensed CMU Flite `rms` voice, lowered/mixed with original
+  stinger tones, and packaged as 22,050 Hz 16-bit mono PCM. They never invoke
+  TTS or a network service at runtime. `first_kill.wav` SHA-256 is
+  `62b048523b13ba9a1a013f4150e75ce5203afdb3ab8975db5def38d4e3c996e8`;
+  `one_more_kill.wav` SHA-256 is
+  `2703d73ac4c8cdf63a9c4132ad6441ec33676eecc7ae129aaf6a16f1d2497a7a`.
+  The voice notice is retained in `Docs/ThirdParty/CMU_FLITE_VOICE_NOTICE.txt`.
 
 The saved player creates one audio director and uses the gameplay camera's AudioListener. Four local voices play accepted jumps, touch-downs, footfalls and the player's combat feedback without shoulder-camera attenuation. Eight pooled spatial voices play impacts, ricochets, crashes and explosions. Low-priority tails yield to transition cues.
 

@@ -8,6 +8,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
 namespace Aaris.MapReview.Editor
@@ -853,6 +854,35 @@ namespace Aaris.MapReview.Editor
                 Check(health[eliminatedIndex].IsDead &&
                     !(bool)Call(director, "MayAttackPlayer", eliminatedAttacker),
                     "Eliminated bot immediately loses player attack permission", report);
+                // The lightweight QA rivals do not run Initialize, so publish
+                // the same authoritative post-fatal notification explicitly.
+                // Verify player-only speech/banner/count and ensure a remote
+                // rival kill cannot steal or increment that confirmation.
+                Call(director, "CreateStatus");
+                Call(director, "ReportRivalElimination", player,
+                    eliminatedAttacker.gameObject);
+                var killBanner = Get(director, "playerKillBanner") as GameObject;
+                var killAnnouncement = Get(director, "playerKillAnnouncement") as Text;
+                var killCount = Get(director, "playerKillCountLabel") as Text;
+                Check((int)Get(director, "playerEliminations") == 1 &&
+                    killBanner != null && killBanner.activeSelf &&
+                    killAnnouncement != null && killAnnouncement.text == "FIRST KILL" &&
+                    killCount != null && killCount.text == "KILLS  1" &&
+                    killBanner.transform.Find("Kill symbol") != null,
+                    "First player elimination shows spoken kill-symbol confirmation", report);
+                Check(Resources.Load<AudioClip>("SFX/first_kill") != null &&
+                    Resources.Load<AudioClip>("SFX/one_more_kill") != null,
+                    "Both packaged player kill announcement clips load", report);
+                Call(director, "ReportRivalElimination", bots[30].gameObject,
+                    bots[31].gameObject);
+                Check((int)Get(director, "playerEliminations") == 1,
+                    "Bot-versus-bot elimination does not announce a player kill", report);
+                health[50].ApplyDamage(250f, player);
+                Call(director, "ReportRivalElimination", player, bots[50].gameObject);
+                Check((int)Get(director, "playerEliminations") == 2 &&
+                    killAnnouncement.text == "ONE MORE KILL" &&
+                    killCount.text == "KILLS  2",
+                    "Later player elimination announces one more kill", report);
                 Set(director, "nextAttackerSelection", -1f);
                 Set(director, "attackerScanCursor", -1);
                 int maximumConcurrent = 0;

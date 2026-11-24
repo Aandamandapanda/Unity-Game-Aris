@@ -344,6 +344,10 @@ namespace Aaris.MapReview
         private Text status;
         private Text recentKillFeed;
         private float killFeedClearAt;
+        private GameObject playerKillBanner;
+        private Text playerKillAnnouncement, playerKillCountLabel;
+        private float playerKillBannerClearAt;
+        private int playerEliminations;
         private LineRenderer boundary;
         private readonly Vector3[] boundaryPoints = new Vector3[65];
         private LineRenderer drawnBoundary;
@@ -644,6 +648,9 @@ namespace Aaris.MapReview
                 if (recentKillFeed != null && recentKillFeed.gameObject.activeSelf &&
                     Time.time >= killFeedClearAt)
                     recentKillFeed.gameObject.SetActive(false);
+                if (playerKillBanner != null && playerKillBanner.activeSelf &&
+                    Time.time >= playerKillBannerClearAt)
+                    playerKillBanner.SetActive(false);
             }
             if (Time.time >= nextDamageTick)
             {
@@ -1013,7 +1020,11 @@ namespace Aaris.MapReview
         // an abstract remote kill updates the same real Alive tally and HUD.
         internal void ReportRivalElimination(GameObject killer, GameObject victim)
         {
-            if (statusCanvas == null || status == null || victim == null) return;
+            if (victim == null) return;
+            if (killer != null && player != null &&
+                (killer.transform == player || killer.transform.IsChildOf(player)))
+                ShowPlayerKillConfirmation();
+            if (statusCanvas == null || status == null) return;
             if (recentKillFeed == null)
             {
                 var node = new GameObject("Recent elimination",
@@ -1034,6 +1045,85 @@ namespace Aaris.MapReview
                 "  >  " + victim.name;
             killFeedClearAt = Time.time + 5.5f;
             recentKillFeed.gameObject.SetActive(true);
+        }
+
+        private void ShowPlayerKillConfirmation()
+        {
+            playerEliminations++;
+            EnsurePlayerKillBanner();
+            bool firstKill = playerEliminations == 1;
+            if (playerKillAnnouncement != null)
+                playerKillAnnouncement.text = firstKill ? "FIRST KILL" : "ONE MORE KILL";
+            if (playerKillCountLabel != null)
+                playerKillCountLabel.text = "KILLS  " + playerEliminations;
+            playerKillBannerClearAt = Time.time + 2.35f;
+            if (playerKillBanner != null)
+            {
+                playerKillBanner.SetActive(true);
+                playerKillBanner.transform.SetAsLastSibling();
+            }
+            AarisAudioDirector.PlayerElimination(firstKill,
+                player != null ? player.position : Vector3.zero);
+        }
+
+        private void EnsurePlayerKillBanner()
+        {
+            if (playerKillBanner != null || statusCanvas == null || status == null) return;
+            playerKillBanner = new GameObject("Player kill confirmation",
+                typeof(RectTransform), typeof(Image));
+            playerKillBanner.transform.SetParent(statusCanvas.transform, false);
+            RectTransform root = playerKillBanner.GetComponent<RectTransform>();
+            root.anchorMin = root.anchorMax = new Vector2(.5f, .78f);
+            root.pivot = new Vector2(.5f, .5f);
+            root.sizeDelta = new Vector2(340f, 74f);
+            Image background = playerKillBanner.GetComponent<Image>();
+            background.color = new Color(.10f, .015f, .015f, .86f);
+            background.raycastTarget = false;
+
+            var iconNode = new GameObject("Kill symbol",
+                typeof(RectTransform), typeof(Image));
+            iconNode.transform.SetParent(playerKillBanner.transform, false);
+            RectTransform iconRect = iconNode.GetComponent<RectTransform>();
+            iconRect.anchorMin = new Vector2(0f, .5f);
+            iconRect.anchorMax = new Vector2(0f, .5f);
+            iconRect.pivot = new Vector2(0f, .5f);
+            iconRect.anchoredPosition = new Vector2(11f, 0f);
+            iconRect.sizeDelta = new Vector2(62f, 62f);
+            Image icon = iconNode.GetComponent<Image>();
+            icon.sprite = AarisHudGlyphs.Get(AarisHudGlyphs.Glyph.Kill);
+            icon.preserveAspect = true;
+            icon.color = new Color(1f, .20f, .13f, 1f);
+            icon.raycastTarget = false;
+
+            var headlineNode = new GameObject("Kill announcement",
+                typeof(RectTransform), typeof(Text));
+            headlineNode.transform.SetParent(playerKillBanner.transform, false);
+            RectTransform headlineRect = headlineNode.GetComponent<RectTransform>();
+            headlineRect.anchorMin = new Vector2(.23f, .40f);
+            headlineRect.anchorMax = new Vector2(.98f, .98f);
+            headlineRect.offsetMin = headlineRect.offsetMax = Vector2.zero;
+            playerKillAnnouncement = headlineNode.GetComponent<Text>();
+            playerKillAnnouncement.font = status.font;
+            playerKillAnnouncement.fontSize = 23;
+            playerKillAnnouncement.fontStyle = FontStyle.Bold;
+            playerKillAnnouncement.alignment = TextAnchor.MiddleLeft;
+            playerKillAnnouncement.color = new Color(1f, .83f, .31f, 1f);
+            playerKillAnnouncement.raycastTarget = false;
+
+            var countNode = new GameObject("Player kill count",
+                typeof(RectTransform), typeof(Text));
+            countNode.transform.SetParent(playerKillBanner.transform, false);
+            RectTransform countRect = countNode.GetComponent<RectTransform>();
+            countRect.anchorMin = new Vector2(.23f, .05f);
+            countRect.anchorMax = new Vector2(.98f, .43f);
+            countRect.offsetMin = countRect.offsetMax = Vector2.zero;
+            playerKillCountLabel = countNode.GetComponent<Text>();
+            playerKillCountLabel.font = status.font;
+            playerKillCountLabel.fontSize = 15;
+            playerKillCountLabel.alignment = TextAnchor.MiddleLeft;
+            playerKillCountLabel.color = new Color(1f, 1f, 1f, .88f);
+            playerKillCountLabel.raycastTarget = false;
+            playerKillBanner.SetActive(false);
         }
 
         internal void ShowRivalGunfire(Transform shooter, Vector3 impact,

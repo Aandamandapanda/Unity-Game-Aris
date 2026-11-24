@@ -1,0 +1,25 @@
+CMU Flite voice notice
+======================
+
+The packaged `first_kill.wav` and `one_more_kill.wav` announcements were
+synthesized offline from original phrases with the CMU Flite `rms` voice and
+then mixed with original short tones. No Flite code, runtime TTS engine or
+downloaded recording is included in the game.
+
+Flite source and voice data notice (from the Debian Flite copyright record):
+
+Copyright (c) 1999-2001 Language Technologies Institute,
+Carnegie Mellon University. All Rights Reserved.
+
+Permission is granted, free of charge, to use and distribute this software
+and its documentation without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense and/or
+sell copies, provided that the copyright notice, conditions and disclaimer
+are retained; modifications are clearly marked; original authors' names are
+not deleted; and their names are not used for endorsement without permission.
+
+CARNEGIE MELLON UNIVERSITY AND THE CONTRIBUTORS PROVIDE THE WORK AS IS,
+WITHOUT WARRANTY, AND DISCLAIM LIABILITY FOR SPECIAL, INDIRECT OR
+CONSEQUENTIAL DAMAGES ARISING FROM ITS USE OR PERFORMANCE.
+
+Upstream: http://www.festvox.org/flite/

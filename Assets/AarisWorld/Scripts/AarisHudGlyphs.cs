@@ -10,11 +10,11 @@ namespace Aaris.MapReview
     /// </summary>
     internal static class AarisHudGlyphs
     {
-        internal enum Glyph { Fire, Jump, Crouch, Prone, Sprint }
+        internal enum Glyph { Fire, Jump, Crouch, Prone, Sprint, Kill }
         private const int Size = 128;
         private const int Columns = 4;
-        private const int RingIndex = 5, KnobIndex = 6;
-        private static readonly Sprite[] Sprites = new Sprite[7];
+        private const int RingIndex = 6, KnobIndex = 7;
+        private static readonly Sprite[] Sprites = new Sprite[8];
         private static readonly Color Outline = new Color(0.94f, 0.94f, 0.94f, 0.88f);
         private static readonly Color Disc = new Color(0.13f, 0.13f, 0.13f, 0.48f);
 
@@ -85,6 +85,8 @@ namespace Aaris.MapReview
                     return p.x < .06f || p.x > .94f || p.y < .20f || p.y > .63f;
                 case Glyph.Sprint:
                     return p.x < .12f || p.x > .88f || p.y < .18f || p.y > .90f;
+                case Glyph.Kill:
+                    return p.x < .10f || p.x > .90f || p.y < .10f || p.y > .91f;
                 default:
                     return false;
             }
@@ -176,6 +178,31 @@ namespace Aaris.MapReview
             return a;
         }
 
+        // Font-independent skull and crossed-bones confirmation. Keeping this
+        // in the existing HUD atlas avoids emoji coverage differences on
+        // Android and introduces no downloaded texture or per-kill allocation.
+        private static float Kill(Vector2 p)
+        {
+            if (OutsideGlyphInk(Glyph.Kill, p)) return 0f;
+            float bones = Mathf.Max(
+                Line(p, .18f, .18f, .82f, .46f, .075f),
+                Line(p, .18f, .46f, .82f, .18f, .075f));
+            bones = Mathf.Max(bones, Circle(p, .16f, .17f, .052f));
+            bones = Mathf.Max(bones, Circle(p, .84f, .47f, .052f));
+            bones = Mathf.Max(bones, Circle(p, .16f, .47f, .052f));
+            bones = Mathf.Max(bones, Circle(p, .84f, .17f, .052f));
+
+            float skull = Circle(p, .50f, .64f, .255f);
+            skull = Mathf.Max(skull, Line(p, .35f, .58f, .35f, .35f, .15f));
+            skull = Mathf.Max(skull, Line(p, .50f, .58f, .50f, .33f, .15f));
+            skull = Mathf.Max(skull, Line(p, .65f, .58f, .65f, .35f, .15f));
+            float holes = Mathf.Max(Circle(p, .41f, .66f, .065f),
+                Circle(p, .59f, .66f, .065f));
+            holes = Mathf.Max(holes, Circle(p, .50f, .54f, .037f));
+            skull *= 1f - holes;
+            return Mathf.Max(bones, skull);
+        }
+
         private static void BuildAtlas()
         {
             double startedAt = Time.realtimeSinceStartupAsDouble;
@@ -197,7 +224,12 @@ namespace Aaris.MapReview
                         var point = new Vector2((x + 0.5f) / Size, (y + 0.5f) / Size);
                         Color color;
                         if (i < RingIndex)
-                            color = new Color(1f, 1f, 1f, i == 0 ? Fire(point) : Human((Glyph)i, point));
+                        {
+                            float alpha = i == (int)Glyph.Fire ? Fire(point) :
+                                i == (int)Glyph.Kill ? Kill(point) :
+                                Human((Glyph)i, point);
+                            color = new Color(1f, 1f, 1f, alpha);
+                        }
                         else
                         {
                             float distance = (point - Vector2.one * 0.5f).magnitude;
