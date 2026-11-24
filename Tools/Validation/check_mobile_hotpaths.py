@@ -497,6 +497,13 @@ def audit():
     assert incoming_external_choice != old_owner_applied
     # Range reduction is geometric, not a guaranteed FPS percentage.
     assert (120 / 1000) ** 2 < (240 / 1000) ** 2 < 0.06
+    assert "WindZone foliageWindZone;" in quality
+    wind_zone_guard = quality_setup.index("zone == foliageWindZone && zone.mode == WindZoneMode.Directional")
+    wind_restore_skip = quality_setup.index("mobileWindZones[i] = null;", wind_zone_guard)
+    wind_suppression = quality_setup.index("zone.windMain = 0f;")
+    assert wind_zone_guard < wind_restore_skip < wind_suppression
+    map_scene = ROOT / "Assets/TerrainDemoScene_URP/Scenes/TerrainDemoScene.unity"
+    assert "foliageWindZone: {fileID: 201706}" in map_scene.read_text(encoding="utf-8")
     assert "zone.windMain = 0f;" in quality_setup
     assert "data.wavingGrassStrength = 0f;" in quality_setup
     assert "Mathf.Min(originalDetailDistances[i], 80f)" in quality_setup

@@ -87,7 +87,9 @@ class NaturalTreePrefabTests(unittest.TestCase):
 
     def test_all_tree_materials_use_real_urp_speedtree8_shader(self):
         materials = sorted(TREE_BASE.rglob("*.mat"))
-        self.assertEqual(len(materials), 20)
+        distant_materials = [path for path in materials if path.stem.endswith("_Distant")]
+        self.assertEqual(len(materials) - len(distant_materials), 20)
+        self.assertEqual(len(distant_materials), 8)
         correct = "m_Shader: {fileID: 4800000, guid: 99134b1f0c27d54469a840832a28fadf, type: 3}"
         for path in materials:
             with self.subTest(material=path.name):
@@ -101,6 +103,12 @@ class NaturalTreePrefabTests(unittest.TestCase):
                 keywords = source.split("m_ValidKeywords:", 1)[1].split("m_InvalidKeywords:", 1)[0]
                 self.assertEqual("  - EFFECT_BILLBOARD" in keywords, is_billboard)
                 self.assertIn(f"    - _BillboardKwToggle: {int(is_billboard)}", source)
+                if is_billboard:
+                    self.assertIn("  - _WINDQUALITY_NONE", keywords)
+                    self.assertIn("    - _WindQuality: 0", source)
+                elif path in distant_materials:
+                    self.assertIn("  - _WINDQUALITY_FASTEST", keywords)
+                    self.assertIn("    - _WindQuality: 1", source)
 
     def test_red_bush_preserves_textures_and_alpha_cutout(self):
         # No geometry or .meta changes: make the old HDRP shader load in URP
@@ -123,26 +131,35 @@ class NaturalTreePrefabTests(unittest.TestCase):
         # Species keep exactly their original SpeedTree meshes, texture GUIDs,
         # billboards and native TerrainData instances. Tuning happens on the
         # original opaque/alpha-cutout leaf materials only (no extra geometry).
-        foliage = {
-            "Conifer/Materials/Conifer_Branches.mat": None,
-            "Cypress/Materials/Cypress_Forest_Desktop.mat": None,
-            "Pines/Pine_A/Materials/Pine_A.mat": 0.20,
-            "Pines/Pine_B/Materials/Pine_B.mat": None,
-            "Pines/Pine_C/Materials/Pine_C.mat": 0.20,
-            "Pines/Pine_D/Materials/Pine_D.mat": 0.20,
-        }
-        for relative, alpha in foliage.items():
-            with self.subTest(material=relative):
-                source = (TREE_BASE / relative).read_text(encoding="utf-8")
-                keywords = source.split("m_ValidKeywords:", 1)[1].split("m_InvalidKeywords:", 1)[0]
-                self.assertIn("  - _WINDQUALITY_FAST", keywords)
-                self.assertEqual(keywords.count("_WINDQUALITY_"), 1)
-                self.assertIn("    - _WindQuality: 2", source)
+        material_paths = [
+            "Conifer/Materials/Conifer_Branches.mat",
+            "Cypress/Materials/Cypress_Forest_Desktop.mat",
+            *(f"Pines/Pine_{suffix}/Materials/Pine_{suffix}.mat" for suffix in "ABCD"),
+        ]
+        billboards = sorted(TREE_BASE.rglob("*Billboard.mat"))
+        textures = {}
+        for metadata in TREE_BASE.rglob("*.meta"):
+            if metadata.parent.name == "Textures":
+                source = metadata.read_text(encoding="utf-8")
+                guid = re.search(r"(?m)^guid: ([a-f0-9]{32})$", source).group(1)
+                textures[guid] = source
+        nearby_foliage = [TREE_BASE / path for path in material_paths]
+        for material in nearby_foliage + billboards:
+            with self.subTest(material=material.name):
+                source = material.read_text(encoding="utf-8")
                 self.assertIn("    - _AlphaClip: 1", source)
-                if alpha is not None:
-                    self.assertIn(f"    - _AlphaClipThreshold: {alpha:.2f}", source)
-                    self.assertGreaterEqual(alpha, 0.18)  # avoid excessive overdraw
-                    self.assertLessEqual(alpha, 0.22)
+                if material in nearby_foliage:
+                    keywords = source.split("m_ValidKeywords:", 1)[1].split("m_InvalidKeywords:", 1)[0]
+                    self.assertIn("  - _WINDQUALITY_FAST", keywords)
+                    self.assertEqual(keywords.count("_WINDQUALITY_"), 1)
+                    self.assertIn("    - _WindQuality: 2", source)
+                guid = re.search(r"(?m)^    - _MainTex:\n        m_Texture:.*guid: ([a-f0-9]{32})", source).group(1)
+                texture = textures[guid]
+                self.assertIn("    mipMapsPreserveCoverage: 1", texture)
+                reference = float(re.search(r"(?m)^    alphaTestReferenceValue: ([0-9.]+)$", texture).group(1))
+                tint_alpha = float(re.search(r"(?m)^    - _Color:.* a: ([0-9.]+)\}$", source).group(1))
+                # URP SpeedTree8 clips its base alpha times the material tint.
+                self.assertAlmostEqual(reference * tint_alpha, 0.3333, places=4)
 
     def test_deep_forest_seventh_variant_reuses_original_lod_geometry(self):
         # A new native prefab, not a runtime clone or additional LOD geometry.

@@ -29,7 +29,7 @@ Material:
   - EFFECT_BUMP
   - EFFECT_EXTRA_TEX
   - EFFECT_HUE_VARIATION
-  - _WINDQUALITY_FAST
+  - _WINDQUALITY_NONE
   m_InvalidKeywords: []
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 1
@@ -154,7 +154,7 @@ Material:
     - _TwoSided: 0
     - _UseShadowThreshold: 0
     - _WINDQUALITY: 1
-    - _WindQuality: 2
+    - _WindQuality: 0
     - _WorkflowMode: 1
     - _ZTest: 4
     - _ZTestDepthEqualForOpaque: 3

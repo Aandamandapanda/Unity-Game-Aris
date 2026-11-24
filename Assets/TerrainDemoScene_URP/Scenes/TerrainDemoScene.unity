@@ -44210,6 +44210,7 @@ MonoBehaviour:
   - {fileID: 11030}
   - {fileID: 11042}
   - {fileID: 11054}
+  foliageWindZone: {fileID: 201706}
   releaseTerrainPaintCpuCopies: 1
   targetFrameRate: 60
   adaptiveAndroidResolution: 0
