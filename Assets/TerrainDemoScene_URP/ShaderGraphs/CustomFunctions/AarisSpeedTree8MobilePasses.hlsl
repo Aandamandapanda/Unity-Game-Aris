@@ -250,6 +250,15 @@ SpeedTreeVertexOutput SpeedTree8Vert(SpeedTreeVertexInput input)
     #endif
 
     VertexPositionInputs vertexInput = GetVertexPositionInputs(input.vertex.xyz);
+    // Per-leaf chroma variation is calculated once per vertex, not per pixel.
+    // Reuse the blue color interpolator (reserved for root AO on bark).
+    // SpeedTree leaf anchors are stable while the already-authored wind moves.
+    #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
+        float2 leafAnchorXZ = input.texcoord1.zw +
+            float2(UNITY_MATRIX_M[0].w, UNITY_MATRIX_M[2].w);
+        float leafSeed = frac(dot(leafAnchorXZ, float2(0.1031, 0.11369)));
+        output.color.b = (half)frac(leafSeed * (leafSeed + 17.17));
+    #endif
     #if !defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
         // Reuse unused blue channel of existing vertex color interpolator.
         float rootHeight = max(vertexInput.positionWS.y - UNITY_MATRIX_M[1].w, 0.0);
@@ -419,6 +428,15 @@ half4 SpeedTree8Frag(SpeedTreeFragmentInput input) : SV_Target
         shiftedColor.rgb *= maxBase;
 
         albedo = saturate(shiftedColor);
+    #endif
+
+    // Fine, deterministic leaf-to-leaf color variance. No new material,
+    // texture fetch, shader variant, interpolator or draw call.
+    #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
+        half leafDetail = input.interpolated.color.b - 0.5h;
+        albedo *= half3(1.0h + leafDetail * 0.040h,
+                        1.0h + leafDetail * 0.027h,
+                        1.0h - leafDetail * 0.018h);
     #endif
 
     // normal
