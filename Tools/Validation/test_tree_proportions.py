@@ -157,9 +157,8 @@ class NaturalTreePrefabTests(unittest.TestCase):
                 texture = textures[guid]
                 self.assertIn("    mipMapsPreserveCoverage: 1", texture)
                 reference = float(re.search(r"(?m)^    alphaTestReferenceValue: ([0-9.]+)$", texture).group(1))
-                tint_alpha = float(re.search(r"(?m)^    - _Color:.* a: ([0-9.]+)\}$", source).group(1))
-                # URP SpeedTree8 clips its base alpha times the material tint.
-                self.assertAlmostEqual(reference * tint_alpha, 0.3333, places=4)
+                # Keep the authored coverage after SpeedTree applies the view-dependent billboard fade.
+                self.assertEqual(reference, 0.5)
 
     def test_deep_forest_seventh_variant_reuses_original_lod_geometry(self):
         # A new native prefab, not a runtime clone or additional LOD geometry.
