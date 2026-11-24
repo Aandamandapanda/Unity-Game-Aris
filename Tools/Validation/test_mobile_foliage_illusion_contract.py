@@ -83,10 +83,71 @@ def check_speedtree_materials():
         assert 0.0 <= lo <= hi <= 1.0, name
         assert "- EFFECT_BUMP" in s, name
         assert "m_EnableInstancingVariants: 1" in s, name
-        assert "99134b1f0c27d54469a840832a28fadf" in s, name
+        assert "d353c971ad804ad385b5e3a933e53721" in s, name
     for name in leaves:
         s = (TREE / name).read_text()
         assert "- EFFECT_SUBSURFACE" in s, name
+
+
+
+def check_tree_graph_illusions():
+    """Validate root contact and stable instance tint without disturbing emission."""
+    for file_name, func_name, expected_outputs in (
+        ("SpeedTreeURP_Bark.shadergraph", "AarisBarkRootIllusion",
+         {"SurfaceDescription.BaseColor", "SurfaceDescription.Occlusion"}),
+        ("SpeedTreeURP_Branch.shadergraph", "AarisLeafIllusion",
+         {"SurfaceDescription.BaseColor"}),
+    ):
+        source = (FOLIAGE / file_name).read_text().strip()
+        blocks = [json.loads(chunk) for chunk in re.split(r"\n\s*\n(?=\{)", source)]
+        nodes = {b["m_ObjectId"]: b for b in blocks if "m_ObjectId" in b}
+        assert len(nodes) == len(blocks)
+        root = blocks[0]
+        matches = [b for b in blocks if b.get("m_FunctionName") == func_name]
+        assert len(matches) == 1
+        fn = matches[0]
+        assert fn["m_Precision"] == 1  # World coordinates must stay float.
+        body = fn["m_FunctionBody"]
+        assert not any(x in body for x in ("pow(", "acos(", "GetMainLight(", "SAMPLE_TEXTURE", "floor("))
+        if func_name == "AarisLeafIllusion":
+            assert "PivotWS.xz" in body and "skyTint" in body
+        else:
+            assert "WorldPos.y - PivotWS.y" in body and "OriginalAO" in body
+        used_inputs = set()
+        outputs = set()
+        for e in root["m_Edges"]:
+            src, dst = e["m_OutputSlot"], e["m_InputSlot"]
+            for slot in (src, dst):
+                n = nodes[slot["m_Node"]["m_Id"]]
+                assert any(nodes[s["m_Id"]]["m_Id"] == slot["m_SlotId"] for s in n["m_Slots"])
+            key = (dst["m_Node"]["m_Id"], dst["m_SlotId"])
+            assert key not in used_inputs
+            used_inputs.add(key)
+            if src["m_Node"]["m_Id"] == fn["m_ObjectId"]:
+                outputs.add(nodes[dst["m_Node"]["m_Id"]]["m_Name"])
+        assert outputs == expected_outputs
+        # These additions cannot replace existing leaf transmission/emission.
+        assert all(nodes[e["m_OutputSlot"]["m_Node"]["m_Id"]].get("m_FunctionName") != func_name
+                   for e in root["m_Edges"]
+                   if nodes[e["m_InputSlot"]["m_Node"]["m_Id"]].get("m_Name") == "SurfaceDescription.Emission")
+
+
+def check_custom_speedtree_shader():
+    shader = (FOLIAGE / "AarisSpeedTree8Mobile.shader").read_text()
+    source = (FOLIAGE / "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl").read_text()
+    meta = (FOLIAGE / "AarisSpeedTree8Mobile.shader.meta").read_text()
+    assert "guid: d353c971ad804ad385b5e3a933e53721" in meta
+    assert 'Shader "Aaris/Nature/SpeedTree8Mobile"' in shader
+    assert '#pragma multi_compile_instancing' in shader
+    assert '#include "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl"' in shader
+    assert "UNITY_SETUP_INSTANCE_ID" in source
+    assert "float3 treePos" in source and "hueVariationAmount" in source
+    assert "half rootContact" in source and "occlusion *= 1.0h - 0.20h * rootContact" in source
+    assert "half3 skyTint" in source and "half transmit" in source
+    assert "Light mainLight = GetMainLight();" in source
+    assert "Avoid a second shadow map" in source
+    assert "SampleNormal" in source and "normalTs.xy *= 1.10h" in source
+    assert not any(term in source for term in ("Raycast(", "Physics.", "ComputeBuffer", "MaterialPropertyBlock"))
 
 
 if __name__ == "__main__":
@@ -94,4 +155,6 @@ if __name__ == "__main__":
     check_interaction()
     check_mobile_transmission()
     check_speedtree_materials()
+    check_tree_graph_illusions()
+    check_custom_speedtree_shader()
     print("AARIS_MOBILE_FOLIAGE_CONTRACT_PASS")
