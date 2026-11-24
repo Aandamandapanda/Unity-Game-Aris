@@ -90,11 +90,28 @@ class NaturalTreePrefabTests(unittest.TestCase):
         distant_materials = [path for path in materials if path.stem.endswith("_Distant")]
         self.assertEqual(len(materials) - len(distant_materials), 20)
         self.assertEqual(len(distant_materials), 8)
-        correct = "m_Shader: {fileID: 4800000, guid: 99134b1f0c27d54469a840832a28fadf, type: 3}"
+        # Close/mid LODs deliberately share our light mobile SpeedTree8 shader.
+        # Distant and billboard LODs retain the original URP SpeedTree8 shader.
+        mobile_guid = "d353c971ad804ad385b5e3a933e53721"
+        original_guid = "99134b1f0c27d54469a840832a28fadf"
+        shader_root = ROOT / "Assets/TerrainDemoScene_URP/ShaderGraphs"
+        self.assertIn("guid: " + mobile_guid,
+                      (shader_root / "AarisSpeedTree8Mobile.shader.meta").read_text())
+        self.assertIn('Shader "Aaris/Nature/SpeedTree8Mobile"',
+                      (shader_root / "AarisSpeedTree8Mobile.shader").read_text())
         for path in materials:
             with self.subTest(material=path.name):
                 source = path.read_text(encoding="utf-8")
+                uses_mobile_shader = (
+                    not path.name.endswith("Billboard.mat")
+                    and path.name != "Conifer_Cap.mat"
+                    and (path not in distant_materials
+                         or path.name in ("Conifer_Bark_Distant.mat", "Cypress_Bark_Distant.mat"))
+                )
+                expected_guid = mobile_guid if uses_mobile_shader else original_guid
+                correct = "m_Shader: {fileID: 4800000, guid: " + expected_guid + ", type: 3}"
                 self.assertIn(correct, source)
+                self.assertIn("m_EnableInstancingVariants: 1", source)
                 self.assertNotIn("d4fdc026464a42041be7fe785babd90e", source)
                 self.assertNotIn("515f8966b1d702f4a8c97ca412a9a4e9", source)
                 self.assertRegex(source, r"(?m)^    - _MainTex:\n        m_Texture: \{fileID: 2800000,")
@@ -180,7 +197,7 @@ class NaturalTreePrefabTests(unittest.TestCase):
             re.findall(r"m_Mesh: \{fileID: [^\n]+", source))
         self.assertEqual(read_lod_renderers(variant),
                          {0:(1,1),1:(1,1),2:(0,1),3:(0,1)})
-        self.assertIn("m_Shader: {fileID: 4800000, guid: 99134b1f0c27d54469a840832a28fadf, type: 3}",bark)
+        self.assertIn("m_Shader: {fileID: 4800000, guid: d353c971ad804ad385b5e3a933e53721, type: 3}", bark)
         self.assertIn("- _Color: {r: 0.69, g: 0.64, b: 0.57, a: 1}", bark)
         self.assertEqual(variant.count("BoxCollider:"),1)
         self.assertEqual(variant.count("LODGroup:"),1)
