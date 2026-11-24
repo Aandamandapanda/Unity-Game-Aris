@@ -147,6 +147,12 @@ def check_custom_speedtree_shader():
     assert "Light mainLight = GetMainLight();" in source
     assert "Avoid a second shadow map" in source
     assert "SampleNormal" in source and "normalTs.xy *= 1.10h" in source
+    # The blue varying must be shared by non-subsurface bark root AO and
+    # subsurface leaf variation, never requiring an extra TEXCOORD.
+    assert "output.color.b = contact * contact" in source
+    assert "output.color.b = (half)frac(leafSeed * (leafSeed + 17.17))" in source
+    assert "half leafDetail = input.interpolated.color.b - 0.5h" in source
+    assert source.count("#if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)") >= 2
     assert not any(term in source for term in ("Raycast(", "Physics.", "ComputeBuffer", "MaterialPropertyBlock"))
 
 
