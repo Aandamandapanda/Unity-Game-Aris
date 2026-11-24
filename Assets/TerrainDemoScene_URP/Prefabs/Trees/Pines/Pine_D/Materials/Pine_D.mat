@@ -155,7 +155,7 @@ Material:
     - _StencilWriteMaskDistortionVec: 4
     - _StencilWriteMaskGBuffer: 14
     - _StencilWriteMaskMV: 40
-    - _SubsurfaceIndirect: 0.518
+    - _SubsurfaceIndirect: 0.52
     - _SubsurfaceKwToggle: 1
     - _SubsurfaceScale: 1.075
     - _SupportDecals: 0
@@ -180,12 +180,12 @@ Material:
     - _ZWriteControl: 0
     m_Colors:
     - Diffusion_Profile_Asset: {r: 2.2888926e+38, g: 1.2389358e-26, b: 7.69327e-37, a: 0.00018220427}
-    - _AO_Remap: {r: 0.3, g: 0.6, b: 0, a: 0}
+    - _AO_Remap: {r: 0.26, g: 0.8, b: 0, a: 0}
     - _Color: {r: 0.6603774, g: 0.6603774, b: 0.6603774, a: 1}
     - _DoubleSidedConstants: {r: -1, g: -1, b: -1, a: 0}
     - _EmissionColor: {r: 1, g: 1, b: 1, a: 1}
-    - _HueVariationColor: {r: 0.82074976, g: 0.8207547, b: 0.7696511, a: 1}
+    - _HueVariationColor: {r: 0.58, g: 0.65, b: 0.38, a: 0.34}
     - _Smoothness_Remap: {r: 0, g: 0.5, b: 0, a: 0}
-    - _SubsurfaceColor: {r: 1, g: 1, b: 1, a: 1}
+    - _SubsurfaceColor: {r: 0.95, g: 0.98, b: 0.75, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
