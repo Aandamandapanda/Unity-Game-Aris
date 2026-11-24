@@ -52,9 +52,9 @@ class DormantPoseBudget(unittest.TestCase):
                   "Vector3 next = selfPosition + step;",
                   "owner.TryVirtualGround(next.x, next.z, out float ground)",
                   "owner.TrackRivalPosition(spatialSlot, this, next);",
-                  "(targetPosition - playerTarget.position).sqrMagnitude",
+                  "(targetPosition - playerPosition).sqrMagnitude",
                   "targetHealth.ApplyDamage(damage, gameObject);",
-                  "!hiddenTarget.virtualBody"):
+                  "!cachedVirtualDamageRival.virtualBody"):
             self.assertIn(s, REMOTE)
         self.assertEqual(REMOTE.count("transform.position"), 3)
         self.assertEqual(REMOTE.count("transform.forward"), 1)

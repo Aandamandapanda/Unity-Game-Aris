@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Cache only remote rival component identity; check visibility on each shot."""
+"""Cache only remote rival component identity; check combat mode and cover on each shot."""
 import random as random_module
 import unittest
 from pathlib import Path
 S=(Path(__file__).resolve().parents[2]/"Assets/AarisWorld/Scripts/AarisOfflineBRDirector.cs").read_text()
-R=S.split("private void TickVirtualCombat(float now, float dt)",1)[1].split("private float NextVirtualRandom()",1)[0]
+R=S.split("private void TickVirtualCombat(",1)[1].split("private float NextVirtualRandom()",1)[0]
 B=S.split("internal sealed class AarisOfflineRival",1)[1]
 
 class RemoteDamageCache(unittest.TestCase):
@@ -20,15 +20,13 @@ class RemoteDamageCache(unittest.TestCase):
                   "cachedVirtualDamageHealth != targetHealth",
                   "cachedVirtualDamageRival == null",
                   "target.TryGetComponent<AarisOfflineRival>(",
-                  "AarisOfflineRival hiddenTarget = cachedVirtualDamageRival;",
-                  "!hiddenTarget.virtualBody",
-                  "hiddenTarget.lastCameraRelevant",
-                  "hiddenTarget.HasVisibleBody",
+                  "!cachedVirtualDamageRival.virtualBody",
+                  "owner.IsVirtualShotBlocked(selfPosition, targetPosition)",
                   "targetHealth.ApplyDamage(damage, gameObject);"):
             self.assertIn(x,R)
         self.assertLess(R.index("cachedVirtualDamageTarget != target"),
                         R.index("target.TryGetComponent<AarisOfflineRival>("))
-        self.assertLess(R.index("hiddenTarget.HasVisibleBody"),
+        self.assertLess(R.index("owner.IsVirtualShotBlocked(selfPosition, targetPosition)"),
                         R.index("targetHealth.ApplyDamage(damage, gameObject);"))
         self.assertIn("target != playerTarget",R)
         self.assertIn("TryGetSightHit(target, out RaycastHit shotHit)",S)
@@ -49,12 +47,11 @@ class RemoteDamageCache(unittest.TestCase):
                 if oldcache!=(tgt[i],hp[i],component[i]):
                     lookup+=1
                     cache[i]=(tgt[i],hp[i],component[i])
-                flags=(random.random()>.19,random.random()<.15,
-                       random.random()<.28)
-                allowed=flags[0] and not flags[1] and not flags[2]
-                self.assertEqual(allowed,
-                    cache[i][2]==component[i] and flags[0] and
-                    not flags[1] and not flags[2])
+                is_virtual = random.random() > .19
+                cover_blocks = random.random() < .28
+                allowed = is_virtual and not cover_blocks
+                self.assertEqual(allowed, cache[i][2] == component[i] and
+                                 is_virtual and not cover_blocks)
                 damage+=allowed
         self.assertGreater(damage,200)
         self.assertLess(lookup,old*.35)

@@ -16,13 +16,17 @@ class CentralDormantSchedulerTests(unittest.TestCase):
         self.assertIn("owner.RegisterDormantRival(spatialSlot, this, dormant)", BOT)
 
     def test_deadlines_not_modified_by_central_queue(self):
-        self.assertRegex(DIRECTOR, r"TickDormantRivals\((?:Time\.time|now)\);")
+        self.assertIn("TickDormantRivals(now, playerPosition);", DIRECTOR)
         self.assertIn("now >= bot.NextDormantWakeTime", DIRECTOR)
-        self.assertIn("if (centrallyDormant) Update();", BOT)
+        wake = BOT.split("internal void TickDormantFromDirector(", 1)[1].split(
+            "internal void ForceDormantProximityProbe(", 1)[0]
+        self.assertIn("TickRival(now, playerPosition);", wake)
+        self.assertNotIn("Time.time", wake)
+        self.assertNotIn("playerTarget.position", wake)
         self.assertIn("Mathf.Min(nextFarSimulation, nextDormantProximityProbe)", BOT)
         self.assertIn("Mathf.Min(nextDormantProximityProbe, nextCameraProbe)", BOT)
         self.assertIn("private const float FarSimulationInterval = 0.35f;", BOT)
-        self.assertIn("private const float DormantProximityProbeInterval = 0.10f;", BOT)
+        self.assertIn("nextDormantProximityProbe = nextCameraProbe;", BOT)
 
     def test_100_far_bot_combat_ticks_identical_to_old_per_frame_driver(self):
         for fps in (30, 60, 120):
@@ -96,7 +100,7 @@ class CentralDormantSchedulerTests(unittest.TestCase):
         self.assertIn("ReferenceEquals(bot, null)", sweep)
         due = sweep.index("if (now >= bot.NextDormantWakeTime)")
         alive = sweep.index("if (bot == null || !bot.IsAlive)")
-        tick = sweep.index("bot.TickDormantFromDirector();")
+        tick = sweep.index("bot.TickDormantFromDirector(now, playerPosition);")
         self.assertLess(due, alive)
         self.assertLess(alive, tick)
         self.assertIn("SetCentralDormancy(false)", BOT.split("private void OnDied", 1)[1])

@@ -13,16 +13,16 @@ class VisibleFarCentralSleepTests(unittest.TestCase):
         eligible = u.split("bool dormantVisibleFarVirtual =", 1)[1].split(
             "SetCentralDormancy(", 1)[0]
         for token in ("!dormantOutOfVisualRange", "lastCameraRelevant",
-                      "virtualBody", "playerDistanceSqr >= 185f * 185f",
+                      "virtualBody", "playerDistanceSqr >= DetailedDistance * DetailedDistance",
                       "visualRoot == null || !visualRoot.activeSelf",
-                      "nextDormantProximityProbe = now + 0.12f;"):
+                      "nextDormantProximityProbe = nextCameraProbe;"):
             self.assertIn(token, eligible)
         self.assertIn("dormantVisibleFarVirtual);", u)
         # Changing the update dispatcher must never remove the stationary
         # player-bullet hit receiver or turn far combat into per-frame physics.
         self.assertIn("cameraRelevant && HasVisibleBody &&", u)
         self.assertIn("capsule.enabled = needsPhysicalReceiver;", u)
-        self.assertIn("TickVirtualCombat(now, dt);", u)
+        self.assertIn("TickVirtualCombat(now, dt, playerPosition);", u)
         self.assertIn("bool simulationDue = !farSimulation || now >= nextFarSimulation;", u)
         self.assertLess(u.index("SetCentralDormancy("),
                         u.index("bool simulationDue ="))
@@ -61,7 +61,7 @@ class VisibleFarCentralSleepTests(unittest.TestCase):
                 self.assertGreater(min(sleeping_fights), 20)
 
     def test_onscreen_far_receiver_and_mathematical_kills_still_authoritative(self):
-        self.assertIn("if (centrallyDormant) Update();", bot)
+        self.assertIn("TickRival(now, playerPosition);", bot)
         self.assertIn("now >= bot.NextDormantWakeTime", director)
         self.assertIn("bool needsPhysicalReceiver = !virtualBody ||", bot)
         self.assertIn("targetHealth.ApplyDamage(damage, gameObject);", bot)

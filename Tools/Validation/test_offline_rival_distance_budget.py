@@ -69,19 +69,20 @@ class FarRivalBudget(unittest.TestCase):
         self.assertIn("skin.updateWhenOffscreen = false;", bot)
         self.assertIn("animator.cullingMode = AnimatorCullingMode.CullCompletely;", bot)
         self.assertIn("playerDistanceSqr < 55f * 55f || cameraRelevant", update)
-        self.assertIn("if (visible) graph.Play();", update)
-        self.assertIn("else graph.Stop();", update)
+        self.assertIn("if (visible) SetDetailedRenderVisibility(cameraRelevant);", update)
+        self.assertIn("if (!visible && hasAnimations && graph.IsValid()) graph.Stop();", update)
         # A 4x-visible, 300m bot needs a stationary physical hit receiver,
         # but MUST remain a math-only combat agent (no capsule.Move).
-        self.assertIn("bool shouldVirtualize = playerDistanceSqr >= 185f * 185f ||", update)
+        self.assertIn("bool shouldVirtualize = playerDistanceSqr >= DetailedDistance * DetailedDistance ||", update)
         self.assertNotIn(
-            "playerDistanceSqr >= 185f * 185f && !cameraRelevant", update)
-        self.assertIn("bool shouldRestorePhysics = playerDistanceSqr <= 165f * 165f &&", update)
+            "playerDistanceSqr >= DetailedDistance * DetailedDistance && !cameraRelevant", update)
+        self.assertIn("private const float PhysicalReturnDistance = 145f;", bot)
+        self.assertIn("PhysicalReturnDistance * PhysicalReturnDistance &&", update)
         self.assertIn("else if (virtualBody && shouldRestorePhysics)", update)
         self.assertIn("bool needsPhysicalReceiver = !virtualBody ||", update)
         self.assertIn("cameraRelevant && HasVisibleBody &&", update)
         self.assertIn("capsule.enabled = needsPhysicalReceiver;", update)
-        self.assertLess(update.index("TickVirtualCombat(now, dt);"),
+        self.assertLess(update.index("TickVirtualCombat(now, dt, playerPosition);"),
                         update.index("capsule.Move("))
         self.assertIn("hasAnimations && visualRoot != null && visualRoot.activeSelf", update)
         self.assertIn("targetHealth.ApplyDamage(damage, gameObject);", bot)
@@ -91,7 +92,7 @@ class FarRivalBudget(unittest.TestCase):
         # Control-plane model for the two independent LODs. The 485m
         # visual band is deliberately not claimed to cost zero GPU.
         def lod(distance, on_camera):
-            virtual = distance >= 185 or (distance >= 90 and not on_camera)
+            virtual = distance >= 155 or (distance >= 90 and not on_camera)
             full = distance < 155 and (distance < 55 or on_camera)
             far_mesh = distance < 485 and on_camera and not full
             collider = not virtual or (on_camera and distance < 485)
@@ -100,6 +101,8 @@ class FarRivalBudget(unittest.TestCase):
         self.assertEqual(lod(1000, False), (True, False, False, False))
         self.assertEqual(lod(300, False), (True, False, False, False))
         self.assertEqual(lod(300, True), (True, False, True, True))
+        self.assertEqual(lod(155, True), (True, False, True, True))
+        self.assertEqual(lod(154.9, True), (False, True, False, True))
         self.assertEqual(lod(100, False), (True, False, False, False))
         self.assertEqual(lod(100, True), (False, True, False, True))
         self.assertEqual(lod(30, False), (False, True, False, True))
@@ -143,7 +146,7 @@ class FarRivalBudget(unittest.TestCase):
         self.assertIn("if (simulationDue)\n            {", update)
         self.assertIn("if (!simulationDue) return;", update)
         self.assertLess(update.index("if (!simulationDue) return;"),
-                        update.index("TickVirtualCombat(now, dt);"))
+                        update.index("TickVirtualCombat(now, dt, playerPosition);"))
 
         # A 100-rival phone-camera sweep may wake representation immediately,
         # but it must not increase movement, damage or the 350ms AI tick count.
@@ -218,7 +221,7 @@ class FarRivalBudget(unittest.TestCase):
         # Only renderer/collider admission is changed. The far simulation
         # scheduler and remote HP/damage path still use their original tick.
         self.assertIn("if (!simulationDue) return;", update)
-        self.assertIn("TickVirtualCombat(now, dt);", update)
+        self.assertIn("TickVirtualCombat(now, dt, playerPosition);", update)
 
     def test_near_offcamera_renderer_gate_preserves_combat_body(self):
         bot = SOURCE.split("internal sealed class AarisOfflineRival", 1)[1]
@@ -244,7 +247,7 @@ class FarRivalBudget(unittest.TestCase):
         self.assertIn("!detailedRenderingSuppressed", update)
         self.assertIn("bool needsPhysicalReceiver = !virtualBody ||", update)
         self.assertIn("capsule.Move(", update)
-        self.assertIn("TickVirtualCombat(now, dt);", update)
+        self.assertIn("TickVirtualCombat(now, dt, playerPosition);", update)
 
     def test_denied_camera_admission_retries_without_extra_combat(self):
         update = SOURCE.split("internal sealed class AarisOfflineRival", 1)[1]
@@ -258,7 +261,7 @@ class FarRivalBudget(unittest.TestCase):
         self.assertIn("nextVisualCheck = Mathf.Min(nextVisualCheck, now + 0.12f);", update)
         self.assertLess(retry, update.index("if (simulationDue)"))
         self.assertLess(update.index("if (!simulationDue) return;"),
-                        update.index("TickVirtualCombat(now, dt);"))
+                        update.index("TickVirtualCombat(now, dt, playerPosition);"))
         # Model the first camera admission denied by the native budget,
         # followed by a successful retry at the next 120ms probe.
         for fps in (15, 30, 60, 120):
