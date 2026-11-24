@@ -94,18 +94,128 @@ namespace Aaris.MapReview
         // One central queue replaces per-frame native Update dispatch for
         // far/unseen agents, without changing their AI combat deadlines.
         private readonly bool[] dormantRivalSlots = new bool[RivalCount];
+        // The queue is a fixed-capacity binary min-heap. The previous central
+        // scheduler still walked all 100 slots whenever one rival became due;
+        // phased 100/160/350ms deadlines could therefore cause thousands of
+        // managed candidate checks per second. Heap positions are stored +1 so
+        // zero-initialized arrays mean "not queued" with no Awake-time fill.
+        private readonly int[] dormantRivalHeap = new int[RivalCount];
+        private readonly int[] dormantRivalHeapPositions = new int[RivalCount];
+        private readonly float[] dormantRivalWakeTimes = new float[RivalCount];
+        private int dormantRivalHeapCount;
         private int dormantRivalCount;
-        // Keep the 100-slot scheduler asleep between the earliest actual
-        // combat, camera or proximity deadline. No extra timers or allocations.
+        // Keep the scheduler asleep between the earliest actual combat,
+        // camera or proximity deadline. No extra timers or allocations.
         private float nextDormantSweepAt = float.PositiveInfinity;
         private Vector3 lastDirectorPlayerPosition;
         private bool hasDirectorPlayerPosition;
+
+        private bool DormantHeapComesBefore(int leftSlot, int rightSlot)
+        {
+            float left = dormantRivalWakeTimes[leftSlot];
+            float right = dormantRivalWakeTimes[rightSlot];
+            return left < right || (left == right && leftSlot < rightSlot);
+        }
+
+        private void SwapDormantHeapEntries(int left, int right)
+        {
+            int leftSlot = dormantRivalHeap[left];
+            int rightSlot = dormantRivalHeap[right];
+            dormantRivalHeap[left] = rightSlot;
+            dormantRivalHeap[right] = leftSlot;
+            dormantRivalHeapPositions[leftSlot] = right + 1;
+            dormantRivalHeapPositions[rightSlot] = left + 1;
+        }
+
+        private int SiftDormantHeapUp(int index)
+        {
+            while (index > 0)
+            {
+                int parent = (index - 1) >> 1;
+                if (!DormantHeapComesBefore(dormantRivalHeap[index],
+                    dormantRivalHeap[parent])) break;
+                SwapDormantHeapEntries(index, parent);
+                index = parent;
+            }
+            return index;
+        }
+
+        private void SiftDormantHeapDown(int index)
+        {
+            while (true)
+            {
+                int left = index * 2 + 1;
+                if (left >= dormantRivalHeapCount) return;
+                int right = left + 1;
+                int earliest = right < dormantRivalHeapCount &&
+                    DormantHeapComesBefore(dormantRivalHeap[right],
+                        dormantRivalHeap[left]) ? right : left;
+                if (!DormantHeapComesBefore(dormantRivalHeap[earliest],
+                    dormantRivalHeap[index])) return;
+                SwapDormantHeapEntries(index, earliest);
+                index = earliest;
+            }
+        }
+
+        private void RefreshDormantHeapDeadline()
+        {
+            nextDormantSweepAt = dormantRivalHeapCount == 0
+                ? float.PositiveInfinity
+                : dormantRivalWakeTimes[dormantRivalHeap[0]];
+        }
+
+        private void ScheduleDormantRival(int slot, float wakeAt)
+        {
+            if (slot < 0 || slot >= RivalCount || !dormantRivalSlots[slot])
+                return;
+            dormantRivalWakeTimes[slot] = wakeAt;
+            int index = dormantRivalHeapPositions[slot] - 1;
+            if (index < 0)
+            {
+                index = dormantRivalHeapCount++;
+                dormantRivalHeap[index] = slot;
+                dormantRivalHeapPositions[slot] = index + 1;
+            }
+            index = SiftDormantHeapUp(index);
+            SiftDormantHeapDown(index);
+            RefreshDormantHeapDeadline();
+        }
+
+        private int RemoveDormantHeapAt(int index)
+        {
+            int removedSlot = dormantRivalHeap[index];
+            int finalIndex = --dormantRivalHeapCount;
+            dormantRivalHeapPositions[removedSlot] = 0;
+            if (index != finalIndex)
+            {
+                int replacement = dormantRivalHeap[finalIndex];
+                dormantRivalHeap[index] = replacement;
+                dormantRivalHeapPositions[replacement] = index + 1;
+                index = SiftDormantHeapUp(index);
+                SiftDormantHeapDown(index);
+            }
+            return removedSlot;
+        }
+
+        private void RemoveDormantRivalFromHeap(int slot)
+        {
+            int index = dormantRivalHeapPositions[slot] - 1;
+            if (index >= 0) RemoveDormantHeapAt(index);
+            RefreshDormantHeapDeadline();
+        }
+
+        private void ForgetDormantRival(int slot)
+        {
+            if (!dormantRivalSlots[slot]) return;
+            dormantRivalSlots[slot] = false;
+            dormantRivalCount--;
+            RemoveDormantRivalFromHeap(slot);
+        }
 
         // A vehicle warp/teleport may cross a virtual actor's whole LOD band.
         // Wake only candidates near the new player location, not all 100 bots.
         private void WakeDormantRivalsNearPlayer(Vector3 position, float now)
         {
-            bool woken = false;
             for (int i = 0; i < RivalCount; i++)
             {
                 if (!dormantRivalSlots[i] || !rivalSpatialRegistered[i] ||
@@ -114,22 +224,25 @@ namespace Aaris.MapReview
                 AarisOfflineRival bot = rivals[i];
                 if (bot == null || !bot.IsAlive) continue;
                 bot.ForceDormantProximityProbe();
-                woken = true;
+                ScheduleDormantRival(i, now);
             }
-            if (woken) nextDormantSweepAt = Mathf.Min(nextDormantSweepAt, now);
         }
 
         internal void RegisterDormantRival(int slot, AarisOfflineRival bot, bool dormant)
         {
             if (slot < 0 || slot >= RivalCount || rivals[slot] != bot) return;
-            if (dormantRivalSlots[slot] == dormant) return;
+            if (dormantRivalSlots[slot] == dormant)
+            {
+                if (dormant) ScheduleDormantRival(slot,
+                    bot.NextDormantWakeTime);
+                return;
+            }
             dormantRivalSlots[slot] = dormant;
             dormantRivalCount += dormant ? 1 : -1;
             if (dormant)
-                nextDormantSweepAt = Mathf.Min(nextDormantSweepAt,
-                    bot.NextDormantWakeTime);
-            else if (dormantRivalCount == 0)
-                nextDormantSweepAt = float.PositiveInfinity;
+                ScheduleDormantRival(slot, bot.NextDormantWakeTime);
+            else
+                RemoveDormantRivalFromHeap(slot);
         }
 
         public void TickDormantRivals(float now)
@@ -145,38 +258,48 @@ namespace Aaris.MapReview
             using var aiProfilerScope = k_DormantScan.Auto();
 #endif
             if (dormantRivalCount == 0 || now < nextDormantSweepAt) return;
-            // All existing AI deadlines retain priority. Recompute only after
-            // some rival has become due; dormant registration can lower this
-            // bound immediately, including after a player/camera transition.
-            nextDormantSweepAt = float.PositiveInfinity;
-            for (int i = 0; i < RivalCount; i++)
+            // Pop only due actors. Every rival keeps its original deadline;
+            // the heap replaces a full 100-slot roster scan with O(log 100)
+            // rescheduling and performs no allocation or Unity search.
+            int processed = 0;
+            while (dormantRivalHeapCount != 0 && processed < RivalCount)
             {
-                if (!dormantRivalSlots[i]) continue;
-                AarisOfflineRival bot = rivals[i];
+                int slot = dormantRivalHeap[0];
+                if (dormantRivalWakeTimes[slot] > now) break;
+                RemoveDormantHeapAt(0);
+                processed++;
+                if (!dormantRivalSlots[slot]) continue;
+                AarisOfflineRival bot = rivals[slot];
                 // A sleeping slot's deadline is managed state. Avoid Unity's
                 // native object-liveness checks (including Health) until due.
                 // OnDied/OnDestroy unregister normally; a missed teardown is
                 // still cleaned at the existing wake deadline.
                 if (ReferenceEquals(bot, null))
                 {
-                    dormantRivalSlots[i] = false;
-                    dormantRivalCount--;
+                    ForgetDormantRival(slot);
+                    continue;
+                }
+                // An external transition may have postponed a deadline after
+                // its heap snapshot. Do not touch native liveness until the
+                // rival's current managed deadline is actually due.
+                if (now < bot.NextDormantWakeTime)
+                {
+                    ScheduleDormantRival(slot, bot.NextDormantWakeTime);
                     continue;
                 }
                 if (now >= bot.NextDormantWakeTime)
                 {
                     if (bot == null || !bot.IsAlive)
                     {
-                        dormantRivalSlots[i] = false;
-                        dormantRivalCount--;
+                        ForgetDormantRival(slot);
                         continue;
                     }
-                    bot.TickDormantFromDirector(now, playerPosition);
                 }
-                if (dormantRivalSlots[i])
-                    nextDormantSweepAt = Mathf.Min(nextDormantSweepAt,
-                        bot.NextDormantWakeTime);
+                bot.TickDormantFromDirector(now, playerPosition);
+                if (dormantRivalSlots[slot])
+                    ScheduleDormantRival(slot, bot.NextDormantWakeTime);
             }
+            RefreshDormantHeapDeadline();
         }
         private const int MaximumSpawnPasses = 4;
         private int spawnPasses = 1;
@@ -792,7 +915,7 @@ namespace Aaris.MapReview
                 if ((position - playerPosition).sqrMagnitude >= rangeSqr) continue;
                 bool relevant = hasCamera && RivalIntersectsFrustum(position);
                 if (rivals[i].RequestCameraProbe(relevant, now))
-                    nextDormantSweepAt = Mathf.Min(nextDormantSweepAt, now);
+                    ScheduleDormantRival(i, now);
             }
         }
 

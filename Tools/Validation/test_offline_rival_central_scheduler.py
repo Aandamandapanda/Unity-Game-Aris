@@ -1,4 +1,5 @@
 """Regression: centrally queued invisible bots retain exact AI tick deadlines."""
+import heapq
 import unittest
 from pathlib import Path
 
@@ -52,47 +53,82 @@ class CentralDormantSchedulerTests(unittest.TestCase):
                         central[i] = now + .35
             self.assertEqual(new_ticks, old_ticks)
 
-    def test_global_wake_deadline_preserves_existing_combat_ticks(self):
-        # The global min only avoids an idle roster scan. It must not modify
-        # the per-bot simulation/proximity clocks or suppress remote kills.
+    def test_min_heap_preserves_existing_combat_ticks_without_roster_scans(self):
+        # The fixed heap must not modify per-bot clocks or suppress remote
+        # kills, and the due path must no longer walk the full 100-slot roster.
         self.assertIn("private float nextDormantSweepAt = float.PositiveInfinity;", DIRECTOR)
         self.assertIn("now < nextDormantSweepAt", DIRECTOR)
-        self.assertIn("nextDormantSweepAt = Mathf.Min(nextDormantSweepAt,", DIRECTOR)
+        for token in (
+            "private readonly int[] dormantRivalHeap = new int[RivalCount];",
+            "private readonly int[] dormantRivalHeapPositions = new int[RivalCount];",
+            "private readonly float[] dormantRivalWakeTimes = new float[RivalCount];",
+            "ScheduleDormantRival(slot, bot.NextDormantWakeTime);",
+            "RemoveDormantHeapAt(0);",
+        ):
+            self.assertIn(token, DIRECTOR)
         self.assertIn("if (now >= bot.NextDormantWakeTime)", DIRECTOR)
+        sweep = DIRECTOR.split("private void TickDormantRivals(float now,", 1)[1].split(
+            "private const int MaximumSpawnPasses", 1)[0]
+        self.assertIn("while (dormantRivalHeapCount != 0", sweep)
+        self.assertNotIn("for (int i = 0; i < RivalCount; i++)", sweep)
+
         for fps in (30, 60, 120):
             for count in (1, 10, 40, 100):
-                baseline = [i * .0035 for i in range(count)]
+                # Android's 350ms far simulation uses 100 authored phases.
+                phase_step = .35 / max(count, 1)
+                baseline = [i * phase_step for i in range(count)]
                 optimized = baseline.copy()
-                baseline_probe = [0.] * count
-                optimized_probe = baseline_probe.copy()
                 baseline_ticks = [0] * count
                 optimized_ticks = [0] * count
-                next_global_wake = 0.
-                scans = 0
+                generations = [0] * count
+                heap = [(deadline, i, 0)
+                        for i, deadline in enumerate(optimized)]
+                heapq.heapify(heap)
+                heap_pops = 0
+                old_scan_deadlines = baseline.copy()
+                old_next_global = min(old_scan_deadlines)
+                old_candidate_checks = 0
                 for frame in range(1, fps * 10 + 1):
                     now = frame / fps
                     for i in range(count):
-                        if now >= baseline_probe[i]:
-                            baseline_probe[i] = now + .1
                         if now >= baseline[i]:
                             baseline_ticks[i] += 1
                             baseline[i] = now + .35
-                    if now < next_global_wake:
-                        continue
-                    scans += 1
-                    next_global_wake = float("inf")
-                    for i in range(count):
-                        if now >= optimized_probe[i]:
-                            optimized_probe[i] = now + .1
+
+                    # Exact mirror of the previous global-min implementation:
+                    # one due actor caused every dormant slot to be inspected.
+                    if now >= old_next_global:
+                        old_candidate_checks += count
+                        for i in range(count):
+                            if now >= old_scan_deadlines[i]:
+                                old_scan_deadlines[i] = now + .35
+                        old_next_global = min(old_scan_deadlines)
+
+                    # New queue: pop and reschedule only actors actually due.
+                    while heap and heap[0][0] <= now:
+                        _, i, generation = heapq.heappop(heap)
+                        if generation != generations[i]:
+                            continue
+                        heap_pops += 1
                         if now >= optimized[i]:
                             optimized_ticks[i] += 1
                             optimized[i] = now + .35
-                        next_global_wake = min(next_global_wake,
-                                               optimized_probe[i], optimized[i])
+                        generations[i] += 1
+                        heapq.heappush(heap, (optimized[i], i, generations[i]))
                 self.assertEqual(baseline_ticks, optimized_ticks)
-                self.assertLessEqual(scans, fps * 10)
-                if count == 1:
-                    self.assertLess(scans, fps * 10 // 2)
+                if count == 100:
+                    self.assertLess(heap_pops, old_candidate_checks * .40)
+
+    def test_camera_and_teleport_wakes_reorder_existing_heap_entries(self):
+        near = DIRECTOR.split("private void WakeDormantRivalsNearPlayer", 1)[1].split(
+            "internal void RegisterDormantRival", 1)[0]
+        camera = DIRECTOR.split("private void WakeRivalsOnCameraChange", 1)[1].split(
+            "internal bool TryVirtualGround", 1)[0]
+        self.assertIn("bot.ForceDormantProximityProbe();", near)
+        self.assertIn("ScheduleDormantRival(i, now);", near)
+        self.assertIn("ScheduleDormantRival(i, now);", camera)
+        self.assertIn("index = SiftDormantHeapUp(index);", DIRECTOR)
+        self.assertIn("SiftDormantHeapDown(index);", DIRECTOR)
 
     def test_sleeping_slots_defer_native_liveness_to_existing_deadline(self):
         sweep = DIRECTOR.split("public void TickDormantRivals(float now)", 1)[1].split(

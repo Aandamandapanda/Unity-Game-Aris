@@ -5,7 +5,7 @@ s=(Path(__file__).resolve().parents[2]/"Assets/AarisWorld/Scripts/AarisOfflineBR
 required=(
     "private const int RivalCount = 100;",
     "return bot == attackerOne || bot == attackerTwo;",
-    "owner.TryLootForRival(transform, out found);",
+    "owner.TryLootForRival(transform, out scavenged);",
     "rivalLootWorld.TryTakeForRival(rival, out weapon);",
     "else if (!remoteLoadoutGiven && AarisWeaponCatalog.Ready)",
     "AarisWeaponCatalog.Select(ref remoteLootSeed, false)",
