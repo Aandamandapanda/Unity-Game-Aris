@@ -21,6 +21,7 @@ namespace Aaris.MapReview
             new ProfilerMarker("Aaris.Diagnostics.Record");
 #endif
         [SerializeField] private Terrain[] terrains;
+        [SerializeField] private WindZone foliageWindZone;
         [SerializeField] private bool releaseTerrainPaintCpuCopies = false;
         [SerializeField] private int targetFrameRate = 60;
         [Header("Android runtime performance (adaptive internal render scale)")]
@@ -677,6 +678,12 @@ namespace Aaris.MapReview
             {
                 WindZone zone = mobileWindZones[i];
                 if (zone == null) continue;
+                if (zone == foliageWindZone && zone.mode == WindZoneMode.Directional)
+                {
+                    // Keep the authored breeze. SpeedTree prefab LODs budget its vertex work.
+                    mobileWindZones[i] = null;
+                    continue;
+                }
                 originalWindMain[i] = zone.windMain;
                 originalWindTurbulence[i] = zone.windTurbulence;
                 originalWindPulseMagnitude[i] = zone.windPulseMagnitude;
