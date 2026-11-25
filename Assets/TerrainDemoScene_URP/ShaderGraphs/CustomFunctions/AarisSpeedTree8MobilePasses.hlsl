@@ -234,6 +234,11 @@ SpeedTreeVertexOutput SpeedTree8Vert(SpeedTreeVertexInput input)
     UNITY_TRANSFER_INSTANCE_ID(input, output);
     UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
 
+    #if !defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
+        // Relative world height before wind, measured from the instance pivot.
+        float rootHeight = max(TransformObjectToWorldDir(input.vertex.xyz, false).y, 0.0);
+    #endif
+
     // handle speedtree wind and lod
     InitializeData(input, unity_LODFade.x);
 
@@ -264,7 +269,6 @@ SpeedTreeVertexOutput SpeedTree8Vert(SpeedTreeVertexInput input)
     #endif
     #if !defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
         // Reuse unused blue channel of existing vertex color interpolator.
-        float rootHeight = max(vertexInput.positionWS.y - UNITY_MATRIX_M[1].w, 0.0);
         half contact = (half)saturate(1.0 - rootHeight * 0.76923077);
         // Match the smooth grounded contact curve used by the authored bark graph.
         output.color.b = contact * contact * (3.0h - 2.0h * contact);
@@ -394,6 +398,108 @@ void InitializeInputData(SpeedTreeFragmentInput input, half3 normalTS, out Input
     #endif
 }
 
+#if defined(EFFECT_SUBSURFACE)
+half3 AarisLeafSun(InputData inputData, Light light, half occlusion)
+{
+    half ndl = dot(inputData.normalWS, light.direction);
+    half back = saturate(0.5h - 0.5h * ndl);
+    half rim = 1.0h - saturate(abs(ndl));
+    rim *= rim;
+    half towardSun = saturate(-dot(inputData.viewDirectionWS, light.direction));
+    half transmit = 0.42h * back * back + rim * (0.025h + 0.075h * towardSun);
+    half visibility = saturate(light.distanceAttenuation) * light.shadowAttenuation;
+    half3 warmSunTint = half3(1.04h, 1.0h, 0.86h);
+    return light.color * warmSunTint * (transmit * visibility * (0.6h + 0.4h * occlusion));
+}
+
+half3 AarisLeafSky(InputData inputData, half occlusion)
+{
+    half up = saturate(inputData.normalWS.y * 0.5h + 0.5h);
+    half3 skyTint = lerp(half3(1.0h, 1.0h, 1.0h), half3(0.94h, 1.0h, 1.06h), up);
+    return inputData.bakedGI * skyTint * (_SubsurfaceIndirect * 0.24h * occlusion);
+}
+
+#if !defined(GBUFFER)
+// Match URP 17.3's PBR light accumulation. The leaf lobe shares the main
+// Light already carrying the shadow, AO and cookie used by the lit surface.
+half4 AarisForwardLeafPBR(InputData inputData, SurfaceData surfaceData)
+{
+    #if defined(_SPECULARHIGHLIGHTS_OFF)
+        const bool specularHighlightsOff = true;
+    #else
+        const bool specularHighlightsOff = false;
+    #endif
+
+    BRDFData brdfData;
+    InitializeBRDFData(surfaceData, brdfData);
+
+    #if defined(DEBUG_DISPLAY)
+        half4 debugColor;
+        if (CanDebugOverrideOutputColor(inputData, surfaceData, brdfData, debugColor))
+            return debugColor;
+    #endif
+
+    BRDFData clearCoat = CreateClearCoatBRDFData(surfaceData, brdfData);
+    half4 shadowMask = CalculateShadowMask(inputData);
+    AmbientOcclusionFactor aoFactor = CreateAmbientOcclusionFactor(inputData, surfaceData);
+    uint meshRenderingLayers = GetMeshRenderingLayer();
+    Light mainLight = GetMainLight(inputData, shadowMask, aoFactor);
+    MixRealtimeAndBakedGI(mainLight, inputData.normalWS, inputData.bakedGI);
+
+    LightingData lighting = CreateLightingData(inputData, surfaceData);
+    lighting.giColor = GlobalIllumination(brdfData, clearCoat, surfaceData.clearCoatMask,
+        inputData.bakedGI, aoFactor.indirectAmbientOcclusion, inputData.positionWS,
+        inputData.normalWS, inputData.viewDirectionWS, inputData.normalizedScreenSpaceUV);
+
+    half3 leafColor = surfaceData.albedo * _SubsurfaceColor.rgb;
+    lighting.giColor += leafColor * AarisLeafSky(inputData, aoFactor.indirectAmbientOcclusion);
+    #if defined(_LIGHT_LAYERS)
+    if (IsMatchingLightLayer(mainLight.layerMask, meshRenderingLayers))
+    #endif
+    {
+        lighting.mainLightColor = LightingPhysicallyBased(brdfData, clearCoat, mainLight,
+            inputData.normalWS, inputData.viewDirectionWS, surfaceData.clearCoatMask, specularHighlightsOff);
+        lighting.mainLightColor += leafColor * AarisLeafSun(inputData, mainLight, surfaceData.occlusion);
+    }
+
+    #if defined(_ADDITIONAL_LIGHTS)
+        #if USE_CLUSTER_LIGHT_LOOP
+        [loop] for (uint lightIndex = 0; lightIndex < min(URP_FP_DIRECTIONAL_LIGHTS_COUNT, MAX_VISIBLE_LIGHTS); lightIndex++)
+        {
+            CLUSTER_LIGHT_LOOP_SUBTRACTIVE_LIGHT_CHECK
+            Light light = GetAdditionalLight(lightIndex, inputData, shadowMask, aoFactor);
+            #if defined(_LIGHT_LAYERS)
+            if (IsMatchingLightLayer(light.layerMask, meshRenderingLayers))
+            #endif
+                lighting.additionalLightsColor += LightingPhysicallyBased(brdfData, clearCoat, light,
+                    inputData.normalWS, inputData.viewDirectionWS, surfaceData.clearCoatMask, specularHighlightsOff);
+        }
+        #endif
+
+        uint pixelLightCount = GetAdditionalLightsCount();
+        LIGHT_LOOP_BEGIN(pixelLightCount)
+            Light light = GetAdditionalLight(lightIndex, inputData, shadowMask, aoFactor);
+            #if defined(_LIGHT_LAYERS)
+            if (IsMatchingLightLayer(light.layerMask, meshRenderingLayers))
+            #endif
+                lighting.additionalLightsColor += LightingPhysicallyBased(brdfData, clearCoat, light,
+                    inputData.normalWS, inputData.viewDirectionWS, surfaceData.clearCoatMask, specularHighlightsOff);
+        LIGHT_LOOP_END
+    #endif
+
+    #if defined(_ADDITIONAL_LIGHTS_VERTEX)
+        lighting.vertexLightingColor += inputData.vertexLighting * brdfData.diffuse;
+    #endif
+
+    half4 color = CalculateFinalColor(lighting, surfaceData.alpha);
+    #if REAL_IS_HALF
+        color = min(color, HALF_MAX);
+    #endif
+    return color;
+}
+#endif
+#endif
+
 #ifdef GBUFFER
 GBufferFragOutput SpeedTree8Frag(SpeedTreeFragmentInput input)
 #else
@@ -487,46 +593,24 @@ half4 SpeedTree8Frag(SpeedTreeFragmentInput input) : SV_Target
         albedo *= lerp(half3(1.0h, 1.0h, 1.0h), half3(0.84h, 0.80h, 0.73h), rootContact);
         occlusion *= 1.0h - 0.20h * rootContact;
     #endif
+    occlusion = saturate(occlusion);
     InputData inputData;
     InitializeInputData(input, normalTs, inputData);
     SETUP_DEBUG_TEXTURE_DATA(inputData, input.interpolated.uv);
 
 #if defined(GBUFFER)
-    // Deferred GI needs the shadowed main light; its result is reused below.
+    // Reuse the deferred GI light for sun transmission, too.
     Light mainLight = GetMainLight(inputData.shadowCoord, inputData.positionWS, inputData.shadowMask);
-#elif defined(EFFECT_SUBSURFACE)
-    // Forward URP PBR already fetches the shadowed light. Avoid a second shadow map
-    // read just to fake leaf translucency on low-end mobile devices.
-    Light mainLight = GetMainLight();
-#endif
-
-    // Replace the GGX, second shadow lookup and subsurface texture read.
-    #ifdef EFFECT_SUBSURFACE
-        half ndl = dot(inputData.normalWS, mainLight.direction);
-        half back = saturate(0.5h - 0.5h * ndl);
-        back *= back;
-        half rim = 1.0h - saturate(abs(ndl));
-        rim *= rim; // Narrow sunlit leaf edges instead of a broad plastic band.
-        half transmit = 0.42h * back + 0.10h * rim;
-        // Reuse authored vertex/texture AO so deeply buried leaves do not glow.
-        // No extra shadow map access or extra surface/texture sample.
-        half shadowFill = (0.62h + 0.24h * saturate(inputData.normalWS.y)) *
-                          (0.60h + 0.40h * saturate(occlusion));
-        half up = saturate(inputData.normalWS.y * 0.5h + 0.5h);
-        half3 skyTint = lerp(half3(1.0h, 1.0h, 1.0h), half3(0.94h, 1.0h, 1.06h), up);
-        half3 warmSunTint = half3(1.04h, 1.0h, 0.86h);
-        emission = albedo * _SubsurfaceColor.rgb *
-            (mainLight.color.rgb * warmSunTint * (transmit * shadowFill) +
-             inputData.bakedGI.rgb * skyTint * (_SubsurfaceIndirect * 0.24h));
-    #endif
-
-#ifdef GBUFFER
     // in LitForwardPass GlobalIllumination (and temporarily LightingPhysicallyBased) are called inside UniversalFragmentPBR
     // in Deferred rendering we store the sum of these values (and of emission as well) in the GBuffer
     BRDFData brdfData;
     InitializeBRDFData(albedo, metallic, specular, smoothness, alpha, brdfData);
 
     MixRealtimeAndBakedGI(mainLight, inputData.normalWS, inputData.bakedGI, inputData.shadowMask);
+    #if defined(EFFECT_SUBSURFACE)
+        emission = albedo * _SubsurfaceColor.rgb *
+            (AarisLeafSun(inputData, mainLight, occlusion) + AarisLeafSky(inputData, occlusion));
+    #endif
     half3 color = GlobalIllumination(brdfData, (BRDFData)0, 0, inputData.bakedGI, occlusion, inputData.positionWS,
                                      inputData.normalWS, inputData.viewDirectionWS, inputData.normalizedScreenSpaceUV);
 
@@ -550,7 +634,11 @@ half4 SpeedTree8Frag(SpeedTreeFragmentInput input) : SV_Target
     inputData.uv = uv;
 #endif
 
-    half4 color = UniversalFragmentPBR(inputData, surfaceData);
+    #if defined(EFFECT_SUBSURFACE)
+        half4 color = AarisForwardLeafPBR(inputData, surfaceData);
+    #else
+        half4 color = UniversalFragmentPBR(inputData, surfaceData);
+    #endif
 
     color.rgb = MixFog(color.rgb, inputData.fogCoord);
     color.a = OutputAlpha(color.a, _Surface);

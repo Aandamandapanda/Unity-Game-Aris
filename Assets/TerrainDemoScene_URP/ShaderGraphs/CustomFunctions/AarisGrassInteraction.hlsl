@@ -18,9 +18,13 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS, o
         float2 delta = pivot.xz - _AarisGrassInteractor.xz;
         float d2 = dot(delta, delta);
         float r2 = radius * radius;
-        if (d2 < r2 && abs(pivot.y - _AarisGrassInteractor.y) < 1.8)
+        float heightDelta = abs(pivot.y - _AarisGrassInteractor.y);
+        if (d2 < r2 && heightDelta < 1.8)
         {
-            float falloff = saturate(1.0 - d2 / r2);
+            // Fade the response on slopes and during a jump, including at
+            // the boundary that rejects foliage on a different floor.
+            float vertical = saturate((1.8 - heightDelta) * 1.25);
+            float falloff = (1.0 - d2 / r2) * vertical;
             float height = saturate(BasePositionOS.y);
             // Keep the roots pinned: move tips noticeably, lower blades minimally.
             float bend = falloff * falloff * height * height * 0.45;

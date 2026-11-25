@@ -36,6 +36,16 @@ def check_graph():
     meta = (FOLIAGE / "CustomFunctions/AarisGrassInteraction.hlsl.meta").read_text()
     assert "guid: " + INTERACT_GUID in meta
 
+    ground = next(b for b in blocks if b.get("m_FunctionName") == "AarisDetailGround")
+    assert ground["m_FunctionSource"] == "42c69bce689ca1845a44cd416f3614ef"
+    inputs = {e["m_InputSlot"]["m_SlotId"]: nodes[e["m_OutputSlot"]["m_Node"]["m_Id"]]["m_Name"]
+              for e in edges if e["m_InputSlot"]["m_Node"]["m_Id"] == ground["m_ObjectId"]}
+    assert inputs == {0: "Sample Texture 2D", 1: "TerrainColorMatch (Custom Interpolator)",
+                      2: "BiasedFade (Custom Interpolator)", 4: "Saturate"}
+    outputs = {nodes[e["m_InputSlot"]["m_Node"]["m_Id"]]["m_Name"]
+               for e in edges if e["m_OutputSlot"]["m_Node"]["m_Id"] == ground["m_ObjectId"]}
+    assert outputs == {"SurfaceDescription.BaseColor", "Multiply"}
+
 
 def check_interaction():
     shader = (FOLIAGE / "CustomFunctions/AarisGrassInteraction.hlsl").read_text()
@@ -45,6 +55,8 @@ def check_interaction():
     assert "TransformWorldToObjectDir" in shader
     assert "saturate(BasePositionOS.y)" in shader
     assert "falloff * falloff * height * height * 0.45" in shader
+    assert "saturate((1.8 - heightDelta) * 1.25)" in shader
+    assert "(1.0 - d2 / r2) * vertical" in shader
     assert not any(term in shader for term in ("RWTexture", "ComputeBuffer", "Raycast", "Collider"))
     assert "Shader.SetGlobalVector(GrassInteractorId, next)" in motor
     assert "footMotor.transform.position" in motor
@@ -59,6 +71,9 @@ def check_mobile_transmission():
     assert "skyFill" in shader and "rim" in shader
     assert "acos(" not in shader and "pow(" not in shader
     assert "TransformWorldToShadowCoord" not in shader
+    assert "void AarisDetailGround_half" in shader
+    assert "saturate(1.0h - 2.0h * Height01)" in shader
+    assert "lerp(rootedColor, TerrainColor, DistanceFade)" in shader
 
 
 def check_speedtree_materials():
@@ -140,13 +155,21 @@ def check_custom_speedtree_shader():
     assert "guid: d353c971ad804ad385b5e3a933e53721" in meta
     assert 'Shader "Aaris/Nature/SpeedTree8Mobile"' in shader
     assert '#pragma multi_compile_instancing' in shader
+    # Leaf and bark data share a varying that must be written with the same
+    # keyword state in the vertex shader as in the fragment shader.
+    for keyword in ("EFFECT_HUE_VARIATION", "EFFECT_SUBSURFACE"):
+        assert shader.count("#pragma shader_feature_local " + keyword) == 2
+        assert "#pragma shader_feature_local_fragment " + keyword not in shader
     assert '#include "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl"' in shader
     assert "UNITY_SETUP_INSTANCE_ID" in source
     assert "float3 treePos" in source and "hueVariationAmount" in source
     assert "half rootContact" in source and "occlusion *= 1.0h - 0.20h * rootContact" in source
     assert "half3 skyTint" in source and "half transmit" in source
-    assert "Light mainLight = GetMainLight();" in source
-    assert "Avoid a second shadow map" in source
+    assert "Light mainLight = GetMainLight(inputData, shadowMask, aoFactor);" in source
+    assert "light.shadowAttenuation" in source
+    assert "AarisLeafSun(inputData, mainLight, surfaceData.occlusion)" in source
+    assert "AarisLeafSky(inputData, aoFactor.indirectAmbientOcclusion)" in source
+    assert "MainLightRealtimeShadow(" not in source
     assert "SampleNormal" in source and "normalTs.xy *= 1.15h" in source
     # The blue varying must be shared by non-subsurface bark root AO and
     # subsurface leaf variation, never requiring an extra TEXCOORD.
