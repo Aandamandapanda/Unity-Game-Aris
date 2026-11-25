@@ -17,8 +17,9 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS,
     float inverseRadiusSq = _AarisGrassInteractor.w;
     if (inverseRadiusSq > 0.0)
     {
-        // The Terrain detail mesh pivot is positioned by its instanced object matrix.
-        float3 pivot = TransformObjectToWorld(float3(0.0, 0.0, 0.0));
+        // The Terrain detail mesh pivot is the translation column of its instanced
+        // object matrix. Read it directly instead of multiplying a zero vertex.
+        float3 pivot = float3(UNITY_MATRIX_M[0].w, UNITY_MATRIX_M[1].w, UNITY_MATRIX_M[2].w);
         // All vertices of this instance share the same ground pivot height.
         // Reject different floors/slopes before computing per-leaf world XZ.
         float heightDelta = abs(pivot.y - _AarisGrassInteractor.y);
@@ -41,12 +42,15 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS,
                 float2 spanXZ = float2(
                     dot(abs(UNITY_MATRIX_M[0].xyz), maxAbsRedBushOS),
                     dot(abs(UNITY_MATRIX_M[2].xyz), maxAbsRedBushOS));
-                float contactRadius = rsqrt(inverseRadiusSq);
-                // A red leaf can only be reached if the interactor lies
-                // inside the mesh world-AABB enlarged by its contact radius.
-                // This reject is uniform for each instanced bush, so distant
-                // 8,887-vertex crowns avoid the per-leaf world transform.
-                UNITY_BRANCH if (any(abs(delta) > spanXZ + contactRadius))
+                // Squared distance from the interactor to the closest point of
+                // the conservative world-XZ AABB. This is tighter than expanding
+                // the box by the radius and avoids a per-vertex reciprocal sqrt.
+                float2 outside = max(abs(delta) - spanXZ, 0.0);
+                // A red leaf can only be reached if that closest AABB point is
+                // inside the interaction circle. The test is uniform for each
+                // instanced bush, so distant 8,887-vertex crowns skip the later
+                // per-leaf world transform without changing reachable contacts.
+                UNITY_BRANCH if (dot(outside, outside) * inverseRadiusSq >= 1.0)
                     return;
             }
             delta = TransformObjectToWorld(BasePositionOS).xz - _AarisGrassInteractor.xz;

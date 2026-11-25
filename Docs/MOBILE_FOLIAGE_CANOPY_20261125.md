@@ -129,3 +129,32 @@ All 13 groups, three tree-shadow tests and ten tree-proportion tests passed.
 The live Unity native-project batch import exited 0 with zero reported C# or
 shader errors. This is source/Editor verification, not an Android GLES3x variant
 exhaustiveness guarantee or a measured Adreno 610 FPS/thermal improvement.
+
+## Continuation: sqrt-free shrub interaction broad-phase
+
+A final vertex-hot-path audit found two mathematically redundant operations in
+the terrain-detail interaction path. The per-instance Terrain detail pivot is
+now read directly from the object-matrix translation column instead of running
+a generic object-to-world transform on the zero vertex. The measured Red Bush
+broad-phase now computes squared distance from the interactor to the closest
+point of its conservative projected XZ AABB. This replaces the previous
+radius-expanded box plus reciprocal-square-root recovery with abs/max/dot/
+multiply math. It is a tighter conservative reject: any reachable leaf remains
+accepted, while corner-only positions outside the circular contact envelope can
+skip the later per-leaf world transform earlier.
+
+The change adds no texture sample, pass, varying, material variant, collider,
+physics query, runtime allocation or draw call. The regression model continues
+to stress all four measured Red Bush mesh envelopes under arbitrary rotation,
+tilt, mirroring and non-uniform scale, and additionally proves that 10,000
+reachable randomized contacts cannot be culled by the squared circle-vs-AABB
+test.
+
+Post-change verification used Unity 6000.3.26f1 in disposable projects under
+/tmp. The native source-only project imported 104 game scripts, executed its
+gate method and reported zero C# compiler errors. A separate shader-data gate
+compiled 10 TerrainGrass and 28 AarisSpeedTree8Mobile GLES3x variants for the
+Android build target: 38 requests, zero failed variants, zero shader compiler
+errors and zero C# errors. The installed Editor does not include the Android
+playback module, so this is a direct GLES3x shader-compiler gate rather than an
+APK build or measured Snapdragon/Adreno device benchmark.

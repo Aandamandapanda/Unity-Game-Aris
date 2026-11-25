@@ -81,6 +81,8 @@ def check_interaction():
     # Shader work on unrelated floors/slopes is rejected before per-leaf
     # object-to-world transforms. The old conjunctive bound is equivalent.
     assert "UNITY_BRANCH if (heightDelta >= 1.8)" in shader
+    assert "float3 pivot = float3(UNITY_MATRIX_M[0].w, UNITY_MATRIX_M[1].w, UNITY_MATRIX_M[2].w);" in shader
+    assert "TransformObjectToWorld(float3(0.0, 0.0, 0.0))" not in shader
     assert shader.index("float heightDelta = abs(pivot.y") < shader.index(
         "TransformObjectToWorld(BasePositionOS).xz")
     assert "if (radial < 1.0)" in shader
@@ -120,10 +122,13 @@ def check_red_bush_broadphase():
                  "float3(2.30, 2.20, 2.50)",
                  "dot(abs(UNITY_MATRIX_M[0].xyz), maxAbsRedBushOS)",
                  "dot(abs(UNITY_MATRIX_M[2].xyz), maxAbsRedBushOS)",
-                 "float contactRadius = rsqrt(inverseRadiusSq)",
-                 "UNITY_BRANCH if (any(abs(delta) > spanXZ + contactRadius))"):
+                 "float2 outside = max(abs(delta) - spanXZ, 0.0)",
+                 "dot(outside, outside) * inverseRadiusSq >= 1.0"):
         assert term in shader
-    assert shader.index("spanXZ + contactRadius") < shader.index(
+    broadphase = shader[shader.index("const float3 maxAbsRedBushOS"):
+                        shader.index("delta = TransformObjectToWorld(BasePositionOS).xz")]
+    assert "rsqrt(" not in broadphase and "contactRadius" not in broadphase
+    assert shader.index("dot(outside, outside) * inverseRadiusSq") < shader.index(
         "TransformObjectToWorld(BasePositionOS).xz")
     # Measured from Unity AssetDatabase: painted bush + standalone LOD0/1/2.
     models = [
@@ -154,6 +159,25 @@ def check_red_bush_broadphase():
         assert (px-x)**2 + (pz-z)**2 < radius*radius
         assert abs(px) <= sx + radius + 1e-5
         assert abs(pz) <= sz + radius + 1e-5
+        # Closest-AABB distance cannot exceed distance to this reachable card.
+        ox = max(abs(px) - sx, 0.0)
+        oz = max(abs(pz) - sz, 0.0)
+        assert (ox*ox + oz*oz) / (radius*radius) < 1.0
+
+    # Corner-only points accepted by the old radius-expanded square can be
+    # rejected by the tighter rounded envelope, still without a square root.
+    tightened = 0
+    for _ in range(4000):
+        sx, sz = rng.uniform(.2, 6), rng.uniform(.2, 6)
+        radius = rng.choice((1.25, 2.6, 5.0))
+        px = rng.uniform(-sx-radius, sx+radius)
+        pz = rng.uniform(-sz-radius, sz+radius)
+        old_reject = abs(px) > sx + radius or abs(pz) > sz + radius
+        ox, oz = max(abs(px)-sx, 0.0), max(abs(pz)-sz, 0.0)
+        new_reject = (ox*ox + oz*oz) >= radius*radius
+        assert not old_reject
+        tightened += int(new_reject)
+    assert tightened > 0
 
 
 def check_mobile_transmission():
