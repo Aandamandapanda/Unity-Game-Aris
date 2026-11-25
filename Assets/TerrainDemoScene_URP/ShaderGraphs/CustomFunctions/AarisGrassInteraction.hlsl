@@ -24,10 +24,14 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS, o
             // Fade the response on slopes and during a jump, including at
             // the boundary that rejects foliage on a different floor.
             float vertical = saturate((1.8 - heightDelta) * 1.25);
-            float falloff = (1.0 - d2 / r2) * vertical;
+            // Cubic vertical easing has zero slope at both ends, so crossing
+            // the full-contact height while running downhill or landing cannot
+            // abruptly change blade velocity. Keep the radial falloff squared.
+            vertical = vertical * vertical * (3.0 - 2.0 * vertical);
+            float falloff = 1.0 - d2 / r2;
             float height = saturate(BasePositionOS.y);
             // Keep the roots pinned: move tips noticeably, lower blades minimally.
-            float bend = falloff * falloff * height * height * 0.45;
+            float bend = falloff * falloff * vertical * height * height * 0.45;
             // A regularized length has no sharp derivative at the old
             // 0.10m cutoff. Passing directly through a pivot remains finite.
             float2 dir = delta * rsqrt(d2 + 0.0144);
