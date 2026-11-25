@@ -44,9 +44,10 @@ textures, collision geometry, shadow budgets and URP render scale are unchanged.
 
 - Authored distant 3D SpeedTree leaf materials use the Fastest/default wind
   variant. That variant now takes a normalized hemispherical canopy frame
-  instead of rebuilding the full ellipsoid crown gradient. Near Fast leaves
-  keep the full volumetric canopy normal and micro-flutter; billboards are
-  unchanged. The accepted candidate compiled 48 Android GLES3x variants with
+  instead of rebuilding the full ellipsoid crown gradient. Distant chroma
+  variation now uses the stable tree pivot instead of a full per-leaf world
+  anchor transform; near leaves keep exact per-leaf variation, the full
+  volumetric canopy normal and micro-flutter. Billboards are unchanged. The accepted candidate compiled 48 Android GLES3x variants with
   zero shader/C# errors. Same-camera tree A/B readbacks stayed effectively
   unchanged (close RMS 0.163/255, wide-forest RMS 0.196/255) while removing
   crown-gradient and extra normalization work from the distant leaf vertex path.

@@ -410,8 +410,16 @@ SpeedTreeVertexOutput SpeedTree8Vert(SpeedTreeVertexInput input)
         // SpeedTree packs anchor XYZ across texcoord1.zw and texcoord2.w.
         // Transform the full anchor so rotated/scaled instances do not color
         // leaves from the wrong local axis (formerly local Y was used as Z).
-        float3 leafAnchorOS = float3(input.texcoord1.z, input.texcoord1.w, input.texcoord2.w);
-        float2 leafAnchorXZ = TransformObjectToWorld(leafAnchorOS).xz;
+        #if !defined(_WINDQUALITY_NONE) && !defined(_WINDQUALITY_FAST) && \
+            !defined(_WINDQUALITY_BETTER) && !defined(_WINDQUALITY_BEST) && \
+            !defined(_WINDQUALITY_PALM)
+            // Distant 3D LOD: broad per-tree chroma breakup without a full
+            // packed leaf-anchor world transform on every vertex.
+            float2 leafAnchorXZ = float2(UNITY_MATRIX_M[0].w, UNITY_MATRIX_M[2].w);
+        #else
+            float3 leafAnchorOS = float3(input.texcoord1.z, input.texcoord1.w, input.texcoord2.w);
+            float2 leafAnchorXZ = TransformObjectToWorld(leafAnchorOS).xz;
+        #endif
         float leafSeed = frac(dot(leafAnchorXZ, float2(0.1031, 0.11369)));
         output.color.b = (half)frac(leafSeed * (leafSeed + 17.17));
     #endif

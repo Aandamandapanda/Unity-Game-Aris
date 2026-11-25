@@ -242,8 +242,13 @@ def check_custom_speedtree_shader():
     assert "output.color.b = (half)frac(leafSeed * (leafSeed + 17.17))" in source
     # SpeedTree leaf anchor is XYZ = (uv1.z, uv1.w, uv2.w), not uv1.zw as XZ.
     # Matrix transform keeps the variation fixed to each leaf when trees rotate.
+    assert "float2 leafAnchorXZ = float2(UNITY_MATRIX_M[0].w, UNITY_MATRIX_M[2].w)" in source
     assert "float3 leafAnchorOS = float3(input.texcoord1.z, input.texcoord1.w, input.texcoord2.w)" in source
     assert "TransformObjectToWorld(leafAnchorOS).xz" in source
+    chroma = source[source.index("Distant 3D LOD: broad per-tree chroma"):
+                    source.index("float leafSeed =", source.index("Distant 3D LOD: broad per-tree chroma"))]
+    assert chroma.index("UNITY_MATRIX_M[0].w") < chroma.index("#else")
+    assert chroma.index("TransformObjectToWorld(leafAnchorOS).xz") > chroma.index("#else")
     assert "float2 leafAnchorXZ = input.texcoord1.zw +" not in source
     assert "half leafDetail = input.interpolated.color.b - 0.5h" in source
     assert source.count("#if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)") >= 2
