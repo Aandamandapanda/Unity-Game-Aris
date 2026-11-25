@@ -1,6 +1,6 @@
 // Derived from Unity URP 17.3 SpeedTree8, copyright (c) Unity Technologies ApS.
 // Unity Companion License: https://unity.com/legal/licenses/unity-companion-license
-// Aaris modifications: mobile foliage illumination and root contact, no additional passes.
+// Aaris modifications: mobile foliage illumination, root contact and Fast wind.
 #ifndef UNIVERSAL_SPEEDTREE8_PASSES_INCLUDED
 #define UNIVERSAL_SPEEDTREE8_PASSES_INCLUDED
 
@@ -98,6 +98,45 @@ struct SpeedTreeFragmentInput
 #endif
 };
 
+#if defined(ENABLE_WIND) && defined(_WINDQUALITY_FAST) && !defined(EFFECT_BILLBOARD)
+#include "AarisGrassPhase.hlsl"
+
+void AarisFastLeafWind(inout SpeedTreeVertexInput input, inout float3 positionOS,
+    float3 anchorOS, float3 treeWS, float3 windOS, bool leafTwo)
+{
+    // All vertices on the tree share this distance, including in depth and shadow.
+    float3 cameraOffset = treeWS - GetCameraPositionWS();
+    float distanceSq = dot(cameraOffset, cameraOffset);
+    const float fullFlutterDistanceSq = 35.0 * 35.0;
+    const float endFlutterDistanceSq = 75.0 * 75.0;
+    UNITY_BRANCH if (distanceSq >= endFlutterDistanceSq)
+        return;
+
+    float fade = saturate((endFlutterDistanceSq - distanceSq) /
+        (endFlutterDistanceSq - fullFlutterDistanceSq));
+    fade = fade * fade * (3.0 - 2.0 * fade);
+
+    // The long wave travels downwind through nearby trees. Each leaf's
+    // original anchor gives its faster flutter a stable phase during LOD morph.
+    float2 ripple = leafTwo ? _ST_WindLeaf2Ripple.xy : _ST_WindLeaf1Ripple.xy;
+    float gustPhase = _ST_WindGlobal.x * 0.20 - dot(treeWS.xz, _ST_WindVector.xz) * 0.035;
+    float gust = 0.40 + 0.60 * AarisSmoothWindWave(gustPhase);
+    float leafPhase = ripple.x * 1.6 + dot(anchorOS, float3(0.31, 0.57, 0.41));
+    float flutter = 2.0 * AarisSmoothWindWave(leafPhase) - 1.0;
+    float bend = min(abs(ripple.y) * 5.0, 0.18) * saturate(input.texcoord3.x) * fade;
+    float angle = bend * gust * (0.23 + 0.77 * flutter);
+    float3 rotation = float3(windOS.z, 0.0, -windOS.x) * angle;
+
+    // A small-angle rotation pins the hinge and tilts the lighting basis
+    // with the mesh. The 0.18 radian cap keeps this approximation stable.
+    positionOS += cross(rotation, positionOS - anchorOS);
+    input.normal += cross(rotation, input.normal);
+    #if defined(EFFECT_BUMP)
+        input.tangent.xyz += cross(rotation, input.tangent.xyz);
+    #endif
+}
+#endif
+
 void InitializeData(inout SpeedTreeVertexInput input, float lodValue)
 {
 #if !defined(EFFECT_BILLBOARD)
@@ -142,27 +181,25 @@ void InitializeData(inout SpeedTreeVertexInput input, float lodValue)
 
             #ifndef EFFECT_BILLBOARD
 
-                // leaves
-                if (geometryType > GEOM_TYPE_FROND)
-                {
-                    // remove anchor position
-                    float3 anchor = float3(input.texcoord1.zw, input.texcoord2.w);
-                    windyPosition -= anchor;
-
-                    // leaf wind
-                    #if defined(_WINDQUALITY_FAST) || defined(_WINDQUALITY_BETTER) || defined(_WINDQUALITY_BEST)
+                #if defined(_WINDQUALITY_FAST) || defined(_WINDQUALITY_BETTER) || defined(_WINDQUALITY_BEST)
+                    if (geometryType > GEOM_TYPE_FROND)
+                    {
+                        float3 anchor = float3(input.texcoord1.zw, input.texcoord2.w);
+                    #if defined(_WINDQUALITY_FAST)
+                        AarisFastLeafWind(input, windyPosition, anchor, treePos, rotatedWindVector, leafTwo);
+                    #else
                         #ifdef _WINDQUALITY_BEST
                             bool bBestWind = true;
                         #else
                             bool bBestWind = false;
                         #endif
                         float leafWindTrigOffset = anchor.x + anchor.y;
-                        windyPosition = LeafWind(bBestWind, leafTwo, windyPosition, input.normal, input.texcoord3.x, float3(0,0,0), input.texcoord3.y, input.texcoord3.z, leafWindTrigOffset, rotatedWindVector);
+                        windyPosition = anchor + LeafWind(bBestWind, leafTwo, windyPosition - anchor,
+                            input.normal, input.texcoord3.x, float3(0,0,0), input.texcoord3.y,
+                            input.texcoord3.z, leafWindTrigOffset, rotatedWindVector);
                     #endif
-
-                    // move back out to anchor
-                    windyPosition += anchor;
-                }
+                    }
+                #endif
 
                 // frond wind
                 bool bPalmWind = false;

@@ -122,7 +122,7 @@ Shader "Aaris/Nature/SpeedTree8Mobile"
             #define SCENESELECTIONPASS
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/Nature/SpeedTree8Input.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/Nature/SpeedTree8Passes.hlsl"
+            #include "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl"
 
             ENDHLSL
         }
@@ -208,7 +208,7 @@ Shader "Aaris/Nature/SpeedTree8Mobile"
             #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/Nature/SpeedTree8Input.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/Nature/SpeedTree8Passes.hlsl"
+            #include "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl"
             ENDHLSL
         }
 
@@ -237,7 +237,7 @@ Shader "Aaris/Nature/SpeedTree8Mobile"
             #define DEPTH_ONLY
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/Nature/SpeedTree8Input.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/Nature/SpeedTree8Passes.hlsl"
+            #include "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl"
 
             ENDHLSL
         }
@@ -267,7 +267,7 @@ Shader "Aaris/Nature/SpeedTree8Mobile"
             #define EFFECT_BACKSIDE_NORMALS
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/Nature/SpeedTree8Input.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/Nature/SpeedTree8Passes.hlsl"
+            #include "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl"
             ENDHLSL
         }
     }

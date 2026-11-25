@@ -232,6 +232,23 @@ def check_hue_variation_finite():
                 assert all(abs(a - b) < 1e-7 for a, b in zip(base, final))
 
 
+def check_mobile_leaf_wind():
+    shader = (FOLIAGE / "AarisSpeedTree8Mobile.shader").read_text()
+    source = (FOLIAGE / "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl").read_text()
+    # Motion must agree across visible, shadow, selection and camera depth passes.
+    assert shader.count('#include "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl"') == 6
+    assert source.count("InitializeData(input, unity_LODFade.x);") == 3
+    start = source.index("void AarisFastLeafWind(")
+    wind = source[start:source.index("\n}\n", start)]
+    assert wind.index("distanceSq >= endFlutterDistanceSq") < wind.index("AarisSmoothWindWave")
+    assert "float3 windOS" in wind and "dot(treeWS.xz, _ST_WindVector.xz)" in wind
+    assert "dot(anchorOS," in wind
+    assert "cross(rotation, positionOS - anchorOS)" in wind
+    assert "cross(rotation, input.normal)" in wind and "cross(rotation, input.tangent.xyz)" in wind
+    assert not any(operation in wind for operation in ("SAMPLE_TEXTURE", "tex2D", "sin(", "cos(", "pow("))
+    assert "AarisFastLeafWind(input, windyPosition, anchor, treePos, rotatedWindVector, leafTwo)" in source
+
+
 if __name__ == "__main__":
     check_graph()
     check_interaction()
@@ -241,4 +258,5 @@ if __name__ == "__main__":
     check_tree_graph_illusions()
     check_custom_speedtree_shader()
     check_hue_variation_finite()
+    check_mobile_leaf_wind()
     print("AARIS_MOBILE_FOLIAGE_CONTRACT_PASS")
