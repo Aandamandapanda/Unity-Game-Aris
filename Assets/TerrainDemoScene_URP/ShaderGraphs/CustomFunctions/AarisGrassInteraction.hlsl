@@ -4,7 +4,7 @@
 // One global interactor for the on-foot player or active vehicle.
 // Shader Graph calls this in the vertex stage only: no physics, colliders,
 // per-blade scripts, extra texture samples or rendering passes.
-float4 _AarisGrassInteractor;  // World xyz, interaction radius in metres.
+float4 _AarisGrassInteractor;  // World xyz, inverse interaction radius squared.
 
 void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS,
     float GroundHeight, float4 Profile, out float3 Out, out float3 BendSlopeOS)
@@ -12,8 +12,10 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS,
     Out = WindPositionOS;
     BendSlopeOS = 0.0;
 #ifndef SHADERGRAPH_PREVIEW
-    float radius = _AarisGrassInteractor.w;
-    if (radius > 0.0)
+    // Normalize the interaction radius once on CPU. Every detail vertex then
+    // uses one multiply instead of rebuilding r^2 and dividing by it.
+    float inverseRadiusSq = _AarisGrassInteractor.w;
+    if (inverseRadiusSq > 0.0)
     {
         // The Terrain detail mesh pivot is positioned by its instanced object matrix.
         float3 pivot = TransformObjectToWorld(float3(0.0, 0.0, 0.0));
@@ -23,9 +25,9 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS,
         UNITY_BRANCH if (Profile.x > 0.001 && GroundHeight > 1.5)
             delta = TransformObjectToWorld(BasePositionOS).xz - _AarisGrassInteractor.xz;
         float d2 = dot(delta, delta);
-        float r2 = radius * radius;
+        float radial = d2 * inverseRadiusSq;
         float heightDelta = abs(pivot.y - _AarisGrassInteractor.y);
-        if (d2 < r2 && heightDelta < 1.8)
+        if (radial < 1.0 && heightDelta < 1.8)
         {
             // Fade the response on slopes and during a jump, including at
             // the boundary that rejects foliage on a different floor.
@@ -34,7 +36,7 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS,
             // the full-contact height while running downhill or landing cannot
             // abruptly change blade velocity. Keep the radial falloff squared.
             vertical = vertical * vertical * (3.0 - 2.0 * vertical);
-            float falloff = 1.0 - d2 / r2;
+            float falloff = 1.0 - radial;
             float height = saturate(BasePositionOS.y);
             float bendScale = 1.0;
             float inverseHeight = 1.0;

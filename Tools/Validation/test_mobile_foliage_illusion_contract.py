@@ -70,13 +70,16 @@ def check_interaction():
     motor = (ROOT / "Assets/AarisWorld/Scripts/AarisVehicleSession.cs").read_text()
     assert "void AarisGrassInteraction_float" in shader
     assert "float4 _AarisGrassInteractor;" in shader
+    assert "float inverseRadiusSq = _AarisGrassInteractor.w;" in shader
+    assert "float radial = d2 * inverseRadiusSq;" in shader
     assert "TransformWorldToObjectDir" in shader
     assert "saturate(BasePositionOS.y)" in shader
     assert "falloff * falloff * vertical * 0.45" in shader
     assert "Out += offsetOS * (height * height)" in shader
     assert "BendSlopeOS = clamp(offsetOS * (2.0 * height * inverseHeight)" in shader
     assert "saturate((1.8 - heightDelta) * 1.25)" in shader
-    assert "float falloff = 1.0 - d2 / r2;" in shader
+    assert "float falloff = 1.0 - radial;" in shader
+    assert "radius * radius" not in shader and "d2 / r2" not in shader
     assert "vertical = vertical * vertical * (3.0 - 2.0 * vertical)" in shader
     assert "rsqrt(d2 + 0.0144)" in shader
     assert "rcp(max(GroundHeight, 0.05))" in shader
@@ -85,6 +88,10 @@ def check_interaction():
     assert "min(1.0, max(GroundHeight, 0.25))" in shader
     assert not any(term in shader for term in ("RWTexture", "ComputeBuffer", "Raycast", "Collider"))
     assert "Shader.SetGlobalVector(GrassInteractorId, next)" in motor
+    assert "FootGrassInverseRadiusSq = 1f / (1.25f * 1.25f)" in motor
+    assert "VehicleGrassInverseRadiusSq = 1f / (2.6f * 2.6f)" in motor
+    assert "new Vector4(p.x, p.y, p.z, FootGrassInverseRadiusSq)" in motor
+    assert "new Vector4(p.x, p.y, p.z, VehicleGrassInverseRadiusSq)" in motor
     assert "footMotor.transform.position" in motor
     assert "car.transform.position" in motor
     assert "Shader.SetGlobalVector(GrassInteractorId, Vector4.zero)" in motor
@@ -432,6 +439,16 @@ def check_continuous_wind_math():
             assert abs(sway(h, 1 / h, .05, 8, gust, 1)) <= .034001 * h
             assert sway(h, 1 / h, .05, 8, gust, 0) == 0.0
     assert sway(1, 0, .05, 8, 1, 1) == 0.0
+
+    # CPU-precomputed inverse radius squared is algebraically equivalent to
+    # the old per-vertex divide for both interaction radii.
+    for radius in (1.25, 2.6):
+        inv_r2 = 1.0 / (radius * radius)
+        for step in range(1001):
+            d = radius * step / 1000.0
+            old_radial = (d * d) / (radius * radius)
+            new_radial = (d * d) * inv_r2
+            assert abs(old_radial - new_radial) < 1e-12
 
     # Ground response is finite and direction-continuous through the player
     # center, and fades to zero at both the horizontal and vertical bounds.

@@ -24,6 +24,15 @@ textures, collision geometry, shadow budgets and URP render scale are unchanged.
   thickness references and .5 alpha cutout. The same material is used by
   the standalone red shrub prefab. The existing global player/vehicle vector
   bends anchored roots/tips; large shrubs react at their outer vertices.
+- Player/vehicle contact now uploads inverse interaction-radius-squared once
+  from C#. The Terrain detail vertex path normalizes squared distance with
+  one multiply, removing the previous per-vertex radius square and divide
+  while preserving the exact 1.25 m foot and 2.6 m vehicle falloff.
+  This continuation was revalidated in Unity 6000.3.26f1: the disposable
+  native C# source project exited 0 with zero compiler errors, and a separate
+  disposable GLES3x/Android shader gate compiled 10 selected TerrainGrass
+  combined-stage variants plus 35 selected SpeedTree variants with zero
+  failed variants and zero GLES3x shader-message errors.
 - Cypress cutout materials use the shader's AlphaTest queue. Bush_A's
   texture preserves coverage at its actual .482 threshold.
 - A separate experimental change to six 3D leaf alpha-mip reference values

@@ -112,6 +112,10 @@ namespace Aaris.MapReview
         }
 
         private static readonly int GrassInteractorId = Shader.PropertyToID("_AarisGrassInteractor");
+        // Precompute radial normalization on CPU once. The terrain-detail
+        // vertex shader receives 1/r^2 and avoids a division for every vertex.
+        private const float FootGrassInverseRadiusSq = 1f / (1.25f * 1.25f);
+        private const float VehicleGrassInverseRadiusSq = 1f / (2.6f * 2.6f);
         private Vector4 lastGrassInteractor;
 
         private void PublishGrassInteractor()
@@ -120,12 +124,12 @@ namespace Aaris.MapReview
             if (car != null && car.isActiveAndEnabled)
             {
                 Vector3 p = car.transform.position;
-                next = new Vector4(p.x, p.y, p.z, 2.6f);
+                next = new Vector4(p.x, p.y, p.z, VehicleGrassInverseRadiusSq);
             }
             else if (footMotor != null && footMotor.isActiveAndEnabled)
             {
                 Vector3 p = footMotor.transform.position;
-                next = new Vector4(p.x, p.y, p.z, 1.25f);
+                next = new Vector4(p.x, p.y, p.z, FootGrassInverseRadiusSq);
             }
             if (next.Equals(lastGrassInteractor)) return;
             Shader.SetGlobalVector(GrassInteractorId, next);
