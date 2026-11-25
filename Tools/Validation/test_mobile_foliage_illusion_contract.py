@@ -343,7 +343,7 @@ def check_custom_speedtree_shader():
     assert "AarisLeafSun(inputData.normalWS, mainLight, surfaceData.occlusion)" in source
     assert "AarisLeafSky(inputData.normalWS, inputData.bakedGI, aoFactor.indirectAmbientOcclusion)" in source
     assert "MainLightRealtimeShadow(" not in source
-    assert "SampleNormal" in source and "normalTs.xy *= 1.15h" in source
+    assert "SampleNormal" in source and source.count("normalTs.xy *= 1.20h - 0.12h * rootContact") == 2
     # The blue varying must be shared by non-subsurface bark root AO and
     # subsurface leaf variation, never requiring an extra TEXCOORD.
     assert "output.color.b = contact * contact * (3.0h - 2.0h * contact)" in source
@@ -356,9 +356,10 @@ def check_custom_speedtree_shader():
     assert "saturate(occlusion)" in source
     assert "smoothness *= 1.0h - 0.16h * rootContact" in source
     assert "half hemiStrength = 0.17h + 0.07h * up;" in source
-    assert "normalTs.xy *= 1.15h" in source
+    assert source.count("half rootContact = saturate(input.interpolated.color.b);") == 2
     assert "leafDetail * 0.085h" in source
-    assert "output.color.b = (half)frac(leafSeed * (leafSeed + 17.17))" in source
+    assert "float macroTone = AarisForestMacroTone(treePivotXZ);" in source
+    assert "leafTone * 0.70 + macroTone * 0.30" in source
     # Forest-scale breakup comes from the world-space instance pivot.
     # Near leaves add stable object-space anchor noise without matrix transforms.
     assert "float2 treePivotXZ = float2(UNITY_MATRIX_M[0].w, UNITY_MATRIX_M[2].w)" in source
@@ -369,6 +370,44 @@ def check_custom_speedtree_shader():
     assert "half leafDetail = input.interpolated.color.b - 0.5h" in source
     assert source.count("#if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)") >= 2
     assert not any(term in source for term in ("Raycast(", "Physics.", "ComputeBuffer", "MaterialPropertyBlock"))
+
+
+def check_forest_macro_tone_math():
+    """Broad world-space colour field stays finite, bounded and wrap-continuous."""
+    from math import floor, isfinite
+
+    canopy = (FOLIAGE / "CustomFunctions/AarisFoliageCanopy.hlsl").read_text()
+    start = canopy.index("float AarisForestMacroTone(")
+    body = canopy[start:canopy.index("\n}\n", start)]
+    for term in ("frac(dot(pivotXZ", "0.001953125", "0.001220703",
+                 "-0.001464844", "0.001708984", "a * 0.57 + b * 0.43"):
+        assert term in body
+    assert not any(term in body for term in
+                   ("sin(", "cos(", "pow(", "SAMPLE_TEXTURE", "tex2D", "floor("))
+
+    def tri(v):
+        f = v - floor(v)
+        return 1.0 - abs(f * 2.0 - 1.0)
+
+    def tone(x, z):
+        a = tri(x * .001953125 + z * .001220703)
+        b = tri(x * -.001464844 + z * .001708984)
+        return max(0.0, min(1.0, a * .57 + b * .43))
+
+    samples = [tone(x, z)
+               for x in range(-1400, 1401, 37)
+               for z in range(-1400, 1401, 53)]
+    assert all(isfinite(v) and 0.0 <= v <= 1.0 for v in samples)
+    assert max(samples) - min(samples) > 0.75
+
+    eps = 1e-5
+    for k in range(-3, 4):
+        assert abs(tri(k - eps) - tri(k + eps)) < 5e-5
+
+    deltas = []
+    for x, z in ((-900, -700), (-320, 410), (0, 0), (470, -610), (880, 790)):
+        deltas.append(abs(tone(x, z) - tone(x + 12, z - 9)))
+    assert max(deltas) < 0.08
 
 
 def check_hue_variation_finite():
@@ -764,10 +803,11 @@ if __name__ == "__main__":
     check_speedtree_materials()
     check_tree_graph_illusions()
     check_custom_speedtree_shader()
+    check_forest_macro_tone_math()
     check_hue_variation_finite()
     check_mobile_leaf_wind()
     check_continuous_wind_math()
     check_canopy_asset_bindings()
     check_canopy_math()
     print("AARIS_MOBILE_FOLIAGE_CONTRACT_PASS")
-    print("14 foliage source/math groups checked")
+    print("15 foliage source/math groups checked")
