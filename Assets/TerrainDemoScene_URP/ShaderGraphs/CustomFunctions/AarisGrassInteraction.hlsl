@@ -28,7 +28,9 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS, o
             float height = saturate(BasePositionOS.y);
             // Keep the roots pinned: move tips noticeably, lower blades minimally.
             float bend = falloff * falloff * height * height * 0.45;
-            float2 dir = delta * rsqrt(max(d2, 0.01));
+            // A regularized length has no sharp derivative at the old
+            // 0.10m cutoff. Passing directly through a pivot remains finite.
+            float2 dir = delta * rsqrt(d2 + 0.0144);
             Out += TransformWorldToObjectDir(
                 float3(dir.x * bend, -0.15 * bend, dir.y * bend), false);
         }

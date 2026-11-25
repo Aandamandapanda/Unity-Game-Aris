@@ -7,8 +7,27 @@ float AarisSmoothWindWave(float phase)
     return triangleValue * triangleValue * (3.0 - 2.0 * triangleValue);
 }
 
-// Wind supplies a unit heading and Speed scaled by Period. The pivot and
-// time stay at full precision so cards share a phase anywhere on the island.
+// DaylightWind in the native scene points along +Z. The low-frequency
+// weather envelope is shared by all materials and trees; species retain
+// their authored heading, wavelength and speed for the finer local ripple.
+// Full precision and a continuous render clock avoid phase stepping on GLES.
+float AarisLandscapePhase(float2 pivotXZ)
+{
+    return dot(pivotXZ, float2(0.011, 0.035));
+}
+
+float AarisLandscapeGust(float fieldPhase, float timeSeconds)
+{
+    return AarisSmoothWindWave(fieldPhase - timeSeconds * 0.18);
+}
+
+float AarisWindDistanceFade(float distanceSq, float fullSq, float endSq)
+{
+    float fade = saturate((endSq - distanceSq) / (endSq - fullSq));
+    return fade * fade * (3.0 - 2.0 * fade);
+}
+
+// Wind supplies a unit heading and Speed scaled by Period.
 void AarisGrassPhase_float(float3 WindDirection, float3 PivotWS, float TimeSeconds,
     float Period, float Speed, float InstancePhase, float Distortion, float Ripple,
     out float Phase)
@@ -20,10 +39,11 @@ void AarisGrassPhase_float(float3 WindDirection, float3 PivotWS, float TimeSecon
     float across = dot(scaledPivot, crosswind);
     float clock = TimeSeconds * (Speed / max(Period, 0.001)) * 0.15915494;
 
-    float gust = AarisSmoothWindWave(along * 0.35 - clock * 0.28
-        + across * (0.07 + 0.09 * saturate(Distortion)));
+    // Freeze the weather phase for an explicitly zero-speed material.
+    // Otherwise, neighboring species share a slowly travelling gust.
+    float gust = AarisLandscapeGust(AarisLandscapePhase(PivotWS.xz), TimeSeconds * step(0.0001, abs(Speed)));
     float flutter = AarisSmoothWindWave(along * 0.83 - clock * 0.72
-        + across * 0.14 + InstancePhase * 0.37);
+        + across * (0.14 + 0.09 * saturate(Distortion)) + InstancePhase * 0.37);
     Phase = 0.11 + 0.58 * gust + (0.13 + 0.16 * saturate(Ripple)) * flutter;
 }
 

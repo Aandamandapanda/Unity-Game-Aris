@@ -98,43 +98,61 @@ struct SpeedTreeFragmentInput
 #endif
 };
 
-#if defined(ENABLE_WIND) && defined(_WINDQUALITY_FAST) && !defined(EFFECT_BILLBOARD)
+#if defined(ENABLE_WIND) && !defined(_WINDQUALITY_NONE) && !defined(EFFECT_BILLBOARD)
 #include "AarisGrassPhase.hlsl"
 
-void AarisFastLeafWind(inout SpeedTreeVertexInput input, inout float3 positionOS,
-    float3 anchorOS, float3 treeWS, float3 windOS, bool leafTwo)
+// Match the Fast/Fastest foliage and bark poses at every 3D LOD. The
+// native wind data supplies magnitude and inverse height, not the clock.
+// A bounded quadratic shear replaces GlobalWind's pow/length/normalization
+// on these mobile variants. Lower trunks and roots do not slide.
+float3 AarisCoherentTreeSway(float3 positionOS, float3 windOS, float gust, float fade)
 {
-    // All vertices on the tree share this distance, including in depth and shadow.
-    float3 cameraOffset = treeWS - GetCameraPositionWS();
-    float distanceSq = dot(cameraOffset, cameraOffset);
+    float inverseHeight = _ST_WindGlobal.z;
+    UNITY_BRANCH if (inverseHeight <= 0.00001 || fade <= 0.0)
+        return positionOS;
+
+    float heightWeight = saturate((positionOS.y * inverseHeight - 0.10) * 1.111111);
+    heightWeight *= heightWeight;
+    float adherence = clamp(_ST_WindBranchAdherences.x, -0.009, 0.009);
+    float travel = min(abs(_ST_WindGlobal.y) * inverseHeight, 0.025);
+    float sway = (adherence + travel * (0.20 + 0.80 * gust)) *
+        (heightWeight * fade / inverseHeight);
+    positionOS.xz += windOS.xz * sway;
+    return positionOS;
+}
+
+#if defined(_WINDQUALITY_FAST)
+void AarisFastLeafWind(inout SpeedTreeVertexInput input, inout float3 positionOS,
+    float3 anchorOS, float3 windOS, bool leafTwo, float distanceSq, float gust,
+    float timeSeconds, float fieldPhase)
+{
     const float fullFlutterDistanceSq = 35.0 * 35.0;
     const float endFlutterDistanceSq = 75.0 * 75.0;
     UNITY_BRANCH if (distanceSq >= endFlutterDistanceSq)
         return;
 
-    float fade = saturate((endFlutterDistanceSq - distanceSq) /
-        (endFlutterDistanceSq - fullFlutterDistanceSq));
-    fade = fade * fade * (3.0 - 2.0 * fade);
-
-    // The long wave travels downwind through nearby trees. Each leaf's
-    // original anchor gives its faster flutter a stable phase during LOD morph.
-    float2 ripple = leafTwo ? _ST_WindLeaf2Ripple.xy : _ST_WindLeaf1Ripple.xy;
-    float gustPhase = _ST_WindGlobal.x * 0.20 - dot(treeWS.xz, _ST_WindVector.xz) * 0.035;
-    float gust = 0.40 + 0.60 * AarisSmoothWindWave(gustPhase);
-    float leafPhase = ripple.x * 1.6 + dot(anchorOS, float3(0.31, 0.57, 0.41));
+    float fade = AarisWindDistanceFade(distanceSq, fullFlutterDistanceSq, endFlutterDistanceSq);
+    // Each authored card retains its hinge and phase. Never use a native
+    // per-tree ripple clock for the custom flutter: it may change with LOD.
+    float rippleAmplitude = leafTwo ? _ST_WindLeaf2Ripple.y : _ST_WindLeaf1Ripple.y;
+    // Reuse the already-computed landscape phase for stable per-tree
+    // variation. Identical cloned meshes no longer flutter in lockstep.
+    float leafPhase = timeSeconds * 0.95 + dot(anchorOS, float3(0.31, 0.57, 0.41))
+        + fieldPhase * 1.618 + (leafTwo ? 0.37 : 0.0);
     float flutter = 2.0 * AarisSmoothWindWave(leafPhase) - 1.0;
-    float bend = min(abs(ripple.y) * 5.0, 0.18) * saturate(input.texcoord3.x) * fade;
+    float bend = min(abs(rippleAmplitude) * 5.0, 0.18) * saturate(input.texcoord3.x) * fade;
     float angle = bend * gust * (0.23 + 0.77 * flutter);
     float3 rotation = float3(windOS.z, 0.0, -windOS.x) * angle;
 
-    // A small-angle rotation pins the hinge and tilts the lighting basis
-    // with the mesh. The 0.18 radian cap keeps this approximation stable.
+    // Small-angle hinge rotation: pin the anchor, and move the lighting
+    // basis with the leaf. The 0.18 radian cap limits stretch.
     positionOS += cross(rotation, positionOS - anchorOS);
     input.normal += cross(rotation, input.normal);
     #if defined(EFFECT_BUMP)
         input.tangent.xyz += cross(rotation, input.tangent.xyz);
     #endif
 }
+#endif
 #endif
 
 void InitializeData(inout SpeedTreeVertexInput input, float lodValue)
@@ -167,6 +185,27 @@ void InitializeData(inout SpeedTreeVertexInput input, float lodValue)
         float windEnabled = dot(_ST_WindVector.xyz, _ST_WindVector.xyz) > 0.0f ? 1.0f : 0.0f;
         if (windEnabled > 0)
         {
+            float3 treePos = float3(UNITY_MATRIX_M[0].w, UNITY_MATRIX_M[1].w, UNITY_MATRIX_M[2].w);
+            #if !defined(EFFECT_BILLBOARD) && !defined(_WINDQUALITY_BETTER) && !defined(_WINDQUALITY_BEST) && !defined(_WINDQUALITY_PALM)
+                // Uniform per instance: beyond the smooth sway band there is
+                // no vertex wind work at all. Leaf facing and mesh LOD were
+                // already evaluated above, independently of the wind.
+                float3 cameraOffset = treePos - GetCameraPositionWS();
+                float distanceSq = dot(cameraOffset, cameraOffset);
+                #if defined(SHADER_API_MOBILE)
+                    const float fullSwayDistanceSq = 60.0 * 60.0;
+                    const float endSwayDistanceSq = 85.0 * 85.0;
+                #else
+                    const float fullSwayDistanceSq = 85.0 * 85.0;
+                    const float endSwayDistanceSq = 150.0 * 150.0;
+                #endif
+                UNITY_BRANCH if (distanceSq >= endSwayDistanceSq)
+                    return;
+                float timeSeconds = _Time.y;
+                float fieldPhase = AarisLandscapePhase(treePos.xz);
+                float gust = AarisLandscapeGust(fieldPhase, timeSeconds);
+            #endif
+
             float3 rotatedWindVector = mul(_ST_WindVector.xyz, (float3x3)UNITY_MATRIX_M);
             float windLength = length(rotatedWindVector);
             if (windLength < 1e-5)
@@ -176,7 +215,6 @@ void InitializeData(inout SpeedTreeVertexInput input, float lodValue)
             }
             rotatedWindVector /= windLength;
 
-            float3 treePos = float3(UNITY_MATRIX_M[0].w, UNITY_MATRIX_M[1].w, UNITY_MATRIX_M[2].w);
             float3 windyPosition = input.vertex.xyz;
 
             #ifndef EFFECT_BILLBOARD
@@ -186,7 +224,8 @@ void InitializeData(inout SpeedTreeVertexInput input, float lodValue)
                     {
                         float3 anchor = float3(input.texcoord1.zw, input.texcoord2.w);
                     #if defined(_WINDQUALITY_FAST)
-                        AarisFastLeafWind(input, windyPosition, anchor, treePos, rotatedWindVector, leafTwo);
+                        AarisFastLeafWind(input, windyPosition, anchor, rotatedWindVector, leafTwo,
+                            distanceSq, 0.40 + 0.60 * gust, timeSeconds, fieldPhase);
                     #else
                         #ifdef _WINDQUALITY_BEST
                             bool bBestWind = true;
@@ -219,13 +258,21 @@ void InitializeData(inout SpeedTreeVertexInput input, float lodValue)
 
             #endif // !EFFECT_BILLBOARD
 
-            // global wind
-            float globalWindTime = _ST_WindGlobal.x;
-            #if defined(EFFECT_BILLBOARD) && defined(UNITY_INSTANCING_ENABLED)
-                globalWindTime += UNITY_ACCESS_INSTANCED_PROP(STWind, _GlobalWindTime);
+            // Fastest and Fast share a cheap continuous canopy pose, so
+            // bark, cap and leaves stay together as their mesh LOD changes.
+            #if !defined(EFFECT_BILLBOARD) && !defined(_WINDQUALITY_BETTER) && !defined(_WINDQUALITY_BEST) && !defined(_WINDQUALITY_PALM)
+                // Fade to the static billboard before the mobile terrain's
+                // usual 85m billboard boundary. Desktop retains a wider sway.
+                float swayFade = AarisWindDistanceFade(distanceSq, fullSwayDistanceSq, endSwayDistanceSq);
+                windyPosition = AarisCoherentTreeSway(windyPosition, rotatedWindVector, gust, swayFade);
+            #else
+                // Preserve Unity's authored high-quality and billboard path.
+                float globalWindTime = _ST_WindGlobal.x;
+                #if defined(EFFECT_BILLBOARD) && defined(UNITY_INSTANCING_ENABLED)
+                    globalWindTime += UNITY_ACCESS_INSTANCED_PROP(STWind, _GlobalWindTime);
+                #endif
+                windyPosition = GlobalWind(windyPosition, treePos, true, rotatedWindVector, globalWindTime);
             #endif
-
-            windyPosition = GlobalWind(windyPosition, treePos, true, rotatedWindVector, globalWindTime);
             input.vertex.xyz = windyPosition;
         }
     #endif

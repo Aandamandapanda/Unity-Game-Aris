@@ -14,7 +14,6 @@ Material:
   m_ValidKeywords:
   - EFFECT_BUMP
   - EFFECT_EXTRA_TEX
-  - _WINDQUALITY_BEST
   m_InvalidKeywords: []
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 1
@@ -134,7 +133,7 @@ Material:
     - _TwoSided: 2
     - _UseShadowThreshold: 0
     - _WINDQUALITY: 3
-    - _WindQuality: 4
+    - _WindQuality: 1
     - _WorkflowMode: 1
     - _ZTest: 4
     - _ZTestDepthEqualForOpaque: 3
