@@ -8,6 +8,7 @@
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/GBufferOutput.hlsl"
 #include "Packages/com.unity.shadergraph/ShaderGraphLibrary/Nature/SpeedTreeCommon.hlsl"
 #include "Packages/com.unity.render-pipelines.universal/Shaders/Nature/SpeedTreeUtility.hlsl"
+#include "AarisFoliageCanopy.hlsl"
 #if defined(LOD_FADE_CROSSFADE)
     #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/LODCrossFade.hlsl"
 #endif
@@ -137,8 +138,10 @@ void AarisFastLeafWind(inout SpeedTreeVertexInput input, inout float3 positionOS
     float rippleAmplitude = leafTwo ? _ST_WindLeaf2Ripple.y : _ST_WindLeaf1Ripple.y;
     // Reuse the already-computed landscape phase for stable per-tree
     // variation. Identical cloned meshes no longer flutter in lockstep.
-    float leafPhase = timeSeconds * 0.95 + dot(anchorOS, float3(0.31, 0.57, 0.41))
-        + fieldPhase * 1.618 + (leafTwo ? 0.37 : 0.0);
+    // Use the existing gust to gently vary the flutter speed, without another
+    // wave, texture read or time state. The derivative stays bounded even at 30fps.
+    float leafPhase = timeSeconds * 0.72 + dot(anchorOS, float3(0.31, 0.57, 0.41))
+        + fieldPhase * 1.618 + (leafTwo ? 0.37 : 0.0) + 0.16 * gust;
     float flutter = 2.0 * AarisSmoothWindWave(leafPhase) - 1.0;
     float bend = min(abs(rippleAmplitude) * 5.0, 0.18) * saturate(input.texcoord3.x) * fade;
     float angle = bend * gust * (0.23 + 0.77 * flutter);
@@ -311,6 +314,36 @@ void InitializeData(inout SpeedTreeVertexInput input, float lodValue)
     #endif
 }
 
+// Keep leaf lighting tied to the authored SpeedTree anchor, not the
+// fluttering vertex position. The same geometry type and anchor are present
+// across the three native 3D LODs. Bark/caps and billboard normals are untouched.
+#if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
+void AarisTreeCanopyFrame(inout SpeedTreeVertexInput input)
+{
+    int geometry = (int)(input.texcoord3.w + 0.25);
+    if (geometry > GEOM_TYPE_FACINGLEAF)
+        geometry -= 2;
+    if (geometry <= GEOM_TYPE_FROND)
+        return;
+
+    float3 anchor = float3(input.texcoord1.zw, input.texcoord2.w);
+    float3 gradient = float3(anchor.x, max(0.12, abs(anchor.y) * 0.08), anchor.z);
+    #if defined(ENABLE_WIND) && !defined(_WINDQUALITY_NONE)
+        // Native inverse mesh height is independent of instance scale/LOD.
+        // A short, broad cypress gets a rounder crown than a tall pine.
+        float inverseHeight = _ST_WindGlobal.z;
+        if (inverseHeight > 0.00001)
+            gradient.y = (anchor.y - 0.60 / inverseHeight) *
+                (0.72 * saturate(7.0 * inverseHeight));
+    #endif
+    gradient.y = max(gradient.y, -0.55 * max(abs(gradient.x), abs(gradient.z)));
+    input.normal = AarisVolumeNormalOS(input.normal, gradient, 0.72);
+    #if defined(EFFECT_BUMP)
+        input.tangent.xyz = AarisCanopyTangentOS(input.tangent.xyz, input.normal);
+    #endif
+}
+#endif
+
 SpeedTreeVertexOutput SpeedTree8Vert(SpeedTreeVertexInput input)
 {
     SpeedTreeVertexOutput output = (SpeedTreeVertexOutput)0;
@@ -325,6 +358,9 @@ SpeedTreeVertexOutput SpeedTree8Vert(SpeedTreeVertexInput input)
 
     // handle speedtree wind and lod
     InitializeData(input, unity_LODFade.x);
+    #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
+        AarisTreeCanopyFrame(input);
+    #endif
 
     output.uv = input.texcoord.xy;
     output.color = input.color;
@@ -442,7 +478,7 @@ void InitializeInputData(SpeedTreeFragmentInput input, half3 normalTS, out Input
     inputData.normalWS = NormalizeNormalPerPixel(inputData.normalWS);
     inputData.viewDirectionWS = half3(input.interpolated.normalWS.w, input.interpolated.tangentWS.w, input.interpolated.bitangentWS.w);
 #else
-    inputData.normalWS = NormalizeNormalPerPixel(input.interpolated.normalWS);
+    inputData.normalWS = NormalizeNormalPerPixel(input.interpolated.normalWS * normalTS.z);
     inputData.viewDirectionWS = input.interpolated.viewDirWS;
 #endif
 
@@ -490,7 +526,7 @@ half3 AarisLeafSun(InputData inputData, Light light, half occlusion)
     half rim = 1.0h - saturate(abs(ndl));
     rim *= rim;
     half towardSun = saturate(-dot(inputData.viewDirectionWS, light.direction));
-    half transmit = 0.42h * back * back + rim * (0.025h + 0.075h * towardSun);
+    half transmit = 0.38h * back * back + rim * (0.035h + 0.115h * towardSun * towardSun);
     half visibility = saturate(light.distanceAttenuation) * light.shadowAttenuation;
     half3 warmSunTint = half3(1.04h, 1.0h, 0.86h);
     return light.color * warmSunTint * (transmit * visibility * (0.6h + 0.4h * occlusion));
@@ -641,7 +677,9 @@ half4 SpeedTree8Frag(SpeedTreeFragmentInput input) : SV_Target
     // normal
     #ifdef EFFECT_BUMP
         half3 normalTs = SampleNormal(uv, TEXTURE2D_ARGS(_BumpMap, sampler_BumpMap));
-        #if !defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
+        #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
+            normalTs.xy *= 0.74h; // Preserve leaf texture detail without plastic card highlights.
+        #elif !defined(EFFECT_BILLBOARD)
             normalTs.xy *= 1.15h; // Bark relief from its existing normal map.
         #endif
     #else
@@ -649,7 +687,7 @@ half4 SpeedTree8Frag(SpeedTreeFragmentInput input) : SV_Target
     #endif
 
     // flip normal on backsides
-    #ifdef EFFECT_BACKSIDE_NORMALS
+    #if defined(EFFECT_BACKSIDE_NORMALS) && (!defined(EFFECT_SUBSURFACE) || defined(EFFECT_BILLBOARD))
         normalTs.z = IS_FRONT_VFACE(input.facing, normalTs.z, -normalTs.z);
     #endif
 
@@ -676,6 +714,12 @@ half4 SpeedTree8Frag(SpeedTreeFragmentInput input) : SV_Target
         // Warm, earthy bark at the ground interface; preserves original bark texture.
         albedo *= lerp(half3(1.0h, 1.0h, 1.0h), half3(0.84h, 0.80h, 0.73h), rootContact);
         occlusion *= 1.0h - 0.20h * rootContact;
+    #endif
+    #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
+        // Leaves are dielectric. Keep wet/waxy highlights bounded by the
+        // existing roughness texture instead of reflecting like bright plastic.
+        metallic = 0.0h;
+        smoothness = min(smoothness, 0.48h);
     #endif
     occlusion = saturate(occlusion);
     InputData inputData;
@@ -764,6 +808,9 @@ SpeedTreeVertexDepthNormalOutput SpeedTree8VertDepthNormal(SpeedTreeVertexInput 
 
     // handle speedtree wind and lod
     InitializeData(input, unity_LODFade.x);
+    #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
+        AarisTreeCanopyFrame(input);
+    #endif
     output.uv = input.texcoord.xy;
     output.color = input.color;
 
@@ -807,16 +854,18 @@ half4 SpeedTree8FragDepthNormal(SpeedTreeDepthNormalFragmentInput input) : SV_Ta
     // normal
     #if defined(EFFECT_BUMP)
         half3 normalTs = SampleNormal(uv, TEXTURE2D_ARGS(_BumpMap, sampler_BumpMap));
+        #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
+            normalTs.xy *= 0.74h;
+        #elif !defined(EFFECT_BILLBOARD)
+            normalTs.xy *= 1.15h;
+        #endif
     #else
         half3 normalTs = half3(0, 0, 1);
     #endif
 
-    // flip normal on backsides
-    #ifdef EFFECT_BACKSIDE_NORMALS
-        if (input.facing < 0.5)
-        {
-            normalTs.z = -normalTs.z;
-        }
+    // Same two-sided canopy basis as ForwardLit; non-leaf cards still flip.
+    #if defined(EFFECT_BACKSIDE_NORMALS) && (!defined(EFFECT_SUBSURFACE) || defined(EFFECT_BILLBOARD))
+        normalTs.z = IS_FRONT_VFACE(input.facing, normalTs.z, -normalTs.z);
     #endif
 
     // adjust billboard normals to improve GI and matching
@@ -829,7 +878,7 @@ half4 SpeedTree8FragDepthNormal(SpeedTreeDepthNormalFragmentInput input) : SV_Ta
         float3 normalWS = TransformTangentToWorld(normalTs, half3x3(input.interpolated.tangentWS.xyz, input.interpolated.bitangentWS.xyz, input.interpolated.normalWS.xyz));
         return half4(NormalizeNormalPerPixel(normalWS), 0.0h);
     #else
-        return half4(NormalizeNormalPerPixel(input.interpolated.normalWS), 0.0h);
+        return half4(NormalizeNormalPerPixel(input.interpolated.normalWS * normalTs.z), 0.0h);
     #endif
 }
 
