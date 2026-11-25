@@ -31,9 +31,14 @@ void AarisDetailGround_half(half3 LeafColor, half4 TerrainColorAndHeight, half D
         half siteWarmth = terrainColor.r - terrainColor.b;
         half macroTone = clamp((siteLuma - 0.45h) * 0.65h + siteWarmth * 0.35h,
                                -0.35h, 0.35h) * profileStrength;
+        // Rest-height is already packed with the terrain sample. Reuse it as
+        // a tiny vertical exposure cue: upper shrub leaves skew sun-warm while
+        // the lower canopy stays deeper green. Neutral grass never enters here.
+        half canopyExposure = (Height01 - 0.5h) * profileStrength;
         localColor *= 1.0h
             + variation * half3(0.10h, 0.07h, -0.05h)
-            + macroTone * half3(0.055h, 0.045h, -0.030h);
+            + macroTone * half3(0.055h, 0.045h, -0.030h)
+            + canopyExposure * half3(0.040h, 0.028h, -0.018h);
     }
     half3 rootedColor = lerp(localColor, terrainColor * half3(0.88h, 0.83h, 0.75h), rootBlend);
     Out = lerp(rootedColor, terrainColor, fade);
