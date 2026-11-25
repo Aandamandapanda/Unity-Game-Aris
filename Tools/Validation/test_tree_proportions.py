@@ -123,18 +123,19 @@ class NaturalTreePrefabTests(unittest.TestCase):
                     self.assertIn("    - _WindQuality: 1", source)
 
     def test_red_bush_preserves_textures_and_alpha_cutout(self):
-        # No geometry or .meta changes: make the old HDRP shader load in URP
-        # while retaining authored foliage textures, cutout and low specularity.
+        # The red bush now shares the native terrain detail graph, while
+        # preserving its original maps, alpha cutout and material GUID.
         material = ROOT / "Assets/TerrainDemoScene_URP/Prefabs/Details/Materials/Bush_Red.mat"
         source = material.read_text(encoding="utf-8")
-        self.assertIn("m_Shader: {fileID: 4800000, guid: 933532a4fcc9baf4fa0491de14d08ed7, type: 3}", source)
-        self.assertNotIn("dfa3b96612ed4df4a97b7fd06217ba23", source)
+        self.assertIn("m_Shader: {fileID: -6465566751694194690, guid: dfa3b96612ed4df4a97b7fd06217ba23, type: 3}", source)
+        self.assertNotIn("guid: 933532a4fcc9baf4fa0491de14d08ed7", source)
         self.assertIn("  - _ALPHATEST_ON", source)
-        self.assertIn("  - _NORMALMAP", source)
+        self.assertIn("    - _AarisCanopyProfile: {r: 0.7, g: 0.96, b: 2.15, a: 0.8666667}", source)
         self.assertIn("    - _AlphaClip: 1", source)
         self.assertIn("    - _Cull: 0", source)
         self.assertIn("    - _Cutoff: 0.5", source)
-        self.assertIn("    - _Smoothness: 0.25", source)
+        self.assertIn("    - Vector1_8651797e3e304e108dbd25f9d5a426ba: 0.36", source)
+        self.assertIn("    - Vector1_a5b8b09028ce49a39f4d090894c89e22: 0.5", source)
         self.assertIn("    - _BaseMap:\\n        m_Texture: {fileID: 2800000, guid: 1933fb8bd6eed9d429dd93c5de2f061c, type: 3}".replace("\\n", "\n"), source)
         self.assertIn("    - _BumpMap:\\n        m_Texture: {fileID: 2800000, guid: 90a6b9df8334d6040b2ae1928aaab244, type: 3}".replace("\\n", "\n"), source)
         self.assertTrue(material.with_suffix(".mat.meta").is_file())
@@ -169,7 +170,10 @@ class NaturalTreePrefabTests(unittest.TestCase):
                 texture = textures[guid]
                 self.assertIn("    mipMapsPreserveCoverage: 1", texture)
                 reference = float(re.search(r"(?m)^    alphaTestReferenceValue: ([0-9.]+)$", texture).group(1))
-                # Keep the authored coverage after SpeedTree applies the view-dependent billboard fade.
+                # Preserve deliberately authored canopy fullness: a real
+                # same-camera native render with .3333 importer coverage
+                # made several distant conifers noticeably sparse.
+                # The .3333 runtime alpha clip itself remains unchanged.
                 self.assertEqual(reference, 0.5)
 
     def test_deep_forest_seventh_variant_reuses_original_lod_geometry(self):

@@ -41,7 +41,8 @@ def check_graph():
     inputs = {e["m_InputSlot"]["m_SlotId"]: nodes[e["m_OutputSlot"]["m_Node"]["m_Id"]]["m_Name"]
               for e in edges if e["m_InputSlot"]["m_Node"]["m_Id"] == ground["m_ObjectId"]}
     assert inputs == {0: "Sample Texture 2D", 1: "TerrainColorMatch (Custom Interpolator)",
-                      2: "BiasedFade (Custom Interpolator)", 4: "Saturate"}
+                      2: "BiasedFade (Custom Interpolator)", 4: "Saturate",
+                      5: "PerInstanceRandom (Custom Interpolator)", 6: "Property"}
     outputs = {nodes[e["m_InputSlot"]["m_Node"]["m_Id"]]["m_Name"]
                for e in edges if e["m_OutputSlot"]["m_Node"]["m_Id"] == ground["m_ObjectId"]}
     assert outputs == {"SurfaceDescription.BaseColor", "Multiply"}
@@ -59,6 +60,9 @@ def check_interaction():
     assert "float falloff = 1.0 - d2 / r2;" in shader
     assert "vertical = vertical * vertical * (3.0 - 2.0 * vertical)" in shader
     assert "rsqrt(d2 + 0.0144)" in shader
+    assert "BasePositionOS.y / max(GroundHeight, 0.05)" in shader
+    assert "TransformObjectToWorld(BasePositionOS).xz" in shader
+    assert "min(1.0, max(GroundHeight, 0.25))" in shader
     assert not any(term in shader for term in ("RWTexture", "ComputeBuffer", "Raycast", "Collider"))
     assert "Shader.SetGlobalVector(GrassInteractorId, next)" in motor
     assert "footMotor.transform.position" in motor
@@ -75,7 +79,10 @@ def check_mobile_transmission():
     assert "TransformWorldToShadowCoord" not in shader
     assert "void AarisDetailGround_half" in shader
     assert "saturate(1.0h - 2.0h * Height01)" in shader
-    assert "lerp(rootedColor, TerrainColor, DistanceFade)" in shader
+    assert "lerp(rootedColor, TerrainColor, saturate(DistanceFade))" in shader
+    assert "TransmissionColor = Out * (0.20h + 0.80h * heightMask)" in shader
+    assert "0.25h * SSRadius.x" in shader
+    assert "AarisDetailSunNormal_half" in shader
     assert "contact * contact * (3.0h - 2.0h * contact)" in shader
     assert "unity_SHAr.w, unity_SHAg.w, unity_SHAb.w" in shader
     assert "ambient * skyFill * coolFill" in shader
@@ -85,6 +92,7 @@ def check_ground_detail_mips():
     """Keep imported alpha mip coverage at the authored terrain-detail cutoff."""
     textures = TREE.parent / "Details/Textures"
     cutoffs = {
+        "Bush_A": "0.482",
         "Bush_Dry": "0.5",
         "Fern": "0.75",
         "Grass_A": "0.415",
@@ -180,8 +188,8 @@ def check_custom_speedtree_shader():
     assert '#pragma multi_compile_instancing' in shader
     # Leaf and bark data share a varying that must be written with the same
     # keyword state in the vertex shader as in the fragment shader.
-    for keyword in ("EFFECT_HUE_VARIATION", "EFFECT_SUBSURFACE"):
-        assert shader.count("#pragma shader_feature_local " + keyword) == 2
+    for keyword, count in (("EFFECT_HUE_VARIATION", 2), ("EFFECT_SUBSURFACE", 3)):
+        assert shader.count("#pragma shader_feature_local " + keyword) == count
         assert "#pragma shader_feature_local_fragment " + keyword not in shader
     assert '#include "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl"' in shader
     assert "UNITY_SETUP_INSTANCE_ID" in source
@@ -409,6 +417,138 @@ def check_continuous_wind_math():
             assert interaction(x, y, 0) == 0
 
 
+
+def check_canopy_asset_bindings():
+    """Every native bush family uses the active terrain-detail graph."""
+    details = TREE.parent / "Details"
+    expected = {
+        "Bush.asset": .86, "Bush_Dry.asset": 1.08,
+        "Bush_Twig.asset": .52, "Shrub.asset": .35,
+        "Fern.asset": .38, "Heather.asset": .92, "Bush_Red.mat": 2.13,
+    }
+    for name, height in expected.items():
+        path = details / "Materials" / name
+        mat = path.read_text()
+        assert "guid: dfa3b96612ed4df4a97b7fd06217ba23" in mat, name
+        assert "m_EnableInstancingVariants: 1" in mat, name
+        assert "_AlphaClip: 1" in mat and "_Cull: 0" in mat, name
+        profile = re.search(r"_AarisCanopyProfile: \{r: ([\d.]+), g: ([\d.]+), b: ([\d.]+), a: ([\d.]+)\}", mat)
+        assert profile, name
+        strength, center, gradient, tint = map(float, profile.groups())
+        assert 0 < strength <= 1 and 0 < center < height and gradient > 0 and 0 < tint <= 1, name
+        assert float(re.search(r"_GroundFalloff: ([\d.]+)", mat).group(1)) == height
+        assert "m_CustomRenderQueue: 2450" in mat, name
+    red = (details / "Materials/Bush_Red.mat").read_text()
+    for guid in ("1933fb8bd6eed9d429dd93c5de2f061c", "90a6b9df8334d6040b2ae1928aaab244",
+                 "cfc599ff14b5f5d45bcdacfde81269a4", "d2418be9721fd3e40b01f6a5f3c43325"):
+        assert guid in red
+    red_meta = TREE.parent / "Foliage/Red_Bush/Textures/Red_Bush_BaseColor.tif.meta"
+    assert "mipMapsPreserveCoverage: 1" in red_meta.read_text()
+    assert "alphaTestReferenceValue: 0.5" in red_meta.read_text()
+    for name in ("Cypress_Forest_Desktop.mat", "Cypress_Forest_Desktop_Distant.mat"):
+        assert "m_CustomRenderQueue: -1" in (TREE / "Cypress/Materials" / name).read_text()
+    graph = (FOLIAGE / "TerrainGrass.shadergraph").read_text().strip()
+    bs = [json.loads(x) for x in re.split(r"\n\s*\n(?=\{)", graph)]
+    by = {o["m_ObjectId"]: o for o in bs}
+    assert len(by) == len(bs)
+    root = bs[0]
+    profile = next(o for o in bs if o.get("m_OverrideReferenceName") == "_AarisCanopyProfile")
+    assert profile["m_Value"] == {"x": 0., "y": .4, "z": 1., "w": 1.}
+    assert profile["m_ObjectId"] in {o["m_Id"] for o in root["m_Properties"]}
+    frame = next(o for o in bs if o.get("m_FunctionName") == "AarisDetailCanopyFrame")
+    assert frame["m_FunctionSource"] == "83cdd9a72e5c4ae1bb9278de809f7261"
+    assert frame["m_Precision"] == 1
+    outputs = {}
+    inbound = set()
+    for edge in root["m_Edges"]:
+        src, dst = edge["m_OutputSlot"], edge["m_InputSlot"]
+        for t in (src, dst):
+            node = by[t["m_Node"]["m_Id"]]
+            assert any(by[r["m_Id"]]["m_Id"] == t["m_SlotId"] for r in node["m_Slots"])
+        k = (dst["m_Node"]["m_Id"], dst["m_SlotId"])
+        assert k not in inbound, k
+        inbound.add(k)
+        if src["m_Node"]["m_Id"] == frame["m_ObjectId"]:
+            outputs[src["m_SlotId"]] = by[dst["m_Node"]["m_Id"]]["m_Name"]
+    assert outputs == {5: "VertexDescription.Normal", 6: "VertexDescription.Tangent"}
+    depth = (FOLIAGE / "AarisSpeedTree8Mobile.shader").read_text().split('Name "DepthNormals"')[1]
+    assert "#pragma shader_feature_local EFFECT_SUBSURFACE" in depth
+    assert "#pragma shader_feature_local EFFECT_BILLBOARD" in depth
+    passes = (FOLIAGE / "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl").read_text()
+    assert passes.count("AarisTreeCanopyFrame(input);") == 2
+    assert "if (geometry <= GEOM_TYPE_FROND)" in passes
+    assert passes.count("AlphaDiscard(alpha, 0.3333)") == 3
+
+
+def check_canopy_math():
+    """Stress outward hemisphere, degenerate tangent frames and root pinning."""
+    from math import sqrt, isfinite
+    from random import Random
+    hlsl = (FOLIAGE / "CustomFunctions/AarisFoliageCanopy.hlsl").read_text()
+    for term in ("AarisVolumeNormalOS", "AarisCanopyTangentOS", "Profile.x > 0.001",
+                 "2.0 * min(dot(n, crown), 0.0)", "dot(projected, projected)",
+                 "MotionFade - 0.64", "fade >= 0.999"):
+        assert term in hlsl
+    assert not any(s in hlsl for s in ("SAMPLE_TEXTURE", "tex2D", "sin(", "cos(", "pow(", "Raycast", "ComputeBuffer"))
+    def dot(a, b): return sum(x*y for x,y in zip(a,b))
+    def add(a,b): return tuple(x+y for x,y in zip(a,b))
+    def mul(a,b): return tuple(x*b for x in a)
+    def unit(a, fallback=(0.,1.,0.)):
+        d = dot(a,a)
+        return mul(a,1/sqrt(d)) if d > 1e-8 else fallback
+    def cross(a,b):
+        return (a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0])
+    def volume(n, gradient, strength):
+        n, c = unit(n), unit(gradient)
+        n = add(n,mul(c,-2*min(dot(n,c),0)))
+        return unit(add(mul(n,1-strength),mul(c,strength)),c)
+    rng = Random(61125)
+    for _ in range(12000):
+        n = tuple(rng.uniform(-1,1) for _ in range(3))
+        radial = tuple(rng.uniform(-2,2) for _ in range(3))
+        if _ % 1000 == 0: n, radial = (0,0,0),(0,0,0)
+        if _ % 251 == 0: n = mul(unit(radial),-1)
+        c = unit(radial)
+        out = volume(n,radial,rng.uniform(.32,.78))
+        assert all(isfinite(x) for x in out) and abs(dot(out,out)-1) < 1e-6
+        assert dot(out,c) >= -1e-6
+        tangent = out if _ % 71 == 0 else n
+        projected = add(tangent,mul(out,-dot(tangent,out)))
+        fallback = unit(cross((0,1,0) if abs(out[1])<.9 else (1,0,0),out))
+        tangent = unit(projected,fallback)
+        assert abs(dot(tangent,out)) < 1e-6
+        assert abs(dot(tangent,tangent)-1) < 1e-6
+    # The shared distance curve has zero slope at both ends. Far foliage
+    # uses the cheap upward normal/tangent and retains its full silhouette.
+    def canopy_fade(x):
+        v = max(0, min(1, (x-.64)*2.7777778))
+        return v*v*(3-2*v)
+    curve = [canopy_fade(i/1000) for i in range(1001)]
+    assert all(a <= b for a,b in zip(curve,curve[1:]))
+    assert canopy_fade(.64) == 0 and abs(canopy_fade(1)-1) < 1e-8
+    assert canopy_fade(.64001) < 1e-7 and 1-canopy_fade(.99999) < 1e-7
+    # A root stays fixed for every authored shrub height; tiny shrubs cannot
+    # move as far as the large red bush. Horizontal contact is bounded.
+    for h in (.35,.52,.86,1.08,2.13):
+        for y in (0,h*.2,h*.5,h):
+            height = max(0,min(1,y/max(h,.05)))
+            for d in (0,.1,.7,1.24999,1.25):
+                f = max(0,1-d*d/(1.25*1.25))
+                bend=f*f*height*height*.45*min(1,max(h,.25))
+                assert 0 <= bend <= .45
+                if y == 0 or d >= 1.25: assert bend == 0
+    # Approximate lobe has a finite energy limit, lower than the old 0.92
+    # unsaturated root glow; no new shadow/texture reads are needed.
+    for radius in (0,.125,.5,1):
+        for i in range(-100,101):
+            ndl=i*.01
+            back=max(0,min(1,(radius-ndl)/(1+radius)))
+            wrapped=back*back*(3-2*back)
+            rim=(1-abs(ndl))**2
+            transmit=(.14+.23*radius)*wrapped+.10*rim
+            assert 0 <= transmit <= .47 + 1e-9
+
+
 if __name__ == "__main__":
     check_graph()
     check_interaction()
@@ -420,5 +560,7 @@ if __name__ == "__main__":
     check_hue_variation_finite()
     check_mobile_leaf_wind()
     check_continuous_wind_math()
+    check_canopy_asset_bindings()
+    check_canopy_math()
     print("AARIS_MOBILE_FOLIAGE_CONTRACT_PASS")
-    print("10 foliage source/math groups checked")
+    print("12 foliage source/math groups checked")

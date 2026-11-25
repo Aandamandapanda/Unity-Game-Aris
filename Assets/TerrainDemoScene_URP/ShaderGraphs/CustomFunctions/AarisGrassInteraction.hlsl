@@ -6,7 +6,8 @@
 // per-blade scripts, extra texture samples or rendering passes.
 float4 _AarisGrassInteractor;  // World xyz, interaction radius in metres.
 
-void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS, out float3 Out)
+void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS,
+    float GroundHeight, float4 Profile, out float3 Out)
 {
     Out = WindPositionOS;
 #ifndef SHADERGRAPH_PREVIEW
@@ -16,6 +17,10 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS, o
         // The Terrain detail mesh pivot is positioned by its instanced object matrix.
         float3 pivot = TransformObjectToWorld(float3(0.0, 0.0, 0.0));
         float2 delta = pivot.xz - _AarisGrassInteractor.xz;
+        // The large red shrub is wider than the player's contact radius.
+        // Local leaf positions make its outer canopy rustle, not only its pivot.
+        UNITY_BRANCH if (Profile.x > 0.001 && GroundHeight > 1.5)
+            delta = TransformObjectToWorld(BasePositionOS).xz - _AarisGrassInteractor.xz;
         float d2 = dot(delta, delta);
         float r2 = radius * radius;
         float heightDelta = abs(pivot.y - _AarisGrassInteractor.y);
@@ -30,8 +35,14 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS, o
             vertical = vertical * vertical * (3.0 - 2.0 * vertical);
             float falloff = 1.0 - d2 / r2;
             float height = saturate(BasePositionOS.y);
+            float bendScale = 1.0;
+            UNITY_BRANCH if (Profile.x > 0.001)
+            {
+                height = saturate(BasePositionOS.y / max(GroundHeight, 0.05));
+                bendScale = min(1.0, max(GroundHeight, 0.25));
+            }
             // Keep the roots pinned: move tips noticeably, lower blades minimally.
-            float bend = falloff * falloff * vertical * height * height * 0.45;
+            float bend = falloff * falloff * vertical * height * height * 0.45 * bendScale;
             // A regularized length has no sharp derivative at the old
             // 0.10m cutoff. Passing directly through a pivot remains finite.
             float2 dir = delta * rsqrt(d2 + 0.0144);
