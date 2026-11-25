@@ -19,6 +19,11 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS,
     {
         // The Terrain detail mesh pivot is positioned by its instanced object matrix.
         float3 pivot = TransformObjectToWorld(float3(0.0, 0.0, 0.0));
+        // All vertices of this instance share the same ground pivot height.
+        // Reject different floors/slopes before computing per-leaf world XZ.
+        float heightDelta = abs(pivot.y - _AarisGrassInteractor.y);
+        UNITY_BRANCH if (heightDelta >= 1.8)
+            return;
         float2 delta = pivot.xz - _AarisGrassInteractor.xz;
         // The large red shrub is wider than the player's contact radius.
         // Local leaf positions make its outer canopy rustle, not only its pivot.
@@ -26,8 +31,7 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS,
             delta = TransformObjectToWorld(BasePositionOS).xz - _AarisGrassInteractor.xz;
         float d2 = dot(delta, delta);
         float radial = d2 * inverseRadiusSq;
-        float heightDelta = abs(pivot.y - _AarisGrassInteractor.y);
-        if (radial < 1.0 && heightDelta < 1.8)
+        if (radial < 1.0)
         {
             // Fade the response on slopes and during a jump, including at
             // the boundary that rejects foliage on a different floor.

@@ -78,6 +78,20 @@ def check_interaction():
     assert "Out += offsetOS * (height * height)" in shader
     assert "BendSlopeOS = clamp(offsetOS * (2.0 * height * inverseHeight)" in shader
     assert "saturate((1.8 - heightDelta) * 1.25)" in shader
+    # Shader work on unrelated floors/slopes is rejected before per-leaf
+    # object-to-world transforms. The old conjunctive bound is equivalent.
+    assert "UNITY_BRANCH if (heightDelta >= 1.8)" in shader
+    assert shader.index("float heightDelta = abs(pivot.y") < shader.index(
+        "TransformObjectToWorld(BasePositionOS).xz")
+    assert "if (radial < 1.0)" in shader
+    assert shader.index("Out = WindPositionOS;") < shader.index(
+        "UNITY_BRANCH if (heightDelta >= 1.8)")
+    for vertical_delta in (0.0, 0.8, 1.799999, 1.8, 1.800001, 4.0):
+        for radial in (0.0, 0.25, 0.999999, 1.0, 1.000001, 4.0):
+            old_contact = radial < 1.0 and vertical_delta < 1.8
+            new_contact = vertical_delta < 1.8 and radial < 1.0
+            assert old_contact == new_contact
+
     assert "float falloff = 1.0 - radial;" in shader
     assert "radius * radius" not in shader and "d2 / r2" not in shader
     assert "vertical = vertical * vertical * (3.0 - 2.0 * vertical)" in shader
