@@ -4,6 +4,7 @@ on:
     paths:
       - 'Assets/TerrainDemoScene_URP/ShaderGraphs/**'
       - 'Assets/TerrainDemoScene_URP/Prefabs/Trees/**'
+      - 'Assets/TerrainDemoScene_URP/Prefabs/Details/Textures/*.meta'
       - 'Assets/AarisWorld/Scripts/AarisVehicleSession.cs'
       - 'Tools/Validation/test_mobile_foliage_illusion_contract.py'
       - '.github/workflows/aaris-mobile-nature-illusion-qa.yml'
@@ -12,6 +13,7 @@ on:
     paths:
       - 'Assets/TerrainDemoScene_URP/ShaderGraphs/**'
       - 'Assets/TerrainDemoScene_URP/Prefabs/Trees/**'
+      - 'Assets/TerrainDemoScene_URP/Prefabs/Details/Textures/*.meta'
       - 'Assets/AarisWorld/Scripts/AarisVehicleSession.cs'
       - 'Tools/Validation/test_mobile_foliage_illusion_contract.py'
       - '.github/workflows/aaris-mobile-nature-illusion-qa.yml'

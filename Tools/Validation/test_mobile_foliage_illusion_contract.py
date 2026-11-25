@@ -76,6 +76,24 @@ def check_mobile_transmission():
     assert "lerp(rootedColor, TerrainColor, DistanceFade)" in shader
 
 
+def check_ground_detail_mips():
+    """Keep imported alpha mip coverage at the authored terrain-detail cutoff."""
+    textures = TREE.parent / "Details/Textures"
+    cutoffs = {
+        "Bush_Dry": "0.5",
+        "Fern": "0.75",
+        "Grass_A": "0.415",
+        "Grass_C": "0.437",
+        "Heathe": "0.777",
+        "Shrub": "0.5",
+    }
+    for name, cutoff in cutoffs.items():
+        metadata = (textures / f"{name}_BaseColor.tif.meta").read_text()
+        assert "    enableMipMap: 1\n" in metadata, name
+        assert "    mipMapsPreserveCoverage: 1\n" in metadata, name
+        assert f"    alphaTestReferenceValue: {cutoff}\n" in metadata, name
+
+
 def check_speedtree_materials():
     leaves = [
         "Pines/Pine_A/Materials/Pine_A.mat",
@@ -218,6 +236,7 @@ if __name__ == "__main__":
     check_graph()
     check_interaction()
     check_mobile_transmission()
+    check_ground_detail_mips()
     check_speedtree_materials()
     check_tree_graph_illusions()
     check_custom_speedtree_shader()
