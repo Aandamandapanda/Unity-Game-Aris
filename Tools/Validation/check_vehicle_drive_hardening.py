@@ -141,7 +141,10 @@ def test():
     assert "if (speed < -.55f) brake = ServiceBrakeTorque * throttle;" in motor
     assert "if (speed > .55f) brake = ServiceBrakeTorque * -throttle;" in motor
     assert "driver == null ? ParkingBrakeTorque : 155f" in motor
-    assert motor.count("ApplyWheelForces(0f, ParkingBrakeTorque);") == 2
+    parking_reuse = motor.split("internal void ReactivateParkedVehicle(", 1)[1].split(
+        "private void EnsureExhaustEmitter()", 1)[0]
+    assert "ApplyWheelForces(0f, ParkingBrakeTorque);" in parking_reuse
+    assert motor.replace(parking_reuse, "").count("ApplyWheelForces(0f, ParkingBrakeTorque);") == 2
     wheel_forces = motor.split("private void ApplyWheelForces(", 1)[1].split(
         "private void FixedUpdate()", 1)[0]
     assert wheel_forces.index("if (!driveChanged && !brakeChanged) return;") < (
@@ -189,7 +192,8 @@ def test():
         assert values == desired
     assert writes < len(sequence)
     assert "wheel.brakeTorque = ParkingBrakeTorque;" in motor
-    assert "linearVelocity =" not in motor
+    assert "body.linearVelocity = Vector3.zero;" in parking_reuse
+    assert "linearVelocity =" not in motor.replace(parking_reuse, "")
     assert "MoveRotation(" not in motor
 
     # Skip only truly sleeping, unoccupied cars. Parking brakes must be

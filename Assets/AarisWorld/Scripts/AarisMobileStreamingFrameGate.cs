@@ -685,6 +685,13 @@ namespace Aaris.MapReview
             return TryClaimOptionalModelBuild(true);
         }
 
+        // Distance-based retirement frees residency. Give it the same native
+        // fences and thermal-spacing exemption as a required scene load.
+        internal static bool TryClaimSceneRetirement()
+        {
+            return TryClaimOptionalModelBuild(true);
+        }
+
         private static bool TryClaimOptionalModelBuild(bool urgentScene)
         {
 #if UNITY_ANDROID && !UNITY_EDITOR

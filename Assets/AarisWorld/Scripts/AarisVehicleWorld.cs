@@ -100,6 +100,8 @@ namespace Aaris.MapReview
         public Vector3 position;
         public Quaternion rotation;
         public AarisVehicleMotor visible;
+        public GameObject builtBody, builtWheels;
+        public Bounds builtBounds;
         public float nextProbe;
         public bool previouslySpawned;
         // Stored across a streamed-out vehicle instance, just like position
@@ -121,6 +123,8 @@ namespace Aaris.MapReview
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         private static readonly ProfilerMarker k_VehicleBuild =
             new ProfilerMarker("Aaris.Streaming.VehicleBuild");
+        private static readonly ProfilerMarker k_VehicleReuse =
+            new ProfilerMarker("Aaris.Streaming.VehicleReuse");
 #endif
         // Long enough to reveal parked cars before the player reaches them;
         // the 10-car active cap and 2GB Android spawn budget stay unchanged.
@@ -130,6 +134,26 @@ namespace Aaris.MapReview
         private const float SeaLevel = -38.07552f;
         private const int TargetVehicles = 44;
         private const int MaximumNearbyVehicles = 10;
+        private const int MaximumParkedCache = 4;
+        private const float ParkedCacheLifetime = 30f;
+
+        private struct ParkedVehicle
+        {
+            internal AarisVehicleMotor motor;
+            internal AarisVehicleType type;
+            internal GameObject body, wheels;
+            internal Bounds bounds;
+            internal float expiresAt;
+        }
+
+        private readonly List<ParkedVehicle> parkedCache =
+            new List<ParkedVehicle>(MaximumParkedCache);
+        private int parkedCacheLimit = MaximumParkedCache;
+        private float parkedCacheAllowedAt;
+        private bool lowMemoryPending;
+        internal int FreshVehicleBuilds { get; private set; }
+        internal int ReusedVehicleBuilds { get; private set; }
+        internal int ParkedCacheCount => parkedCache.Count;
         private readonly List<AarisVehicleRecord> plans = new List<AarisVehicleRecord>(TargetVehicles);
         private readonly RaycastHit[] rayHits = new RaycastHit[24];
         private readonly Collider[] collisionHits = new Collider[40];
@@ -382,6 +406,8 @@ namespace Aaris.MapReview
         private void Awake()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
+            if (AarisMobileStreamingFrameGate.IsConstrainedDevice())
+                parkedCacheLimit = 2;
             int memoryMB = SystemInfo.systemMemorySize;
             if ((memoryMB > 0 && memoryMB <= 3072) ||
                 AarisMobileRuntime.UseConstrainedGpuStreamingBudget())
@@ -396,6 +422,10 @@ namespace Aaris.MapReview
             }
 #endif
         }
+
+        private void OnEnable() { Application.lowMemory += OnLowMemory; }
+        private void OnDisable() { Application.lowMemory -= OnLowMemory; }
+        private void OnLowMemory() { lowMemoryPending = true; }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Boot()
@@ -1789,14 +1819,15 @@ namespace Aaris.MapReview
 
         private bool Build(AarisVehicleRecord record, Vector3 pos)
         {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            using var profilerScope = k_VehicleBuild.Auto();
-#endif
             int typeIndex = TypeIndex(record.type);
             if (typeIndex < 0 || !authoredBodyResolved[typeIndex]) return false;
             GameObject source = prefabs[typeIndex];
             GameObject wheelSource = wheelPrefabs[typeIndex];
             if (source == null || wheelSource == null) return false;
+            if (TryReuseParkedVehicle(record, pos, source, wheelSource)) return true;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            using var profilerScope = k_VehicleBuild.Auto();
+#endif
             var root = new GameObject("Aaris Vehicle " + record.type.id + " " + record.point.id);
             root.transform.SetParent(transform, false);
             root.transform.SetPositionAndRotation(pos, record.rotation);
@@ -2010,11 +2041,52 @@ namespace Aaris.MapReview
             motor.RestoreStreamedDamage(record.damage01);
             motor.ConfigureBodyWear(mesh.transform, BodyPaintColours[
                 StablePaintVariant(record.point.id, record.type.id)]);
+            FreshVehicleBuilds++;
+            BindVehicle(record, motor, source, wheelSource, bounds);
+            return true;
+        }
+
+        private bool TryReuseParkedVehicle(AarisVehicleRecord record, Vector3 pos,
+            GameObject source, GameObject wheelSource)
+        {
+            float now = Time.unscaledTime;
+            if (now < parkedCacheAllowedAt) return false;
+            for (int i = parkedCache.Count - 1; i >= 0; i--)
+            {
+                ParkedVehicle parked = parkedCache[i];
+                // Always match the validated body AND wheel assets. A later
+                // fallback must not resurrect a rejected authored import.
+                if (parked.motor == null || parked.expiresAt <= now ||
+                    !ReferenceEquals(parked.type, record.type) ||
+                    parked.body != source || parked.wheels != wheelSource)
+                    continue;
+                parkedCache.RemoveAt(i);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                using var profilerScope = k_VehicleReuse.Auto();
+#endif
+                parked.motor.gameObject.name =
+                    "Aaris Vehicle " + record.type.id + " " + record.point.id;
+                parked.motor.ReactivateParkedVehicle(pos, record.rotation,
+                    record.damage01, BodyPaintColours[
+                        StablePaintVariant(record.point.id, record.type.id)]);
+                ReusedVehicleBuilds++;
+                BindVehicle(record, parked.motor, source, wheelSource, parked.bounds);
+                return true;
+            }
+            return false;
+        }
+
+        private static void BindVehicle(AarisVehicleRecord record, AarisVehicleMotor motor,
+            GameObject source, GameObject wheelSource, Bounds bounds)
+        {
             record.visible = motor;
+            record.builtBody = source;
+            record.builtWheels = wheelSource;
+            record.builtBounds = bounds;
             if (Debug.isDebugBuild)
             {
                 Debug.Log("AARIS_CAR_PLACED " + record.point.id + " " +
-                    record.type.id + " " + root.transform.position.ToString("F2"));
+                    record.type.id + " " + motor.transform.position.ToString("F2"));
                 // One spawn-time source of truth for native Unity QA:
                 // compare these actual rendered metres against catalog cars.
                 // Debug-only, never a 30/60 FPS render or driving loop cost.
@@ -2023,7 +2095,41 @@ namespace Aaris.MapReview
                     " height=" + bounds.size.y.ToString("F2") +
                     " length=" + bounds.size.z.ToString("F2"));
             }
-            return true;
+        }
+
+        private void RetireVehicle(AarisVehicleRecord record, float now)
+        {
+            AarisVehicleMotor motor = record.visible;
+            record.visible = null;
+            GameObject body = record.builtBody, wheels = record.builtWheels;
+            record.builtBody = record.builtWheels = null;
+            if (motor == null) return;
+            // Colliders and renderers leave the world immediately, even if
+            // Unity has to finish a native destruction later in this frame.
+            motor.gameObject.SetActive(false);
+            if (now < parkedCacheAllowedAt || body == null || wheels == null)
+            {
+                Destroy(motor.gameObject);
+                AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
+                return;
+            }
+            if (parkedCache.Count >= parkedCacheLimit)
+                DestroyOldestParkedVehicle();
+            parkedCache.Add(new ParkedVehicle
+            {
+                motor = motor, type = record.type, body = body,
+                wheels = wheels, bounds = record.builtBounds,
+                expiresAt = now + ParkedCacheLifetime
+            });
+        }
+
+        private void DestroyOldestParkedVehicle()
+        {
+            AarisVehicleMotor oldest = parkedCache[0].motor;
+            parkedCache.RemoveAt(0);
+            if (oldest == null) return;
+            Destroy(oldest.gameObject);
+            AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
         }
 
         private void Update()
@@ -2032,6 +2138,19 @@ namespace Aaris.MapReview
             // poll empty plan/type arrays until Setup validates the catalog.
             if (player == null || vehicleTypes == null || prefabs == null) return;
             float now = Time.unscaledTime;
+            if (lowMemoryPending)
+            {
+                parkedCacheAllowedAt = now + 60f;
+                lowMemoryPending = false;
+            }
+            if (parkedCache.Count > 0 && (now < parkedCacheAllowedAt ||
+                parkedCache[0].expiresAt <= now))
+            {
+                // Bound native destruction to one expired/cached car per
+                // rendered frame. Active cars and their saved state stay live.
+                DestroyOldestParkedVehicle();
+                return;
+            }
             if (now < nextPoll) return;
             nextPoll = now + .3f;
             // One native Transform read per poll, not one per vehicle record.
@@ -2089,23 +2208,17 @@ namespace Aaris.MapReview
                     record.position = record.visible.transform.position;
                     record.rotation = record.visible.transform.rotation;
                     record.damage01 = record.visible.Damage01;
-                    Destroy(record.visible.gameObject);
-                    record.visible = null;
+                    RetireVehicle(record, now);
                     unloaded++;
                 }
                 else active++;
             }
 #if UNITY_ANDROID && !UNITY_EDITOR
-            // Unity executes actual Destroy teardown after Update, before render.
-            // On budget GPUs, avoid stacking that native teardown with the
-            // next car hierarchy build and optional model integration in this
-            // same poll. Keep parked/unoccupied distance-based release immediate;
-            // any nearby new car is reconsidered at the normal 300ms poll.
-            // Stronger Android and Editor retain the original fast path.
+            // Unregistering four WheelColliders still touches PhysX even if
+            // the car enters the cache. Keep this poll off the native load slot.
             if (unloaded > 0 && AarisMobileStreamingFrameGate.IsConstrainedDevice())
             {
                 AarisMobileStreamingFrameGate.ReservePhysicsStreamingFrame();
-                AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
                 return;
             }
 #endif
@@ -2248,9 +2361,7 @@ namespace Aaris.MapReview
                         // during Build. Do not destroy/replace an occupied or
                         // moving car. Build assigned this candidate's visible
                         // instance only after the wheel/model checks passed.
-                        if (record.visible != null)
-                            Destroy(record.visible.gameObject);
-                        record.visible = null;
+                        RetireVehicle(record, now);
                         record.nextProbe = now + .3f;
                         continue;
                     }
@@ -2258,12 +2369,7 @@ namespace Aaris.MapReview
                     parkedVictim.rotation = retired.transform.rotation;
                     parkedVictim.damage01 = retired.Damage01;
                     parkedVictim.nextProbe = now + 3.0f;
-                    Destroy(retired.gameObject);
-#if UNITY_ANDROID && !UNITY_EDITOR
-                    // Keep optional native uploads off the retirement aftershock.
-                    AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
-#endif
-                    parkedVictim.visible = null;
+                    RetireVehicle(parkedVictim, now);
                     unloaded++;
                     active--;
                 }

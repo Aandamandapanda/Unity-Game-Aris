@@ -144,7 +144,7 @@ class ForestLookoutPilotSourceTests(unittest.TestCase):
         self.assertIn("if (!urgentScene && thermalGap > 0", gate)
         self.assertIn("bool urgent = distance <= entrySquared;", streamer)
         self.assertIn("loadIsUrgent = urgent;", streamer)
-        self.assertIn("if (!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad()) return;", streamer)
+        self.assertIn("if (!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad())", streamer)
         self.assertIn("AarisAndroidThermalGovernor.SuspendSpeculativePrefetch", streamer)
         self.assertIn("AarisAndroidThermalGovernor.ModerateThermalPressure", streamer)
 

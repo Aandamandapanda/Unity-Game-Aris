@@ -58,7 +58,7 @@ class SharedStreamingAdmission(unittest.TestCase):
         self.assertIn("if (!" + CLAIM + ")", body)
         self.assertIn("record.nextProbe = now + .15f;", body)
         self.assertLess(body.index(CLAIM), body.index("if (!Build(record, pos))"))
-        self.assertLess(body.index(CLAIM), body.index("Destroy(retired.gameObject);"))
+        self.assertLess(body.index(CLAIM), body.index("RetireVehicle(parkedVictim, now);"))
         self.assertIn("(parkedVictim.visible == null || !parkedVictim.visible.CanPark)", body)
         self.assertIn("if (parkedVictim != null)", body)
 

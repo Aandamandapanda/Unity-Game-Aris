@@ -11,7 +11,7 @@ class MobilePerfOverlayContract(unittest.TestCase):
     def test_separate_opt_in_runtime_component(self):
         self.assertIn("sealed class AarisMobilePerfOverlay : MonoBehaviour", SOURCE)
         self.assertIn("RuntimeInitializeLoadType.AfterSceneLoad", SOURCE)
-        self.assertIn("if (!overlayVisible && !recording)", SOURCE)
+        self.assertIn("if (!overlayVisible && !recording && !capturing)", SOURCE)
         self.assertIn("F8", SOURCE)
         self.assertIn("fingers == 3 || fingers == 4", SOURCE)
 

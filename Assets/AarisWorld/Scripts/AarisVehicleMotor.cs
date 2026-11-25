@@ -52,9 +52,10 @@ namespace Aaris.MapReview
         private struct BodyPaintSlot
         {
             public Renderer renderer;
+            public Material material;
             public int index;
             public Color fresh;
-            public bool atlas;
+            public bool atlas, civilian;
         }
         private readonly List<BodyPaintSlot> bodyPaintSlots =
             new List<BodyPaintSlot>(6);
@@ -981,8 +982,8 @@ namespace Aaris.MapReview
                         material, carPaint, atlas, sedan);
                     bodyPaintSlots.Add(new BodyPaintSlot
                     {
-                        renderer = renderer, index = slot,
-                        fresh = fresh, atlas = atlas
+                        renderer = renderer, material = material, index = slot,
+                        fresh = fresh, atlas = atlas, civilian = sedan
                     });
                 }
             }
@@ -1131,6 +1132,41 @@ namespace Aaris.MapReview
         {
             damage01 = float.IsNaN(savedDamage) || float.IsInfinity(savedDamage)
                 ? 0f : Mathf.Clamp(savedDamage, 0f, .85f);
+        }
+
+        internal void ReactivateParkedVehicle(Vector3 position, Quaternion rotation,
+            float savedDamage, Color paint)
+        {
+            // The inactive hierarchy has no registered shape at its old bay.
+            // Relocate before enabling it, then reset the physics pose and
+            // interpolation to this bay before any Update or FixedUpdate.
+            transform.SetPositionAndRotation(position, rotation);
+            RestoreStreamedDamage(savedDamage);
+            for (int i = 0; i < bodyPaintSlots.Count; i++)
+            {
+                BodyPaintSlot slot = bodyPaintSlots[i];
+                slot.fresh = AarisVehicleWorld.SelectPaintTint(
+                    slot.material, paint, slot.atlas, slot.civilian);
+                bodyPaintSlots[i] = slot;
+            }
+            lastBodyWear = -1f;
+            RefreshBodyWear();
+            smoothSteer = tyreSlip = 0f;
+            groundedWheelCount = groundedAxleMask = 0;
+            rearContactsGrounded[0] = rearContactsGrounded[1] = false;
+            hasPreviousPhysicsVelocity = false;
+            nextDamageAt = nextTelemetryAt = nextExhaustUpdateAt = 0f;
+            gameObject.SetActive(true);
+            body.position = position;
+            body.rotation = rotation;
+            body.linearVelocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+            body.WakeUp();
+            ApplyWheelForces(0f, ParkingBrakeTorque);
+            ApplyAckermannSteering(0f);
+            for (int i = 0; i < wheels.Length; i++) ApplySurfaceGrip(i, wheels[i], null);
+            nextLampDetailSampleAt = 0f;
+            UpdateLampDetailLod();
         }
 
         private void EnsureExhaustEmitter()

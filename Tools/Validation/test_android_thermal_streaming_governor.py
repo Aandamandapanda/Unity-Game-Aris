@@ -103,7 +103,7 @@ class AndroidThermalStreamingTests(unittest.TestCase):
         self.assertIn("AarisAndroidThermalGovernor.SuspendSpeculativePrefetch", budget)
         self.assertIn("speculativeResidentCount >= speculativeLimit", budget)
         self.assertIn("if (!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild()) return;", android_block)
-        self.assertIn("if (!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad()) return;", android_block)
+        self.assertIn("if (!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad())", android_block)
         self.assertIn("if (loadIsUrgent)", android_block)
         # Original actual-position policy always overrides optional thermal prefetch.
         self.assertIn("bool urgent = distance <= entrySquared;", WORLD)

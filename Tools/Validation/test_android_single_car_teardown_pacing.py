@@ -62,7 +62,7 @@ class OneCarNativeTeardownBudget(unittest.TestCase):
         self.assertEqual(retirement_polls([True, False, False, True], 1), [1, 1])
         update = VEHICLES.split("private void Update()", 1)[1]
         self.assertLess(update.index("record.damage01 = record.visible.Damage01;"),
-                        update.index("Destroy(record.visible.gameObject);"))
+                        update.index("RetireVehicle(record, now);"))
         self.assertIn("if (unloaded > 0 && AarisMobileStreamingFrameGate.IsConstrainedDevice())", update)
 
 

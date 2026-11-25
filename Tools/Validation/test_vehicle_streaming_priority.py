@@ -42,7 +42,7 @@ class VehicleStreamingPriority(unittest.TestCase):
         update = WORLD.split("private void Update()", 1)[1].split(
             "private AarisVehicleRecord FarthestReplaceableParkedCar(", 1)[0]
         self.assertLess(update.index("!TryResolvePlanned(record, out Vector3 pos)"),
-                        update.index("Destroy(retired.gameObject);"))
+                        update.index("RetireVehicle(parkedVictim, now);"))
         self.assertIn("if (retired == null || !retired.CanPark)", update)
         self.assertIn("record.nextProbe = now + .3f;", update)
         self.assertIn("parkedVictim.position = retired.transform.position;", update)
@@ -55,18 +55,17 @@ class VehicleStreamingPriority(unittest.TestCase):
         update = WORLD.split("private void Update()", 1)[1].split(
             "private AarisVehicleRecord FarthestReplaceableParkedCar(", 1)[0]
         build = update.index("if (!Build(record, pos))")
-        destroy_old = update.index("Destroy(retired.gameObject);")
-        self.assertLess(build, destroy_old)
-        failure = update[build:destroy_old]
+        retire_old = update.index("RetireVehicle(parkedVictim, now);")
+        self.assertLess(build, retire_old)
+        failure = update[build:retire_old]
         self.assertIn("record.nextProbe = now + 3.0f;", failure)
         self.assertIn("continue;", failure)
-        self.assertNotIn("Destroy(retired.gameObject);", failure)
+        self.assertNotIn("RetireVehicle(parkedVictim, now);", failure)
         # Late physics ownership change must discard the *new* body only.
         self.assertIn("if (retired == null || !retired.CanPark)", failure)
-        self.assertIn("Destroy(record.visible.gameObject);", failure)
-        self.assertIn("record.visible = null;", failure)
+        self.assertIn("RetireVehicle(record, now);", failure)
         self.assertIn("record.nextProbe = now + .3f;", failure)
-        self.assertLess(destroy_old, update.index("active--;"))
+        self.assertLess(retire_old, update.index("active--;"))
         self.assertLess(update.index("active--;", build),
                         update.index("active++;", build))
         self.assertLess(update.index("active++;"), update.index("record.previouslySpawned = true;"))
@@ -79,7 +78,7 @@ class VehicleStreamingPriority(unittest.TestCase):
         self.assertLess(build, saved_state)
         self.assertLess(saved_state, update.index("parkedVictim.damage01 = retired.Damage01;"))
         self.assertLess(update.index("parkedVictim.damage01 = retired.Damage01;"),
-                        update.index("Destroy(retired.gameObject);"))
+                        update.index("RetireVehicle(parkedVictim, now);"))
         # No excess replacement after reaching the native per-poll limits.
         self.assertIn("unloaded >= unloadBudgetPerPoll", update)
         self.assertIn("built < spawnBudgetPerPoll", update)

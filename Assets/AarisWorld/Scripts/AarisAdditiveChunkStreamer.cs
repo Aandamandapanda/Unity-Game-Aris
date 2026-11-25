@@ -12,7 +12,9 @@ namespace Aaris.MapReview
     /// terrain, materials, distant silhouettes, trees or collision parameters.
     /// Keep distant silhouette proxies in the bootstrap scene, not in chunks.
     /// </summary>
-    [DisallowMultipleComponent]
+    // Run after the nearby-collider update and before the optional model
+    // streamers, so required district transitions get the free slot first.
+    [DisallowMultipleComponent, DefaultExecutionOrder(-95)]
     public sealed class AarisAdditiveChunkStreamer : MonoBehaviour
     {
         [Serializable]
@@ -66,6 +68,7 @@ namespace Aaris.MapReview
         private static int sharedSceneCompletionFrame = -1;
         private const float CameraWarmHoldSeconds = 1f;
         private const float CameraWarmRetirementBuffer = 20f;
+        private const float RequiredTransitionRetrySeconds = 0.05f;
         private int cameraWarmCell = -1;
         private float cameraWarmKeepUntil;
 #endif
@@ -257,6 +260,7 @@ namespace Aaris.MapReview
             int speculativeResidentCount = 0;
 #if UNITY_ANDROID && !UNITY_EDITOR
             bool cameraWarmCanYield = false;
+            bool retiringCameraPrefetch = false;
             float cameraRetirementMargin = loadMargin + CameraWarmRetirementBuffer;
 #endif
             bool loadIsUrgent = false;
@@ -369,9 +373,11 @@ namespace Aaris.MapReview
                 Chunk warm = chunks[cameraWarmCell];
                 if (float.IsPositiveInfinity(AarisChunkStreamingPolicy.FirstApproach(
                     current.x, current.z, stepX, stepZ,
-                    warm.center.x, warm.center.y, warm.halfExtents.x, warm.halfExtents.y, loadMargin)) &&
-                    AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild())
+                    warm.center.x, warm.center.y, warm.halfExtents.x, warm.halfExtents.y, loadMargin)))
+                {
                     unloadCell = cameraWarmCell;
+                    retiringCameraPrefetch = true;
+                }
             }
 #endif
             // One integration operation in flight across the *entire* world.
@@ -384,6 +390,15 @@ namespace Aaris.MapReview
             if (unloadCell >= 0 && (loadCell < 0 || !loadIsUrgent))
             {
 #if UNITY_ANDROID && !UNITY_EDITOR
+                bool admitted = retiringCameraPrefetch
+                    ? AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild()
+                    : AarisMobileStreamingFrameGate.TryClaimSceneRetirement();
+                if (!admitted)
+                {
+                    if (!retiringCameraPrefetch)
+                        nextPollAt = now + RequiredTransitionRetrySeconds;
+                    return;
+                }
                 AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
 #endif
                 StartOperation(unloadCell, false);
@@ -397,7 +412,13 @@ namespace Aaris.MapReview
                 // and honours essential import, physics and teardown fences.
                 if (loadIsUrgent)
                 {
-                    if (!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad()) return;
+                    if (!AarisMobileStreamingFrameGate.TryClaimUrgentSceneLoad())
+                    {
+                        // Re-evaluate spatial relevance soon after an import or
+                        // physics fence, instead of waiting a full travel poll.
+                        nextPollAt = now + RequiredTransitionRetrySeconds;
+                        return;
+                    }
                 }
                 else if (!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild()) return;
 #endif

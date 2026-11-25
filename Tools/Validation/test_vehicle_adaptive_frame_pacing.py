@@ -45,7 +45,7 @@ class AndroidVehiclePacing(unittest.TestCase):
             block.index("if (!TryResolvePlanned(record, out Vector3 pos))"))
         self.assertLess(
             block.index("if (!Build(record, pos))"),
-            block.index("Destroy(retired.gameObject);"))
+            block.index("RetireVehicle(parkedVictim, now);"))
         self.assertNotIn("renderScale", block)
 
     def test_budgets_at_60hz(self):

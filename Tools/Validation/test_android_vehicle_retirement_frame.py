@@ -26,10 +26,14 @@ class AndroidVehicleRetirementFrame(unittest.TestCase):
         self.assertIn("dist2 > UnloadRadius * UnloadRadius && record.visible.CanPark", s)
         self.assertIn("unloaded < unloadBudgetPerPoll", s)
         self.assertLess(s.index("record.damage01 = record.visible.Damage01;"),
-                        s.index("Destroy(record.visible.gameObject);"))
-        self.assertLess(s.index("Destroy(record.visible.gameObject);"),
+                        s.index("RetireVehicle(record, now);"))
+        self.assertLess(s.index("RetireVehicle(record, now);"),
                         s.index("if (unloaded > 0 && AarisMobileStreamingFrameGate.IsConstrainedDevice())"))
-        self.assertIn("record.visible = null;", s)
+        retire = CARS.split("private void RetireVehicle(", 1)[1].split(
+            "private void DestroyOldestParkedVehicle()", 1)[0]
+        self.assertIn("record.visible = null;", retire)
+        self.assertLess(retire.index("motor.gameObject.SetActive(false);"),
+                        retire.index("Destroy(motor.gameObject);"))
 
     def test_android_only_shared_native_frame_reservation(self):
         s = self.update

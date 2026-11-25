@@ -10,6 +10,8 @@ using UnityEngine.SceneManagement;
 namespace UnityEngine
 {
     [AttributeUsage(AttributeTargets.Class)] public sealed class DisallowMultipleComponent : Attribute { }
+    [AttributeUsage(AttributeTargets.Class)] public sealed class DefaultExecutionOrder : Attribute
+    { public DefaultExecutionOrder(int order) { } }
     [AttributeUsage(AttributeTargets.Field)] public sealed class SerializeField : Attribute { }
     [AttributeUsage(AttributeTargets.Field)] public sealed class MinAttribute : Attribute
     { public MinAttribute(float value) { } }
@@ -128,11 +130,13 @@ namespace Aaris.MapReview
     {
         internal static int physicsClaims, teardownClaims, trackedSceneLoads;
         internal static bool allowOptionalBuild = true;
+        internal static bool allowRequiredLoad = true, allowRetirement = true;
         internal static void TrackAdditiveSceneOperation(AsyncOperation operation)
         { if (operation != null) trackedSceneLoads++; }
         internal static bool IsConstrainedDevice() { return true; }
         internal static bool TryClaimOptionalModelBuild() { return allowOptionalBuild; }
-        internal static bool TryClaimUrgentSceneLoad() { return true; }
+        internal static bool TryClaimUrgentSceneLoad() { return allowRequiredLoad; }
+        internal static bool TryClaimSceneRetirement() { return allowRetirement; }
         internal static void ReservePhysicsStreamingFrame() { physicsClaims++; }
         internal static void ReserveNativeTeardownFrame() { teardownClaims++; }
     }
@@ -195,6 +199,8 @@ internal static class AdditiveChunkStreamingTests
         AarisMobileStreamingFrameGate.teardownClaims = 0;
         AarisMobileStreamingFrameGate.trackedSceneLoads = 0;
         AarisMobileStreamingFrameGate.allowOptionalBuild = true;
+        AarisMobileStreamingFrameGate.allowRequiredLoad = true;
+        AarisMobileStreamingFrameGate.allowRetirement = true;
         AarisAndroidThermalGovernor.SuspendSpeculativePrefetch = false;
         AarisAndroidThermalGovernor.ModerateThermalPressure = false;
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -292,6 +298,37 @@ internal static class AdditiveChunkStreamingTests
     }
 
 #if UNITY_ANDROID && !UNITY_EDITOR
+    private static void CheckRequiredTransitionRetries()
+    {
+        ResetScene();
+        var target = new Transform();
+        var manager = Make(target);
+        AarisMobileStreamingFrameGate.allowRequiredLoad = false;
+        Frame(manager, target, 1f, 0f);
+        Check(SceneManager.loadCount == 0, "required load must honor native admission");
+        AarisMobileStreamingFrameGate.allowRequiredLoad = true;
+        Frame(manager, target, 1.06f, 0f);
+        Check(SceneManager.loadCount == 1, "required load retries before the regular poll");
+        SceneManager.Finish();
+        Frame(manager, target, 1.1f, 0f);
+        AarisMobileStreamingFrameGate.allowRetirement = false;
+        Frame(manager, target, 1.4f, 500f);
+        Check(SceneManager.unloadCount == 0 &&
+            AarisMobileStreamingFrameGate.teardownClaims == 0,
+            "busy frame must not start or reserve a district unload");
+        AarisMobileStreamingFrameGate.allowRetirement = true;
+        Frame(manager, target, 1.46f, 0f);
+        Check(SceneManager.unloadCount == 0, "a returned player cancels deferred retirement");
+        AarisMobileStreamingFrameGate.allowRetirement = false;
+        Frame(manager, target, 1.8f, 500f);
+        AarisMobileStreamingFrameGate.allowRetirement = true;
+        Frame(manager, target, 1.86f, 500f);
+        Check(SceneManager.unloadCount == 1 &&
+            AarisMobileStreamingFrameGate.teardownClaims == 1,
+            "deferred retirement retries and claims one native slot");
+        ResetScene();
+    }
+
     private static void CheckCameraWarmYield(bool reachedRequired)
     {
         const string eastPath = "Assets/CellWarmEast.unity", westPath = "Assets/CellRouteWest.unity";
@@ -409,6 +446,7 @@ internal static class AdditiveChunkStreamingTests
         CheckCameraPrefetch();
         CheckDrivingPrefetch();
 #if UNITY_ANDROID && !UNITY_EDITOR
+        CheckRequiredTransitionRetries();
         CheckCameraWarmYield(false);
         CheckCameraWarmYield(true);
 #endif

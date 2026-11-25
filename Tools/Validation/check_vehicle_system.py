@@ -498,7 +498,10 @@ def test():
     assert "wheels[i].motorTorque" in motor and "wheels[i].brakeTorque" in motor
     assert "Mathf.Lerp(32f, 10f" in motor
     assert "body.AddForce(-transform.up" in motor
-    assert "linearVelocity =" not in motor and "MoveRotation(" not in motor
+    reuse = motor.split("internal void ReactivateParkedVehicle(", 1)[1].split(
+        "private void EnsureExhaustEmitter()", 1)[0]
+    assert "body.linearVelocity = Vector3.zero;" in reuse
+    assert "linearVelocity =" not in motor.replace(reuse, "") and "MoveRotation(" not in motor
     assert "body.centerOfMass = new Vector3(0f, -.27f, 0f)" in motor
     # Suspension response should remain comparable across the catalog's wide
     # mass range; fitted axle geometry must also recompute PhysX wheel loads.

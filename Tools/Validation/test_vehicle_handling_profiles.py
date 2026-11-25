@@ -29,7 +29,10 @@ class TestHandlingProfiles(unittest.TestCase):
   self.assertIn('125f * steeringResponseMultiplier * Time.fixedDeltaTime',M)
   self.assertIn('float.IsNaN(value)',M)
   self.assertIn('float.IsInfinity(value)',M)
-  self.assertNotIn('body.linearVelocity =',M)
+  reuse = M.split("internal void ReactivateParkedVehicle(", 1)[1].split(
+   "private void EnsureExhaustEmitter()", 1)[0]
+  self.assertIn("body.linearVelocity = Vector3.zero;", reuse)
+  self.assertNotIn("body.linearVelocity =", M.replace(reuse, ""))
  def test_paint_is_only_on_verified_body_panels(self):
   paint=W.split('private static void PaintVerifiedBodySlots(',1)[1].split(
    'private void FallBackToVerifiedModel(',1)[0]
