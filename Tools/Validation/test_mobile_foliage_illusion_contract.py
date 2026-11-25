@@ -429,6 +429,8 @@ def check_canopy_asset_bindings():
     for name, height in expected.items():
         path = details / "Materials" / name
         mat = path.read_text()
+        assert not mat.startswith("version https://git-lfs.github.com/spec/v1"), (
+            f"{name}: hydrate the native ground-foliage material LFS objects before this check")
         assert "guid: dfa3b96612ed4df4a97b7fd06217ba23" in mat, name
         assert "m_EnableInstancingVariants: 1" in mat, name
         assert "_AlphaClip: 1" in mat and "_Cull: 0" in mat, name

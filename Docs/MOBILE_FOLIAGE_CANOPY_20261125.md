@@ -46,6 +46,8 @@ density-map units, not measured simultaneous visible instances.
 The accepted source asset hashes match the zero-error candidate following
 the byte-for-byte rejection of the thinner-mip experiment.
 
+The static workflow hydrates only the small native detail material LFS objects, not the full terrain or textures.
+
 Source regression commands:
 
 - python3 Tools/Validation/test_mobile_foliage_illusion_contract.py

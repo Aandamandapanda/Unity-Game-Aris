@@ -5,6 +5,7 @@ on:
       - 'Assets/TerrainDemoScene_URP/ShaderGraphs/**'
       - 'Assets/TerrainDemoScene_URP/Prefabs/Trees/**'
       - 'Assets/TerrainDemoScene_URP/Prefabs/Details/Textures/*.meta'
+      - 'Assets/TerrainDemoScene_URP/Prefabs/Details/Materials/**'
       - 'Assets/AarisWorld/Scripts/AarisVehicleSession.cs'
       - 'Tools/Validation/test_mobile_foliage_illusion_contract.py'
       - '.github/workflows/aaris-mobile-nature-illusion-qa.yml'
@@ -14,6 +15,7 @@ on:
       - 'Assets/TerrainDemoScene_URP/ShaderGraphs/**'
       - 'Assets/TerrainDemoScene_URP/Prefabs/Trees/**'
       - 'Assets/TerrainDemoScene_URP/Prefabs/Details/Textures/*.meta'
+      - 'Assets/TerrainDemoScene_URP/Prefabs/Details/Materials/**'
       - 'Assets/AarisWorld/Scripts/AarisVehicleSession.cs'
       - 'Tools/Validation/test_mobile_foliage_illusion_contract.py'
       - '.github/workflows/aaris-mobile-nature-illusion-qa.yml'
@@ -30,6 +32,9 @@ jobs:
         with:
           lfs: false
           persist-credentials: false
+      - name: Hydrate only the native ground-foliage material LFS objects
+        run: |
+          git lfs pull --include='Assets/TerrainDemoScene_URP/Prefabs/Details/Materials/*.asset' --exclude=''
       - name: Check mobile vegetation Shader Graph bindings and math
         run: |
           python3 Tools/Validation/test_mobile_foliage_illusion_contract.py
