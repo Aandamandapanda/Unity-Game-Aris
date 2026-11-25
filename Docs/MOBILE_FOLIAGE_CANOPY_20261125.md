@@ -32,6 +32,16 @@ textures, collision geometry, shadow budgets and URP render scale are unchanged.
   original importer file restored byte-for-byte. The accepted shader's
   runtime alpha clip stays .3333; the authored tree mip fullness stays .5.
 
+
+- Authored distant 3D SpeedTree leaf materials use the Fastest/default wind
+  variant. That variant now takes a normalized hemispherical canopy frame
+  instead of rebuilding the full ellipsoid crown gradient. Near Fast leaves
+  keep the full volumetric canopy normal and micro-flutter; billboards are
+  unchanged. The accepted candidate compiled 48 Android GLES3x variants with
+  zero shader/C# errors. Same-camera tree A/B readbacks stayed effectively
+  unchanged (close RMS 0.163/255, wide-forest RMS 0.196/255) while removing
+  crown-gradient and extra normalization work from the distant leaf vertex path.
+
 ## Evidence
 
 The existing Codespace's Unity 6000.3.26f1 / URP 17.3.0 completed the

@@ -281,6 +281,22 @@ def check_mobile_leaf_wind():
     assert "AarisTreeCanopyFrame(input)" in lit[:deform]
     assert "!defined(_WINDQUALITY_FAST)" in lit[deform:]
     assert "AarisTreeCanopyFrame(input)" in lit[deform:]
+    # The authored distant 3D materials serialize Fastest, which maps to the
+    # shader's default/no-quality-keyword variant. That path must use the
+    # cheaper hemispherical canopy frame before any ellipsoid reconstruction;
+    # near Fast leaves and billboards keep their existing paths.
+    frame_start = source.index("void AarisTreeCanopyFrame(")
+    frame = source[frame_start:source.index("\n}\n", frame_start)]
+    cheap = frame.index("Fastest is the shader's default wind variant")
+    anchor = frame.index("float3 anchor")
+    assert cheap < anchor
+    for keyword in ("!defined(_WINDQUALITY_NONE)", "!defined(_WINDQUALITY_FAST)",
+                    "!defined(_WINDQUALITY_BETTER)", "!defined(_WINDQUALITY_BEST)",
+                    "!defined(_WINDQUALITY_PALM)"):
+        assert keyword in frame[cheap:anchor]
+    assert "lerp(input.normal, float3(0.0, 1.0, 0.0), 0.62)" in frame[cheap:anchor]
+    assert "AarisCanopyTangentOS(input.tangent.xyz, input.normal)" in frame[cheap:anchor]
+    assert frame.index("AarisVolumeNormalOS", anchor) > anchor
     assert shader.count("#pragma multi_compile_instancing") == 6
     assert "float timeSeconds = _Time.y;" in source
     assert "float fieldPhase = AarisLandscapePhase(treePos.xz)" in source
@@ -559,6 +575,16 @@ def check_canopy_math():
         bent_normal = unit(add(out, (0, -dot(out, slope) / (1 + slope[1]), 0)))
         assert all(isfinite(x) for x in bent_normal)
         assert abs(dot(bent_normal, bent_tangent)) < 1e-6
+    # Fastest/distant SpeedTree leaves use a normalized hemispherical frame.
+    # For any unit authored normal, the 0.62 upward blend cannot invert the
+    # canopy and stays finite; no gradient/crown reconstruction is needed.
+    for _ in range(4000):
+        n = unit(tuple(rng.uniform(-1, 1) for _ in range(3)))
+        fast = unit((n[0] * .38, n[1] * .38 + .62, n[2] * .38))
+        assert all(isfinite(x) for x in fast)
+        assert abs(dot(fast, fast) - 1) < 1e-6
+        assert fast[1] > 0
+
     # The shared distance curve has zero slope at both ends. Far foliage
     # uses the cheap upward normal/tangent and retains its full silhouette.
     def canopy_fade(x):

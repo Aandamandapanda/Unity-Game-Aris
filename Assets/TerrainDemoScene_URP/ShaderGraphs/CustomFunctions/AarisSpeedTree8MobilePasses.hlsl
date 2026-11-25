@@ -331,6 +331,20 @@ void AarisTreeCanopyFrame(inout SpeedTreeVertexInput input)
     if (geometry <= GEOM_TYPE_FROND)
         return;
 
+    // Fastest is the shader's default wind variant (no declared wind-quality
+    // keyword). It is bound only to the authored distant 3D leaf materials.
+    // Keep a soft hemispherical frame there without rebuilding an ellipsoid.
+    #if !defined(_WINDQUALITY_NONE) && !defined(_WINDQUALITY_FAST) && \
+        !defined(_WINDQUALITY_BETTER) && !defined(_WINDQUALITY_BEST) && \
+        !defined(_WINDQUALITY_PALM)
+        input.normal = AarisUnitOr(lerp(input.normal, float3(0.0, 1.0, 0.0), 0.62),
+            float3(0.0, 1.0, 0.0));
+        #if defined(EFFECT_BUMP)
+            input.tangent.xyz = AarisCanopyTangentOS(input.tangent.xyz, input.normal);
+        #endif
+        return;
+    #endif
+
     float3 anchor = float3(input.texcoord1.zw, input.texcoord2.w);
     float3 gradient = float3(anchor.x, max(0.12, abs(anchor.y) * 0.08), anchor.z);
     #if defined(ENABLE_WIND) && !defined(_WINDQUALITY_NONE)
