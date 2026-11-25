@@ -202,6 +202,31 @@ def check_mobile_transmission():
     assert "unity_SHAr.w, unity_SHAg.w, unity_SHAb.w" in shader
     assert "ambient * skyFill * hemiFill" in shader
     assert "0.035h + 0.020h * up" in shader
+    assert "+ 0.10h * rim * (0.35h + 0.65h * back);" in shader
+
+
+def check_ground_transmission_edge_gate_math():
+    """Ground foliage edge glow is backlight-biased without extra peak energy."""
+    from math import isfinite
+    for rstep in range(101):
+        radius = rstep / 100.0
+        for i in range(-100, 101):
+            ndl = i * 0.01
+            back = max(0.0, min(1.0, (radius - ndl) / (1.0 + radius)))
+            wrapped = back * back * (3.0 - 2.0 * back)
+            rim = (1.0 - min(1.0, abs(ndl))) ** 2
+            old = (0.14 + 0.23 * radius) * wrapped + 0.10 * rim
+            new = ((0.14 + 0.23 * radius) * wrapped
+                   + 0.10 * rim * (0.35 + 0.65 * back))
+            assert isfinite(new) and 0.0 <= new <= old + 1e-12
+    radius = 0.75
+    def lobe(ndl):
+        back = max(0.0, min(1.0, (radius - ndl) / (1.0 + radius)))
+        wrapped = back * back * (3.0 - 2.0 * back)
+        rim = (1.0 - min(1.0, abs(ndl))) ** 2
+        return ((0.14 + 0.23 * radius) * wrapped
+                + 0.10 * rim * (0.35 + 0.65 * back))
+    assert lobe(-0.5) > lobe(0.5)
 
 
 def check_neutral_ground_chroma_fastpath():
@@ -509,7 +534,10 @@ def check_mobile_leaf_wind():
     assert "float3 windOS" in wind and "dot(anchorOS," in wind
     assert "timeSeconds * 0.72" in wind and "fieldPhase * 1.618" in wind
     assert "+ 0.16 * gust" in wind
-    assert "float twist = angle * (leafTwo ? -0.11 : 0.11);" in wind
+    assert "float shoulder = flutter * (1.0 - abs(flutter));" in wind
+    assert "0.23 + 0.77 * flutter + 0.05 * shoulder" in wind
+    assert "float twist = (leafTwo ? -1.0 : 1.0) *" in wind
+    assert "angle * 0.11 + bend * gust * shoulder * 0.035" in wind
     assert "rotation += windOS * twist;" in wind
     assert wind.count("AarisSmoothWindWave") == 1
     assert "_ST_WindLeaf1Ripple.x" not in wind and "_ST_WindLeaf2Ripple.x" not in wind
@@ -593,7 +621,8 @@ def check_continuous_wind_math():
                     t = fp32(elapsed + i / fps)
                     gust = 0.40 + 0.60 * field(x, z, t)
                     flutter = 2.0 * wave(fp32(t * 0.72 + 0.173 + (x * .011 + z * .035) * 1.618 + 0.16 * gust)) - 1.0
-                    ang.append(0.18 * gust * (0.23 + 0.77 * flutter))
+                    shoulder = flutter * (1.0 - abs(flutter))
+                    ang.append(0.18 * gust * (0.23 + 0.77 * flutter + 0.05 * shoulder))
                 assert all(isfinite(a) and abs(a) <= 0.18 for a in ang)
                 assert len(set(ang)) > fps
                 # Analytic bound: |wave'| <= 3 cycles^-1, including the
@@ -613,7 +642,9 @@ def check_continuous_wind_math():
                         gust = 0.40 + 0.60 * wave(spatial - t * 0.18)
                         for rate, warp, samples in ((0.95, 0.0, old), (0.72, 0.16, new)):
                             flutter = 2.0 * wave(fp32(t * rate + phase + spatial * 1.618 + warp * gust)) - 1.0
-                            samples.append(0.18 * gust * (0.23 + 0.77 * flutter))
+                            shoulder = flutter * (1.0 - abs(flutter))
+                            shape = 0.23 + 0.77 * flutter + (0.05 * shoulder if warp else 0.0)
+                            samples.append(0.18 * gust * shape)
                     assert len(set(new)) > fps
                     old_peak = max(old_peak, max(abs(a - b) for a, b in zip(old, old[1:])))
                     new_peak = max(new_peak, max(abs(a - b) for a, b in zip(new, new[1:])))
@@ -824,7 +855,7 @@ def check_canopy_math():
             back=max(0,min(1,(radius-ndl)/(1+radius)))
             wrapped=back*back*(3-2*back)
             rim=(1-abs(ndl))**2
-            transmit=(.14+.23*radius)*wrapped+.10*rim
+            transmit=(.14+.23*radius)*wrapped+.10*rim*(.35+.65*back)
             assert 0 <= transmit <= .47 + 1e-9
 
 
@@ -833,6 +864,7 @@ if __name__ == "__main__":
     check_interaction()
     check_red_bush_broadphase()
     check_mobile_transmission()
+    check_ground_transmission_edge_gate_math()
     check_neutral_ground_chroma_fastpath()
     check_ground_detail_mips()
     check_speedtree_materials()
@@ -846,4 +878,4 @@ if __name__ == "__main__":
     check_canopy_asset_bindings()
     check_canopy_math()
     print("AARIS_MOBILE_FOLIAGE_CONTRACT_PASS")
-    print("16 foliage source/math groups checked")
+    print("17 foliage source/math groups checked")

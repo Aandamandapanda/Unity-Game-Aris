@@ -146,11 +146,15 @@ void AarisFastLeafWind(inout SpeedTreeVertexInput input, inout float3 positionOS
     float leafPhase = timeSeconds * 0.72 + dot(anchorOS, float3(0.31, 0.57, 0.41))
         + fieldPhase * 1.618 + (leafTwo ? 0.37 : 0.0) + 0.16 * gust;
     float flutter = 2.0 * AarisSmoothWindWave(leafPhase) - 1.0;
+    // A signed mid-slope shoulder comes from the same wave. It is zero at
+    // extrema and centre, adding organic acceleration without another wave.
+    float shoulder = flutter * (1.0 - abs(flutter));
     float bend = min(abs(rippleAmplitude) * 5.0, 0.18) * saturate(input.texcoord3.x) * fade;
-    float angle = bend * gust * (0.23 + 0.77 * flutter);
+    float angle = bend * gust * (0.23 + 0.77 * flutter + 0.05 * shoulder);
     float3 rotation = float3(windOS.z, 0.0, -windOS.x) * angle;
-    // Tiny signed torsion reuses the same wave: no second trig/noise sample.
-    float twist = angle * (leafTwo ? -0.11 : 0.11);
+    // Opposite authored leaf groups reuse the same single-wave shoulder.
+    float twist = (leafTwo ? -1.0 : 1.0) *
+        (angle * 0.11 + bend * gust * shoulder * 0.035);
     rotation += windOS * twist;
 
     // Small-angle hinge rotation: pin the anchor, and move the lighting

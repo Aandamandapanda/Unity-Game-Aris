@@ -189,3 +189,11 @@ Snapdragon 680 frame-time, thermal, battery or Android-player benchmark.
 - Existing distance exits, instancing, root AO/ground blend, world-position macro colour, bark normal relief, and hemispherical sky-bounce paths remain intact.
 
 Validation for this continuation on the live Codespace: `git diff --check` passed; the foliage contract reported all 15 source/math groups passing, alongside 3 mobile-shadow tests and 10 tree/proportion tests. The disposable Unity 6000.3.26f1 GLES3x gate compiled 10 TerrainGrass plus 28 SpeedTree requests (38 total) with zero failed variants and zero shader errors. A separate disposable `/tmp` C# project completed Unity batchmode successfully with no `error CS...` diagnostics. This is compiler/source evidence, not a measured Adreno 610 FPS, thermal or battery benchmark.
+
+## 2026-11-26 single-wave leaf shoulder + backlight-gated ground edge
+
+- Fast SpeedTree leaves derive a tiny signed shoulder from the already-computed single smooth wave. It reshapes mid-stroke angular velocity/torsion while remaining zero at the extrema and centre, so cards read less like synchronized pendulums. There is still one wave evaluation: no second clock, trig/noise sample, physics, collider, C# leaf update, pass, varying or draw call.
+- Terrain grass/shrub pseudo-subsurface gates its existing rim term with the already-computed backlight factor. Front-lit card edges lose the uniform fake halo while back-lit golden-green transmission stays within the old maximum-energy ceiling. There is no new light/shadow/texture lookup or shader keyword/material split.
+- Root AO/soil blend, world-position forest colour, bark normal relief, sky-bounce fill, player/vehicle shader bending, instancing, LOD distance exits and original geometry remain unchanged.
+
+The contract adds a numerical ground-edge energy test and updates the continuous Fast-wind model for the single-wave shoulder. It reports 17 source/math groups when all checks pass. The isolated Unity 6000.3.26f1 GLES3x gate compiled 10 TerrainGrass plus 28 SpeedTree requests (38 total) with zero failed variants and zero shader errors. Source/compiler evidence is not a measured Snapdragon 680 FPS, thermal or battery benchmark.

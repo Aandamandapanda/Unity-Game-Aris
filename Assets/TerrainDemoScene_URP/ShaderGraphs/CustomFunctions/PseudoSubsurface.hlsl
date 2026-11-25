@@ -82,7 +82,10 @@ void PseudoSubsurface_half(float3 WorldPosition, half3 WorldNormal, half3 SSRadi
     half skyFill = 0.035h + 0.020h * up;
     half3 hemiFill = lerp(half3(1.035h, 0.99h, 0.92h),
                           half3(0.94h, 1.0h, 1.06h), up);
-    half transmission = (0.14h + 0.23h * radius) * wrapped + 0.10h * rim;
+    // Reuse back so front-lit cards lose a uniform fake halo while true
+    // backlit edges retain the prior peak. No new light or texture lookup.
+    half transmission = (0.14h + 0.23h * radius) * wrapped
+        + 0.10h * rim * (0.35h + 0.65h * back);
     half3 warmSun = half3(1.04h, 1.0h, 0.86h);
     half response = 1.0h - 0.20h * saturate(ShadowResponse);
     ssAmount = max(0.0h, color * response * transmission * warmSun
