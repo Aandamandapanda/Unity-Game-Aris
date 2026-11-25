@@ -46,6 +46,18 @@ void PseudoSubsurface_half(float3 WorldPosition, half3 WorldNormal, half3 SSRadi
     half3 ambient = half3(0.0h, 0.0h, 0.0h);
     half3 lightDir = normalize(half3(0.707h, 0.5h, 0.707h));
 #else
+    // Far detail cards keep normal URP Lit, but skip this additive illusion.
+    // Squared distance avoids sqrt and the branch is spatially coherent.
+    float3 cameraDelta = WorldPosition - GetCameraPositionWS();
+    float distanceSq = dot(cameraDelta, cameraDelta);
+    UNITY_BRANCH if (distanceSq >= 8100.0)
+    {
+        ssAmount = 0.0h;
+        return;
+    }
+    // Full fake transmission through 45 m, smoothly gone by 90 m.
+    half illusionFade = (half)saturate((8100.0 - distanceSq) * 0.00016460905);
+    illusionFade = illusionFade * illusionFade * (3.0h - 2.0h * illusionFade);
     Light mainLight = GetMainLight();
     half3 color = mainLight.color * saturate(mainLight.distanceAttenuation);
     half3 lightDir = mainLight.direction;
@@ -69,6 +81,9 @@ void PseudoSubsurface_half(float3 WorldPosition, half3 WorldNormal, half3 SSRadi
     half response = 1.0h - 0.20h * saturate(ShadowResponse);
     ssAmount = max(0.0h, color * response * transmission * warmSun
         + ambient * skyFill * hemiFill);
+#ifndef SHADERGRAPH_PREVIEW
+    ssAmount *= illusionFade;
+#endif
 }
 
 #endif

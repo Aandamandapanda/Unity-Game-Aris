@@ -184,6 +184,10 @@ def check_mobile_transmission():
     shader = (FOLIAGE / "CustomFunctions/PseudoSubsurface.hlsl").read_text()
     assert "void PseudoSubsurface_half" in shader
     assert "GetMainLight()" in shader
+    assert "GetCameraPositionWS()" in shader
+    assert "distanceSq >= 8100.0" in shader
+    assert shader.index("distanceSq >= 8100.0") < shader.index("GetMainLight()")
+    assert "0.00016460905" in shader and "ssAmount *= illusionFade" in shader
     assert "skyFill" in shader and "rim" in shader and "hemiFill" in shader
     assert "acos(" not in shader and "pow(" not in shader
     assert "TransformWorldToShadowCoord" not in shader
@@ -310,8 +314,8 @@ def check_custom_speedtree_shader():
     assert "half3 hemiTint" in source and "half transmit" in source
     assert "Light mainLight = GetMainLight(inputData, shadowMask, aoFactor);" in source
     assert "light.shadowAttenuation" in source
-    assert "AarisLeafSun(inputData, mainLight, surfaceData.occlusion)" in source
-    assert "AarisLeafSky(inputData, aoFactor.indirectAmbientOcclusion)" in source
+    assert "AarisLeafSun(inputData.normalWS, mainLight, surfaceData.occlusion)" in source
+    assert "AarisLeafSky(inputData.normalWS, inputData.bakedGI, aoFactor.indirectAmbientOcclusion)" in source
     assert "MainLightRealtimeShadow(" not in source
     assert "SampleNormal" in source and "normalTs.xy *= 1.15h" in source
     # The blue varying must be shared by non-subsurface bark root AO and
@@ -320,8 +324,8 @@ def check_custom_speedtree_shader():
     assert "half3(0.84h, 0.80h, 0.73h)" in source
     assert "half3 warmSunTint" in source
     assert "half back2 = back * back;" in source
-    assert "half transmit = 0.34h * back2;" in source
-    assert "half sunEdge = rim * (0.32h + 0.68h * back);" in source
+    assert "half transmit = 0.34h * back2 + 0.06h * rim * (0.35h + 0.65h * back);" in source
+    assert "towardSun" not in source
     assert "rim *= rim;" in source
     assert "saturate(occlusion)" in source
     assert "smoothness *= 1.0h - 0.16h * rootContact" in source
@@ -329,15 +333,12 @@ def check_custom_speedtree_shader():
     assert "normalTs.xy *= 1.15h" in source
     assert "leafDetail * 0.085h" in source
     assert "output.color.b = (half)frac(leafSeed * (leafSeed + 17.17))" in source
-    # SpeedTree leaf anchor is XYZ = (uv1.z, uv1.w, uv2.w), not uv1.zw as XZ.
-    # Matrix transform keeps the variation fixed to each leaf when trees rotate.
-    assert "float2 leafAnchorXZ = float2(UNITY_MATRIX_M[0].w, UNITY_MATRIX_M[2].w)" in source
+    # Forest-scale breakup comes from the world-space instance pivot.
+    # Near leaves add stable object-space anchor noise without matrix transforms.
+    assert "float2 treePivotXZ = float2(UNITY_MATRIX_M[0].w, UNITY_MATRIX_M[2].w)" in source
     assert "float3 leafAnchorOS = float3(input.texcoord1.z, input.texcoord1.w, input.texcoord2.w)" in source
-    assert "TransformObjectToWorld(leafAnchorOS).xz" in source
-    chroma = source[source.index("Distant 3D LOD: broad per-tree chroma"):
-                    source.index("float leafSeed =", source.index("Distant 3D LOD: broad per-tree chroma"))]
-    assert chroma.index("UNITY_MATRIX_M[0].w") < chroma.index("#else")
-    assert chroma.index("TransformObjectToWorld(leafAnchorOS).xz") > chroma.index("#else")
+    assert "leafSeed += dot(leafAnchorOS, float3(0.173, 0.117, 0.137))" in source
+    assert "TransformObjectToWorld(leafAnchorOS).xz" not in source
     assert "float2 leafAnchorXZ = input.texcoord1.zw +" not in source
     assert "half leafDetail = input.interpolated.color.b - 0.5h" in source
     assert source.count("#if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)") >= 2

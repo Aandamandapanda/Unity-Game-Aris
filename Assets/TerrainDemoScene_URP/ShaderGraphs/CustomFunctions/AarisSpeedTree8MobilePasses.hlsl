@@ -407,20 +407,19 @@ SpeedTreeVertexOutput SpeedTree8Vert(SpeedTreeVertexInput input)
     // Reuse the blue color interpolator (reserved for root AO on bark).
     // SpeedTree leaf anchors are stable while the already-authored wind moves.
     #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
-        // SpeedTree packs anchor XYZ across texcoord1.zw and texcoord2.w.
-        // Transform the full anchor so rotated/scaled instances do not color
-        // leaves from the wrong local axis (formerly local Y was used as Z).
+        float2 treePivotXZ = float2(UNITY_MATRIX_M[0].w, UNITY_MATRIX_M[2].w);
+        float leafSeed = dot(treePivotXZ, float2(0.1031, 0.11369));
         #if !defined(_WINDQUALITY_NONE) && !defined(_WINDQUALITY_FAST) && \
             !defined(_WINDQUALITY_BETTER) && !defined(_WINDQUALITY_BEST) && \
             !defined(_WINDQUALITY_PALM)
-            // Distant 3D LOD: broad per-tree chroma breakup without a full
-            // packed leaf-anchor world transform on every vertex.
-            float2 leafAnchorXZ = float2(UNITY_MATRIX_M[0].w, UNITY_MATRIX_M[2].w);
+            // Distant 3D LOD: broad per-tree breakup only.
         #else
+            // Near leaves add stable local variation without object-to-world
+            // anchor transforms; forest-scale breakup still comes from pivot WS.
             float3 leafAnchorOS = float3(input.texcoord1.z, input.texcoord1.w, input.texcoord2.w);
-            float2 leafAnchorXZ = TransformObjectToWorld(leafAnchorOS).xz;
+            leafSeed += dot(leafAnchorOS, float3(0.173, 0.117, 0.137));
         #endif
-        float leafSeed = frac(dot(leafAnchorXZ, float2(0.1031, 0.11369)));
+        leafSeed = frac(leafSeed);
         output.color.b = (half)frac(leafSeed * (leafSeed + 17.17));
     #endif
     #if !defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
@@ -558,40 +557,28 @@ void InitializeInputData(SpeedTreeFragmentInput input, half3 normalTS, out Input
 }
 
 #if defined(EFFECT_SUBSURFACE)
-half3 AarisLeafSun(InputData inputData, Light light, half occlusion)
+// One bounded sun-angle lobe for every leaf LOD. Wind quality is vertex-only,
+// so fragment lighting must not branch on it. Reuse N.L for the golden edge.
+half3 AarisLeafSun(half3 normalWS, Light light, half occlusion)
 {
-    half ndl = dot(inputData.normalWS, light.direction);
+    half ndl = dot(normalWS, light.direction);
     half back = saturate(0.5h - 0.5h * ndl);
     half back2 = back * back;
-
-    // Fastest is the distant 3D leaf material. Compile out the view-dependent
-    // rim there; near/Fast leaves retain the richer golden edge cue.
-    #if !defined(_WINDQUALITY_NONE) && !defined(_WINDQUALITY_FAST) && \
-        !defined(_WINDQUALITY_BETTER) && !defined(_WINDQUALITY_BEST) && \
-        !defined(_WINDQUALITY_PALM)
-        half transmit = 0.34h * back2;
-    #else
-        half rim = 1.0h - saturate(abs(ndl));
-        rim *= rim;
-        half towardSun = saturate(-dot(inputData.viewDirectionWS, light.direction));
-        half sunEdge = rim * (0.32h + 0.68h * back);
-        half transmit = 0.36h * back2 + sunEdge *
-            (0.035h + 0.115h * towardSun * towardSun);
-    #endif
+    half rim = 1.0h - saturate(abs(ndl));
+    rim *= rim;
+    half transmit = 0.34h * back2 + 0.06h * rim * (0.35h + 0.65h * back);
     half visibility = saturate(light.distanceAttenuation) * light.shadowAttenuation;
     half3 warmSunTint = half3(1.04h, 1.0h, 0.86h);
     return light.color * warmSunTint * (transmit * visibility * (0.6h + 0.4h * occlusion));
 }
 
-half3 AarisLeafSky(InputData inputData, half occlusion)
+half3 AarisLeafSky(half3 normalWS, half3 bakedGI, half occlusion)
 {
-    half up = saturate(inputData.normalWS.y * 0.5h + 0.5h);
-    // Upward leaves catch cool sky; downward surfaces keep weak warm ground bounce.
+    half up = saturate(normalWS.y * 0.5h + 0.5h);
     half3 hemiTint = lerp(half3(1.035h, 0.99h, 0.92h),
                           half3(0.93h, 1.0h, 1.07h), up);
     half hemiStrength = 0.17h + 0.07h * up;
-    return inputData.bakedGI * hemiTint *
-        (_SubsurfaceIndirect * hemiStrength * occlusion);
+    return bakedGI * hemiTint * (_SubsurfaceIndirect * hemiStrength * occlusion);
 }
 
 #if !defined(GBUFFER)
@@ -627,14 +614,14 @@ half4 AarisForwardLeafPBR(InputData inputData, SurfaceData surfaceData)
         inputData.normalWS, inputData.viewDirectionWS, inputData.normalizedScreenSpaceUV);
 
     half3 leafColor = surfaceData.albedo * _SubsurfaceColor.rgb;
-    lighting.giColor += leafColor * AarisLeafSky(inputData, aoFactor.indirectAmbientOcclusion);
+    lighting.giColor += leafColor * AarisLeafSky(inputData.normalWS, inputData.bakedGI, aoFactor.indirectAmbientOcclusion);
     #if defined(_LIGHT_LAYERS)
     if (IsMatchingLightLayer(mainLight.layerMask, meshRenderingLayers))
     #endif
     {
         lighting.mainLightColor = LightingPhysicallyBased(brdfData, clearCoat, mainLight,
             inputData.normalWS, inputData.viewDirectionWS, surfaceData.clearCoatMask, specularHighlightsOff);
-        lighting.mainLightColor += leafColor * AarisLeafSun(inputData, mainLight, surfaceData.occlusion);
+        lighting.mainLightColor += leafColor * AarisLeafSun(inputData.normalWS, mainLight, surfaceData.occlusion);
     }
 
     #if defined(_ADDITIONAL_LIGHTS)
@@ -793,7 +780,7 @@ half4 SpeedTree8Frag(SpeedTreeFragmentInput input) : SV_Target
     MixRealtimeAndBakedGI(mainLight, inputData.normalWS, inputData.bakedGI, inputData.shadowMask);
     #if defined(EFFECT_SUBSURFACE)
         emission = albedo * _SubsurfaceColor.rgb *
-            (AarisLeafSun(inputData, mainLight, occlusion) + AarisLeafSky(inputData, occlusion));
+            (AarisLeafSun(inputData.normalWS, mainLight, occlusion) + AarisLeafSky(inputData.normalWS, inputData.bakedGI, occlusion));
     #endif
     half3 color = GlobalIllumination(brdfData, (BRDFData)0, 0, inputData.bakedGI, occlusion, inputData.positionWS,
                                      inputData.normalWS, inputData.viewDirectionWS, inputData.normalizedScreenSpaceUV);
