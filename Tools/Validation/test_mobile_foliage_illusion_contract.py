@@ -245,13 +245,16 @@ def check_mobile_leaf_wind():
     assert source.count("InitializeData(input, unity_LODFade.x);") == 3
     assert shader.count("#pragma multi_compile_instancing") == 6
     assert "float timeSeconds = _Time.y;" in source
-    assert "AarisLandscapeGust(treePos.xz, timeSeconds)" in source
-    assert "AarisLandscapeGust(PivotWS.xz, TimeSeconds" in grass
+    assert "float fieldPhase = AarisLandscapePhase(treePos.xz)" in source
+    assert "AarisLandscapeGust(fieldPhase, timeSeconds)" in source
+    # The far, fully static 3D path must leave before wind normalization.
+    assert source.index("distanceSq >= endSwayDistanceSq") < source.index("float3 rotatedWindVector")
+    assert "AarisLandscapeGust(AarisLandscapePhase(PivotWS.xz), TimeSeconds" in grass
     start = source.index("void AarisFastLeafWind(")
     wind = source[start:source.index("\n}\n", start)]
     assert wind.index("distanceSq >= endFlutterDistanceSq") < wind.index("AarisSmoothWindWave")
     assert "float3 windOS" in wind and "dot(anchorOS," in wind
-    assert "timeSeconds * 0.95" in wind
+    assert "timeSeconds * 0.95" in wind and "fieldPhase * 1.618" in wind
     assert "_ST_WindLeaf1Ripple.x" not in wind and "_ST_WindLeaf2Ripple.x" not in wind
     assert "cross(rotation, positionOS - anchorOS)" in wind
     assert "cross(rotation, input.normal)" in wind and "cross(rotation, input.tangent.xyz)" in wind
@@ -310,6 +313,10 @@ def check_continuous_wind_math():
     # Spatial propagation is shared between tree and grass materials.
     assert abs(field(42, -130, 10) -
                field(42, -130 + 0.18 / 0.035, 11)) < 1e-9
+    # Identical leaf anchors on two separate painted instances should
+    # retain distinct ripple phases instead of swaying as synchronized clones.
+    assert abs(wave(.173 + (25 * .011 + 30 * .035) * 1.618) -
+               wave(.173 + (31 * .011 + 32 * .035) * 1.618)) > 0.05
     for full, end in ((35, 75), (60, 85), (85, 150)):
         samples = [fade(x / 10.0, full, end) for x in range(0, 1800)]
         assert all(a >= b for a, b in zip(samples, samples[1:]))
@@ -328,7 +335,7 @@ def check_continuous_wind_math():
                 for i in range(fps * 3):
                     t = fp32(elapsed + i / fps)
                     gust = 0.40 + 0.60 * field(x, z, t)
-                    flutter = 2.0 * wave(fp32(t * 0.95 + 0.173)) - 1.0
+                    flutter = 2.0 * wave(fp32(t * 0.95 + 0.173 + (x * .011 + z * .035) * 1.618)) - 1.0
                     ang.append(0.18 * gust * (0.23 + 0.77 * flutter))
                 assert all(isfinite(a) and abs(a) <= 0.18 for a in ang)
                 assert len(set(ang)) > fps

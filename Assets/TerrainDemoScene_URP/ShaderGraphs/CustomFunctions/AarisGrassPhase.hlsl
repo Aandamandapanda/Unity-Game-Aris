@@ -11,9 +11,14 @@ float AarisSmoothWindWave(float phase)
 // weather envelope is shared by all materials and trees; species retain
 // their authored heading, wavelength and speed for the finer local ripple.
 // Full precision and a continuous render clock avoid phase stepping on GLES.
-float AarisLandscapeGust(float2 pivotXZ, float timeSeconds)
+float AarisLandscapePhase(float2 pivotXZ)
 {
-    return AarisSmoothWindWave(dot(pivotXZ, float2(0.011, 0.035)) - timeSeconds * 0.18);
+    return dot(pivotXZ, float2(0.011, 0.035));
+}
+
+float AarisLandscapeGust(float fieldPhase, float timeSeconds)
+{
+    return AarisSmoothWindWave(fieldPhase - timeSeconds * 0.18);
 }
 
 float AarisWindDistanceFade(float distanceSq, float fullSq, float endSq)
@@ -36,7 +41,7 @@ void AarisGrassPhase_float(float3 WindDirection, float3 PivotWS, float TimeSecon
 
     // Freeze the weather phase for an explicitly zero-speed material.
     // Otherwise, neighboring species share a slowly travelling gust.
-    float gust = AarisLandscapeGust(PivotWS.xz, TimeSeconds * step(0.0001, abs(Speed)));
+    float gust = AarisLandscapeGust(AarisLandscapePhase(PivotWS.xz), TimeSeconds * step(0.0001, abs(Speed)));
     float flutter = AarisSmoothWindWave(along * 0.83 - clock * 0.72
         + across * (0.14 + 0.09 * saturate(Distortion)) + InstancePhase * 0.37);
     Phase = 0.11 + 0.58 * gust + (0.13 + 0.16 * saturate(Ripple)) * flutter;
