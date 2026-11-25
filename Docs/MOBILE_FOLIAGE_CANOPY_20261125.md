@@ -99,3 +99,33 @@ Public technique references: NVIDIA GPU Gems 3 chapters 4 and 16 (SpeedTree
 and procedural vegetation), Unity 6 draw-call/terrain detail guidance, and
 Arm mobile art/material guidance. This is an original implementation, not
 a claim to possess Rockstar's proprietary foliage code.
+
+## Continuation: Conservative Red Bush contact broad-phase
+
+A live Unity 6000.3.26f1 AssetDatabase probe (temporary editor script removed
+afterwards) inspected all four meshes sharing the Red Bush material:
+
+| Mesh | Vertex count | Center XYZ | Half-extents XYZ |
+| --- | ---: | --- | --- |
+| Painted Bush_Red Mesh | 8,887 | (0, 1.017657, 0) | (2.201980, 1.114524, 1.784371) |
+| Standalone Red_Bush LOD0 | 8,887 | (-0.024445, 1.017657, -0.627658) | (2.201980, 1.114524, 1.784371) |
+| Standalone Red_Bush LOD1 | 2,636 | (-0.035351, 1.014833, -0.627658) | (2.218102, 1.122842, 1.784370) |
+| Standalone Red_Bush LOD2 | 1,697 | (-0.035351, 1.014833, -0.596702) | (2.218102, 1.122842, 1.815327) |
+
+All authored rest vertices are conservatively enclosed by absolute object
+coordinates (2.30, 2.20, 2.50), including LOD centers and small safety
+margins. The vertex-only interaction HLSL uses object-to-world matrix rows
+to project this bound into world XZ for arbitrary rotation/tilt/nonuniform
+scale. The interactor radius is recovered from the already supplied inverse
+radius squared. Only the authored 2.13m red-bush material profile uses this
+broad-phase; all other ground details retain their original behavior. The
+branch skips the per-leaf world-position transform only when even the nearest
+possible card cannot be contacted. It makes no changes to regular wind,
+geometry, alpha clipping, lighting, depth/shadow passes, or material bindings.
+
+The 13th source/math test group checks 10,000 seeded random affine transforms
+and reachable interactor positions across all four measured mesh envelopes.
+All 13 groups, three tree-shadow tests and ten tree-proportion tests passed.
+The live Unity native-project batch import exited 0 with zero reported C# or
+shader errors. This is source/Editor verification, not an Android GLES3x variant
+exhaustiveness guarantee or a measured Adreno 610 FPS/thermal improvement.

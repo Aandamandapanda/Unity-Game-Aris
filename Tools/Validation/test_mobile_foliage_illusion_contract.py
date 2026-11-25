@@ -111,6 +111,51 @@ def check_interaction():
     assert "Shader.SetGlobalVector(GrassInteractorId, Vector4.zero)" in motor
 
 
+def check_red_bush_broadphase():
+    """Stress-test the native and FBX LOD bounds; no reachable card is rejected."""
+    from math import cos, sin, pi
+    from random import Random
+    shader = (FOLIAGE / "CustomFunctions/AarisGrassInteraction.hlsl").read_text()
+    for term in ("abs(GroundHeight - 2.13) < 0.002",
+                 "float3(2.30, 2.20, 2.50)",
+                 "dot(abs(UNITY_MATRIX_M[0].xyz), maxAbsRedBushOS)",
+                 "dot(abs(UNITY_MATRIX_M[2].xyz), maxAbsRedBushOS)",
+                 "float contactRadius = rsqrt(inverseRadiusSq)",
+                 "UNITY_BRANCH if (any(abs(delta) > spanXZ + contactRadius))"):
+        assert term in shader
+    assert shader.index("spanXZ + contactRadius") < shader.index(
+        "TransformObjectToWorld(BasePositionOS).xz")
+    # Measured from Unity AssetDatabase: painted bush + standalone LOD0/1/2.
+    models = [
+        ((0., 1.017657, 0.), (2.20198035, 1.11452365, 1.784371)),
+        ((-.0244450569, 1.017657, -.6276578), (2.20198035, 1.11452365, 1.784371)),
+        ((-.0353512764, 1.01483321, -.627658367), (2.21810246, 1.1228416, 1.78437042)),
+        ((-.0353508, 1.014833, -.5967015), (2.218102, 1.12284184, 1.81532729)),
+    ]
+    bounds = (2.30, 2.20, 2.50)
+    for center, extent in models:
+        assert all(abs(c) + e < bound for c, e, bound in zip(center, extent, bounds))
+    rng = Random(251126)
+    def dot(a, b): return sum(x*y for x, y in zip(a, b))
+    for i in range(10000):
+        center, extent = models[i % 4]
+        # Arbitrary matrices include rotation, tilt, mirrors, nonuniform scaling.
+        mx = [rng.uniform(-4, 4) for _ in range(3)]
+        mz = [rng.uniform(-4, 4) for _ in range(3)]
+        point = [c + rng.uniform(-e, e) for c, e in zip(center, extent)]
+        x, z = dot(mx, point), dot(mz, point)
+        sx = dot([abs(v) for v in mx], bounds)
+        sz = dot([abs(v) for v in mz], bounds)
+        assert abs(x) <= sx + 1e-6 and abs(z) <= sz + 1e-6
+        radius = (1.25, 2.6, 5.)[i % 3]
+        angle = rng.uniform(-pi, pi)
+        dist = radius * rng.uniform(0, .9999)
+        px, pz = x + cos(angle)*dist, z + sin(angle)*dist
+        assert (px-x)**2 + (pz-z)**2 < radius*radius
+        assert abs(px) <= sx + radius + 1e-5
+        assert abs(pz) <= sz + radius + 1e-5
+
+
 def check_mobile_transmission():
     shader = (FOLIAGE / "CustomFunctions/PseudoSubsurface.hlsl").read_text()
     assert "void PseudoSubsurface_half" in shader
@@ -655,6 +700,7 @@ def check_canopy_math():
 if __name__ == "__main__":
     check_graph()
     check_interaction()
+    check_red_bush_broadphase()
     check_mobile_transmission()
     check_ground_detail_mips()
     check_speedtree_materials()
@@ -666,4 +712,4 @@ if __name__ == "__main__":
     check_canopy_asset_bindings()
     check_canopy_math()
     print("AARIS_MOBILE_FOLIAGE_CONTRACT_PASS")
-    print("12 foliage source/math groups checked")
+    print("13 foliage source/math groups checked")

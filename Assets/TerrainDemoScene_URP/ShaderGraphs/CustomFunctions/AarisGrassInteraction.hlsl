@@ -28,7 +28,29 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS,
         // The large red shrub is wider than the player's contact radius.
         // Local leaf positions make its outer canopy rustle, not only its pivot.
         UNITY_BRANCH if (Profile.x > 0.001 && GroundHeight > 1.5)
+        {
+            // Red_Bush terrain mesh and its standalone LOD0/1/2 meshes were
+            // measured in Unity. These deliberately padded object-space bounds
+            // enclose every rest vertex of all four meshes, even after rotation,
+            // tilt and nonuniform scale (via the object-to-world matrix rows).
+            // Only this authored 2.13m profile may use the early-out; future
+            // unrelated tall plants retain the exact original per-leaf path.
+            UNITY_BRANCH if (abs(GroundHeight - 2.13) < 0.002)
+            {
+                const float3 maxAbsRedBushOS = float3(2.30, 2.20, 2.50);
+                float2 spanXZ = float2(
+                    dot(abs(UNITY_MATRIX_M[0].xyz), maxAbsRedBushOS),
+                    dot(abs(UNITY_MATRIX_M[2].xyz), maxAbsRedBushOS));
+                float contactRadius = rsqrt(inverseRadiusSq);
+                // A red leaf can only be reached if the interactor lies
+                // inside the mesh world-AABB enlarged by its contact radius.
+                // This reject is uniform for each instanced bush, so distant
+                // 8,887-vertex crowns avoid the per-leaf world transform.
+                UNITY_BRANCH if (any(abs(delta) > spanXZ + contactRadius))
+                    return;
+            }
             delta = TransformObjectToWorld(BasePositionOS).xz - _AarisGrassInteractor.xz;
+        }
         float d2 = dot(delta, delta);
         float radial = d2 * inverseRadiusSq;
         if (radial < 1.0)
