@@ -90,8 +90,8 @@ class NaturalTreePrefabTests(unittest.TestCase):
         distant_materials = [path for path in materials if path.stem.endswith("_Distant")]
         self.assertEqual(len(materials) - len(distant_materials), 20)
         self.assertEqual(len(distant_materials), 8)
-        # Close/mid LODs deliberately share our light mobile SpeedTree8 shader.
-        # Distant and billboard LODs retain the original URP SpeedTree8 shader.
+        # All 3D LODs (leaves, bark and caps) use the same continuous
+        # lightweight mobile shader. Static billboard atlases stay native.
         mobile_guid = "d353c971ad804ad385b5e3a933e53721"
         original_guid = "99134b1f0c27d54469a840832a28fadf"
         shader_root = ROOT / "Assets/TerrainDemoScene_URP/ShaderGraphs"
@@ -102,12 +102,7 @@ class NaturalTreePrefabTests(unittest.TestCase):
         for path in materials:
             with self.subTest(material=path.name):
                 source = path.read_text(encoding="utf-8")
-                uses_mobile_shader = (
-                    not path.name.endswith("Billboard.mat")
-                    and path.name != "Conifer_Cap.mat"
-                    and (path not in distant_materials
-                         or path.name in ("Conifer_Bark_Distant.mat", "Cypress_Bark_Distant.mat"))
-                )
+                uses_mobile_shader = not path.name.endswith("Billboard.mat")
                 expected_guid = mobile_guid if uses_mobile_shader else original_guid
                 correct = "m_Shader: {fileID: 4800000, guid: " + expected_guid + ", type: 3}"
                 self.assertIn(correct, source)
