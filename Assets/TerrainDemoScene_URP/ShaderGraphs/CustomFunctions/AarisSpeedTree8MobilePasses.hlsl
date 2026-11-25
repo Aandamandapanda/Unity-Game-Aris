@@ -416,22 +416,32 @@ SpeedTreeVertexOutput SpeedTree8Vert(SpeedTreeVertexInput input)
     #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
         float2 treePivotXZ = float2(UNITY_MATRIX_M[0].w, UNITY_MATRIX_M[2].w);
         float leafSeed = dot(treePivotXZ, float2(0.1031, 0.11369));
+        float crownExposure = 0.5;
         #if !defined(_WINDQUALITY_NONE) && !defined(_WINDQUALITY_FAST) && \
             !defined(_WINDQUALITY_BETTER) && !defined(_WINDQUALITY_BEST) && \
             !defined(_WINDQUALITY_PALM)
-            // Distant 3D LOD: broad per-tree breakup only.
+            // Distant 3D LOD: preserve the exact old colour mix. Avoid reading
+            // local anchors or rebuilding height normalization in the far path.
         #else
             // Near leaves add stable local variation without object-to-world
             // anchor transforms; forest-scale breakup still comes from pivot WS.
             float3 leafAnchorOS = float3(input.texcoord1.z, input.texcoord1.w, input.texcoord2.w);
             leafSeed += dot(leafAnchorOS, float3(0.173, 0.117, 0.137));
+            // Reuse SpeedTree's already-uploaded inverse mesh height to fake
+            // crown exposure: upper cards lean subtly golden-green while lower
+            // cards read deeper. One uniform vertex branch; no sample/varying.
+            float inverseHeight = _ST_WindGlobal.z;
+            UNITY_BRANCH if (inverseHeight > 0.00001)
+                crownExposure = saturate(leafAnchorOS.y * inverseHeight);
         #endif
         leafSeed = frac(leafSeed);
         float leafTone = frac(leafSeed * (leafSeed + 17.17));
-        // Blend fine leaf breakup with a broad world-space field. Both are
-        // packed into the existing blue interpolator: no new sampler/varying.
+        // Blend fine breakup + broad world-space field, then add a bounded
+        // vertical canopy cue in the same packed blue interpolator.
         float macroTone = AarisForestMacroTone(treePivotXZ);
-        output.color.b = (half)saturate(leafTone * 0.70 + macroTone * 0.30);
+        float leafToneMix = leafTone * 0.70 + macroTone * 0.30;
+        leafToneMix += (crownExposure - 0.5) * 0.24;
+        output.color.b = (half)saturate(leafToneMix);
     #endif
     #if !defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
         // Reuse unused blue channel of existing vertex color interpolator.
