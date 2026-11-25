@@ -49,6 +49,9 @@ struct SpeedTreeVertexOutput
 
     float3 positionWS               : TEXCOORD7;
     DECLARE_LIGHTMAP_OR_SH(lightmapUV, vertexSH, 8);
+    #ifdef USE_APV_PROBE_OCCLUSION
+        float4 probeOcclusion       : TEXCOORD9;
+    #endif
     float4 clipPos                  : SV_POSITION;
     UNITY_VERTEX_INPUT_INSTANCE_ID
     UNITY_VERTEX_OUTPUT_STEREO
@@ -210,13 +213,13 @@ void InitializeData(inout SpeedTreeVertexInput input, float lodValue)
             #endif
 
             float3 rotatedWindVector = mul(_ST_WindVector.xyz, (float3x3)UNITY_MATRIX_M);
-            float windLength = length(rotatedWindVector);
-            if (windLength < 1e-5)
+            float windLengthSq = dot(rotatedWindVector, rotatedWindVector);
+            if (windLengthSq < 1e-10)
             {
                 // sanity check that wind data is available
                 return;
             }
-            rotatedWindVector /= windLength;
+            rotatedWindVector *= rsqrt(windLengthSq);
 
             float3 windyPosition = input.vertex.xyz;
 
@@ -285,7 +288,8 @@ void InitializeData(inout SpeedTreeVertexInput input, float lodValue)
         // crossfade faces
         bool topDown = (input.texcoord.z > 0.5);
         float3 viewDir = UNITY_MATRIX_IT_MV[2].xyz;
-        float3 cameraDir = normalize(mul((float3x3)UNITY_MATRIX_M, _WorldSpaceCameraPos - treePos));
+        float3 cameraDir = AarisUnitOr(mul((float3x3)UNITY_MATRIX_M, _WorldSpaceCameraPos - treePos),
+            float3(0.0, 0.0, 1.0));
         float viewDot = max(dot(viewDir, input.normal), dot(cameraDir, input.normal));
         viewDot *= viewDot;
         viewDot *= viewDot;
@@ -300,17 +304,18 @@ void InitializeData(inout SpeedTreeVertexInput input, float lodValue)
         input.color = float4(1, 1, 1, clamp(viewDot, 0, 1));
 
         // adjust lighting on billboards to prevent seams between the different faces
+        float3 billboardNormal;
         if (topDown)
         {
-            input.normal += cameraDir;
+            billboardNormal = input.normal + cameraDir;
         }
         else
         {
             half3 binormal = cross(input.normal, input.tangent.xyz) * input.tangent.w;
             float3 right = cross(cameraDir, binormal);
-            input.normal = cross(binormal, right);
+            billboardNormal = cross(binormal, right);
         }
-        input.normal = normalize(input.normal);
+        input.normal = AarisUnitOr(billboardNormal, input.normal);
     #endif
 }
 
@@ -344,6 +349,19 @@ void AarisTreeCanopyFrame(inout SpeedTreeVertexInput input)
 }
 #endif
 
+void AarisInitializeLitGeometry(inout SpeedTreeVertexInput input)
+{
+    #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD) && defined(_WINDQUALITY_FAST)
+        // Fast flutter must rotate the final canopy frame with the card.
+        AarisTreeCanopyFrame(input);
+    #endif
+    InitializeData(input, unity_LODFade.x);
+    #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD) && !defined(_WINDQUALITY_FAST)
+        // Unity's higher wind tiers use the original normal to move vertices.
+        AarisTreeCanopyFrame(input);
+    #endif
+}
+
 SpeedTreeVertexOutput SpeedTree8Vert(SpeedTreeVertexInput input)
 {
     SpeedTreeVertexOutput output = (SpeedTreeVertexOutput)0;
@@ -356,11 +374,7 @@ SpeedTreeVertexOutput SpeedTree8Vert(SpeedTreeVertexInput input)
         float rootHeight = max(TransformObjectToWorldDir(input.vertex.xyz, false).y, 0.0);
     #endif
 
-    // handle speedtree wind and lod
-    InitializeData(input, unity_LODFade.x);
-    #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
-        AarisTreeCanopyFrame(input);
-    #endif
+    AarisInitializeLitGeometry(input);
 
     output.uv = input.texcoord.xy;
     output.color = input.color;
@@ -402,7 +416,7 @@ SpeedTreeVertexOutput SpeedTree8Vert(SpeedTreeVertexInput input)
     #endif
     output.fogFactorAndVertexLight = half4(fogFactor, vertexLight);
 
-    half3 viewDirWS = GetWorldSpaceNormalizeViewDir(vertexInput.positionWS);
+    float3 viewDirWS = GetWorldSpaceNormalizeViewDir(vertexInput.positionWS);
 
     #ifdef EFFECT_BUMP
         real sign = input.tangent.w * GetOddNegativeScale();
@@ -427,7 +441,7 @@ SpeedTreeVertexOutput SpeedTree8Vert(SpeedTreeVertexInput input)
 
     output.clipPos = vertexInput.positionCS;
 
-    OUTPUT_SH4(vertexInput.positionWS, output.normalWS.xyz, GetWorldSpaceNormalizeViewDir(vertexInput.positionWS), output.vertexSH, output.probeOcclusion);
+    OUTPUT_SH4(vertexInput.positionWS, normalWS, viewDirWS, output.vertexSH, output.probeOcclusion);
 
     return output;
 }
@@ -494,23 +508,26 @@ void InitializeInputData(SpeedTreeFragmentInput input, half3 normalTS, out Input
 
     inputData.fogCoord = InitializeInputDataFog(float4(input.interpolated.positionWS, 1.0), input.interpolated.fogFactorAndVertexLight.x);
     inputData.vertexLighting = input.interpolated.fogFactorAndVertexLight.yzw;
+    inputData.shadowMask = half4(1, 1, 1, 1);
 #if !defined(LIGHTMAP_ON) && (defined(PROBE_VOLUMES_L1) || defined(PROBE_VOLUMES_L2))
     inputData.bakedGI = SAMPLE_GI(input.interpolated.vertexSH,
         GetAbsolutePositionWS(inputData.positionWS),
         inputData.normalWS,
         inputData.viewDirectionWS,
         inputData.positionCS.xy,
-        input.probeOcclusion,
+        input.interpolated.probeOcclusion,
         inputData.shadowMask);
 #else
     inputData.bakedGI = SAMPLE_GI(NOT_USED, input.interpolated.vertexSH, inputData.normalWS);
 #endif
 
     inputData.normalizedScreenSpaceUV = GetNormalizedScreenSpaceUV(input.interpolated.clipPos);
-    inputData.shadowMask = half4(1, 1, 1, 1); // No GI currently.
 
     #if defined(DEBUG_DISPLAY) && !defined(LIGHTMAP_ON)
     inputData.vertexSH = input.interpolated.vertexSH;
+    #if defined(USE_APV_PROBE_OCCLUSION)
+    inputData.probeOcclusion = input.interpolated.probeOcclusion;
+    #endif
     #endif
 
     #if defined(_NORMALMAP)
@@ -806,11 +823,7 @@ SpeedTreeVertexDepthNormalOutput SpeedTree8VertDepthNormal(SpeedTreeVertexInput 
     UNITY_TRANSFER_INSTANCE_ID(input, output);
     UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
 
-    // handle speedtree wind and lod
-    InitializeData(input, unity_LODFade.x);
-    #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
-        AarisTreeCanopyFrame(input);
-    #endif
+    AarisInitializeLitGeometry(input);
     output.uv = input.texcoord.xy;
     output.color = input.color;
 

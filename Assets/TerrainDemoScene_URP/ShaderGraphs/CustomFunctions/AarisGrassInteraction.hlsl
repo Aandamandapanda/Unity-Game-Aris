@@ -7,9 +7,10 @@
 float4 _AarisGrassInteractor;  // World xyz, interaction radius in metres.
 
 void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS,
-    float GroundHeight, float4 Profile, out float3 Out)
+    float GroundHeight, float4 Profile, out float3 Out, out float3 BendSlopeOS)
 {
     Out = WindPositionOS;
+    BendSlopeOS = 0.0;
 #ifndef SHADERGRAPH_PREVIEW
     float radius = _AarisGrassInteractor.w;
     if (radius > 0.0)
@@ -36,18 +37,24 @@ void AarisGrassInteraction_float(float3 WindPositionOS, float3 BasePositionOS,
             float falloff = 1.0 - d2 / r2;
             float height = saturate(BasePositionOS.y);
             float bendScale = 1.0;
+            float inverseHeight = 1.0;
             UNITY_BRANCH if (Profile.x > 0.001)
             {
-                height = saturate(BasePositionOS.y / max(GroundHeight, 0.05));
+                inverseHeight = rcp(max(GroundHeight, 0.05));
+                height = saturate(BasePositionOS.y * inverseHeight);
                 bendScale = min(1.0, max(GroundHeight, 0.25));
             }
-            // Keep the roots pinned: move tips noticeably, lower blades minimally.
-            float bend = falloff * falloff * vertical * height * height * 0.45 * bendScale;
+            float bend = falloff * falloff * vertical * 0.45 * bendScale;
             // A regularized length has no sharp derivative at the old
             // 0.10m cutoff. Passing directly through a pivot remains finite.
             float2 dir = delta * rsqrt(d2 + 0.0144);
-            Out += TransformWorldToObjectDir(
+            float3 offsetOS = TransformWorldToObjectDir(
                 float3(dir.x * bend, -0.15 * bend, dir.y * bend), false);
+            // Keep roots pinned. The local Y derivative lets lighting bend with
+            // the card, while depth-only passes only need the position.
+            Out += offsetOS * (height * height);
+            if (Profile.x > 0.001 && BasePositionOS.y <= GroundHeight)
+                BendSlopeOS = clamp(offsetOS * (2.0 * height * inverseHeight), -0.65, 0.65);
         }
     }
 #endif

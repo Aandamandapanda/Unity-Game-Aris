@@ -37,7 +37,7 @@ float3 AarisCanopyTangentOS(float3 tangent, float3 normal)
 // Ordinary grass retains its prior normal/tangent path. Far shrubs converge
 // into the graph's authored upward normal instead of changing LOD colour.
 void AarisDetailCanopyFrame_float(float3 BasePositionOS, float3 OriginalNormalOS,
-    float3 OriginalTangentOS, float DistanceFade, float MotionFade, float4 Profile,
+    float3 OriginalTangentOS, float DistanceFade, float MotionFade, float4 Profile, float3 BendSlopeOS,
     out float3 NormalOS, out float3 TangentOS)
 {
     NormalOS = OriginalNormalOS;
@@ -62,6 +62,14 @@ void AarisDetailCanopyFrame_float(float3 BasePositionOS, float3 OriginalNormalOS
         // creates a black underside in the mobile canopy.
         gradient.y = max(gradient.y, -0.55 * max(abs(gradient.x), abs(gradient.z)));
         float3 volume = AarisVolumeNormalOS(OriginalNormalOS, gradient, Profile.x);
+        // The contact offset is quadratic in rest height. Apply its local
+        // shear to the tangent and its inverse transpose to the normal.
+        UNITY_BRANCH if (dot(BendSlopeOS, BendSlopeOS) > 1e-8)
+        {
+            volume.y -= dot(volume, BendSlopeOS) / (1.0 + BendSlopeOS.y);
+            volume = AarisUnitOr(volume, float3(0.0, 1.0, 0.0));
+            OriginalTangentOS += BendSlopeOS * OriginalTangentOS.y;
+        }
         NormalOS = AarisUnitOr(lerp(volume, float3(0.0, 1.0, 0.0),
             fade), float3(0.0, 1.0, 0.0));
         TangentOS = AarisCanopyTangentOS(OriginalTangentOS, NormalOS);

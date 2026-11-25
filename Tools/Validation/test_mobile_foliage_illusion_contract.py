@@ -41,11 +41,28 @@ def check_graph():
     inputs = {e["m_InputSlot"]["m_SlotId"]: nodes[e["m_OutputSlot"]["m_Node"]["m_Id"]]["m_Name"]
               for e in edges if e["m_InputSlot"]["m_Node"]["m_Id"] == ground["m_ObjectId"]}
     assert inputs == {0: "Sample Texture 2D", 1: "TerrainColorMatch (Custom Interpolator)",
-                      2: "BiasedFade (Custom Interpolator)", 4: "Saturate",
+                      2: "BiasedFade (Custom Interpolator)",
                       5: "PerInstanceRandom (Custom Interpolator)", 6: "Property"}
     outputs = {nodes[e["m_InputSlot"]["m_Node"]["m_Id"]]["m_Name"]
                for e in edges if e["m_OutputSlot"]["m_Node"]["m_Id"] == ground["m_ObjectId"]}
-    assert outputs == {"SurfaceDescription.BaseColor", "Multiply"}
+    assert outputs == {"SurfaceDescription.BaseColor", "Multiply", "Power"}
+
+    def destinations(node, port):
+        return [(nodes[e["m_InputSlot"]["m_Node"]["m_Id"]], e["m_InputSlot"]["m_SlotId"])
+                for e in edges if e["m_OutputSlot"]["m_Node"]["m_Id"] == node["m_ObjectId"]
+                and e["m_OutputSlot"]["m_SlotId"] == port]
+
+    pack = next(b for b in blocks if b.get("m_FunctionName") == "AarisPackDetailGround")
+    [(interpolator, _)] = destinations(pack, 3)
+    assert interpolator["m_SerializedDescriptor"] == "VertexDescription.TerrainColorMatch#4"
+    assert [(n["m_Name"], p) for n, p in destinations(ground, 4)] == [("Power", 0)]
+    keep = next(b for b in blocks if b.get("m_FunctionName") == "AarisDetailKeepCanopyNormal")
+    branches = destinations(keep, 3)
+    assert len(branches) == 2 and all(n["m_Name"] == "Branch" and p == 0 for n, p in branches)
+    assert any(n["m_Name"] == "PseudoSubsurface"
+               for branch, _ in branches for n, _ in destinations(branch, 3))
+    [(frame, port)] = destinations(interaction[0], 5)
+    assert frame["m_FunctionName"] == "AarisDetailCanopyFrame" and port == 8
 
 
 def check_interaction():
@@ -55,12 +72,15 @@ def check_interaction():
     assert "float4 _AarisGrassInteractor;" in shader
     assert "TransformWorldToObjectDir" in shader
     assert "saturate(BasePositionOS.y)" in shader
-    assert "falloff * falloff * vertical * height * height * 0.45" in shader
+    assert "falloff * falloff * vertical * 0.45" in shader
+    assert "Out += offsetOS * (height * height)" in shader
+    assert "BendSlopeOS = clamp(offsetOS * (2.0 * height * inverseHeight)" in shader
     assert "saturate((1.8 - heightDelta) * 1.25)" in shader
     assert "float falloff = 1.0 - d2 / r2;" in shader
     assert "vertical = vertical * vertical * (3.0 - 2.0 * vertical)" in shader
     assert "rsqrt(d2 + 0.0144)" in shader
-    assert "BasePositionOS.y / max(GroundHeight, 0.05)" in shader
+    assert "rcp(max(GroundHeight, 0.05))" in shader
+    assert "BasePositionOS.y * inverseHeight" in shader
     assert "TransformObjectToWorld(BasePositionOS).xz" in shader
     assert "min(1.0, max(GroundHeight, 0.25))" in shader
     assert not any(term in shader for term in ("RWTexture", "ComputeBuffer", "Raycast", "Collider"))
@@ -79,10 +99,11 @@ def check_mobile_transmission():
     assert "TransformWorldToShadowCoord" not in shader
     assert "void AarisDetailGround_half" in shader
     assert "saturate(1.0h - 2.0h * Height01)" in shader
-    assert "lerp(rootedColor, TerrainColor, saturate(DistanceFade))" in shader
+    assert "lerp(rootedColor, terrainColor, fade)" in shader
+    assert "Height01 = TerrainColorAndHeight.w" in shader
     assert "TransmissionColor = Out * (0.20h + 0.80h * heightMask)" in shader
     assert "0.25h * SSRadius.x" in shader
-    assert "AarisDetailSunNormal_half" in shader
+    assert "Out = FrontFace || Profile.x > 0.001h" in shader
     assert "contact * contact * (3.0h - 2.0h * contact)" in shader
     assert "unity_SHAr.w, unity_SHAg.w, unity_SHAb.w" in shader
     assert "ambient * skyFill * coolFill" in shader
@@ -251,7 +272,15 @@ def check_mobile_leaf_wind():
     grass = (FOLIAGE / "CustomFunctions/AarisGrassPhase.hlsl").read_text()
     # The same deformation must run in visible, shadow, selection and depth passes.
     assert shader.count('#include "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl"') == 6
-    assert source.count("InitializeData(input, unity_LODFade.x);") == 3
+    assert source.count("InitializeData(input, unity_LODFade.x);") == 2
+    assert source.count("AarisInitializeLitGeometry(input);") == 2
+    start = source.index("void AarisInitializeLitGeometry(")
+    lit = source[start:source.index("\n}\n", start)]
+    deform = lit.index("InitializeData(input, unity_LODFade.x);")
+    assert "defined(_WINDQUALITY_FAST)" in lit[:deform]
+    assert "AarisTreeCanopyFrame(input)" in lit[:deform]
+    assert "!defined(_WINDQUALITY_FAST)" in lit[deform:]
+    assert "AarisTreeCanopyFrame(input)" in lit[deform:]
     assert shader.count("#pragma multi_compile_instancing") == 6
     assert "float timeSeconds = _Time.y;" in source
     assert "float fieldPhase = AarisLandscapePhase(treePos.xz)" in source
@@ -478,6 +507,9 @@ def check_canopy_asset_bindings():
     assert "#pragma shader_feature_local EFFECT_BILLBOARD" in depth
     passes = (FOLIAGE / "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl").read_text()
     assert passes.count("AarisTreeCanopyFrame(input);") == 2
+    assert "float4 probeOcclusion       : TEXCOORD9;" in passes
+    assert "input.interpolated.probeOcclusion," in passes
+    assert "inputData.shadowMask = half4(1, 1, 1, 1);" in passes
     assert "if (geometry <= GEOM_TYPE_FROND)" in passes
     assert passes.count("AlphaDiscard(alpha, 0.3333)") == 3
 
@@ -520,6 +552,13 @@ def check_canopy_math():
         tangent = unit(projected,fallback)
         assert abs(dot(tangent,out)) < 1e-6
         assert abs(dot(tangent,tangent)-1) < 1e-6
+        # The contact deformation is a shear along the rest-height axis.
+        # Transform tangents by its Jacobian and normals by inverse transpose.
+        slope = tuple(rng.uniform(-.65, .65) for _ in range(3))
+        bent_tangent = add(tangent, mul(slope, tangent[1]))
+        bent_normal = unit(add(out, (0, -dot(out, slope) / (1 + slope[1]), 0)))
+        assert all(isfinite(x) for x in bent_normal)
+        assert abs(dot(bent_normal, bent_tangent)) < 1e-6
     # The shared distance curve has zero slope at both ends. Far foliage
     # uses the cheap upward normal/tangent and retains its full silhouette.
     def canopy_fade(x):

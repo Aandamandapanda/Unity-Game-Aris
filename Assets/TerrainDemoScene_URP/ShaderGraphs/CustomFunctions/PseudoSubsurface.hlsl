@@ -1,31 +1,38 @@
 #ifndef AARIS_PSEUDO_SUBSURFACE_INCLUDED
 #define AARIS_PSEUDO_SUBSURFACE_INCLUDED
 
-// Reuse the graph's vertex-sampled terrain colour, authored height AO and
-// already-defined stable instance seed. The species profile preserves red
-// and dry foliage, rather than applying a universal green overlay.
-void AarisDetailGround_half(half3 LeafColor, half3 TerrainColor, half DistanceFade,
-    half Height01, half InstanceSeed, half4 Profile, out half3 Out, out half3 TransmissionColor)
+void AarisPackDetailGround_float(float3 TerrainColor, float3 RestPositionOS,
+    float GroundHeight, out float4 Out)
 {
+    Out = float4(TerrainColor, saturate(RestPositionOS.y / max(GroundHeight, 0.05)));
+}
+
+// Carry rest height with the existing vertex-sampled soil colour. AO and
+// root tint stay anchored while wind and contact move the drawn vertex.
+void AarisDetailGround_half(half3 LeafColor, half4 TerrainColorAndHeight, half DistanceFade,
+    half InstanceSeed, half4 Profile, out half3 Out, out half3 TransmissionColor, out half Height01)
+{
+    Height01 = TerrainColorAndHeight.w;
+    half3 terrainColor = TerrainColorAndHeight.rgb;
+    half fade = saturate(DistanceFade);
     half contact = saturate(1.0h - 2.0h * Height01);
     half rootBlend = 0.38h * contact * contact * (3.0h - 2.0h * contact);
     half variation = (saturate(InstanceSeed) - 0.5h) * saturate(Profile.x);
     half3 localColor = LeafColor * Profile.w *
         (1.0h + variation * half3(0.10h, 0.07h, -0.05h));
-    half3 rootedColor = lerp(localColor, TerrainColor * half3(0.88h, 0.83h, 0.75h), rootBlend);
-    Out = lerp(rootedColor, TerrainColor, saturate(DistanceFade));
+    half3 rootedColor = lerp(localColor, terrainColor * half3(0.88h, 0.83h, 0.75h), rootBlend);
+    Out = lerp(rootedColor, terrainColor, fade);
     // Suppress artificial emission near soil and far silhouettes. Existing
     // thickness, AO and normal textures continue to define the detail.
-    half heightMask = saturate(Height01);
-    heightMask = heightMask * heightMask * (3.0h - 2.0h * heightMask);
+    half heightMask = Height01 * Height01 * (3.0h - 2.0h * Height01);
     TransmissionColor = Out * (0.20h + 0.80h * heightMask) *
-        (1.0h - 0.75h * saturate(DistanceFade));
+        (1.0h - 0.75h * fade);
 }
 
-void AarisDetailSunNormal_half(half3 CanopyNormalWS, half3 FaceNormalWS,
-    half4 Profile, out half3 Out)
+void AarisDetailKeepCanopyNormal_half(bool FrontFace, half4 Profile, out bool Out)
 {
-    Out = lerp(FaceNormalWS, CanopyNormalWS, step(0.001h, Profile.x));
+    // Canopy lighting uses a fixed outward frame on both sides of a card.
+    Out = FrontFace || Profile.x > 0.001h;
 }
 
 // Bounded, warm transmission from the scene's existing directional light.
