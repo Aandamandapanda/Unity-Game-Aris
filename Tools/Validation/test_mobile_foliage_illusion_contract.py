@@ -881,6 +881,41 @@ def check_canopy_math():
             assert 0 <= transmit <= .47 + 1e-9
 
 
+def check_vertical_canopy_exposure_math():
+    tree = (FOLIAGE / "CustomFunctions/AarisSpeedTree8MobilePasses.hlsl").read_text()
+    ground = (FOLIAGE / "CustomFunctions/PseudoSubsurface.hlsl").read_text()
+    for term in (
+        "float crownExposure = 0.5;",
+        "float inverseHeight = _ST_WindGlobal.z;",
+        "crownExposure = saturate(leafAnchorOS.y * inverseHeight);",
+        "leafToneMix += (crownExposure - 0.5) * 0.24;",
+    ):
+        assert term in tree
+    assert "half canopyExposure = (Height01 - 0.5h) * profileStrength;" in ground
+    assert "canopyExposure * half3(0.040h, 0.028h, -0.018h)" in ground
+
+    for leaf in (0.0, .2, .5, .8, 1.0):
+        for macro in (0.0, .25, .5, .75, 1.0):
+            old = max(0.0, min(1.0, leaf*.70 + macro*.30))
+            distant = max(0.0, min(1.0, leaf*.70 + macro*.30 + (.5-.5)*.24))
+            assert abs(old-distant) < 1e-12
+
+    for exposure in (0.0, .25, .5, .75, 1.0):
+        bias=(exposure-.5)*.24
+        assert -.1200001 <= bias <= .1200001
+
+    coeff=(.040,.028,-.018)
+    for profile in (0.0,.25,.5,.75,1.0):
+        for height in (0.0,.25,.5,.75,1.0):
+            exposure=(height-.5)*profile
+            delta=tuple(exposure*c for c in coeff)
+            assert -.0200001 <= delta[0] <= .0200001
+            assert -.0140001 <= delta[1] <= .0140001
+            assert -.0090001 <= delta[2] <= .0090001
+            if profile == 0.0:
+                assert delta == (0.0,0.0,-0.0)
+
+
 if __name__ == "__main__":
     check_graph()
     check_interaction()
@@ -900,5 +935,6 @@ if __name__ == "__main__":
     check_continuous_wind_math()
     check_canopy_asset_bindings()
     check_canopy_math()
+    check_vertical_canopy_exposure_math()
     print("AARIS_MOBILE_FOLIAGE_CONTRACT_PASS")
-    print("18 foliage source/math groups checked")
+    print("19 foliage source/math groups checked")
