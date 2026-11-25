@@ -32,6 +32,18 @@ float3 AarisCanopyTangentOS(float3 tangent, float3 normal)
     return AarisUnitOr(cross(axis, normal), float3(0.0, 0.0, 1.0));
 }
 
+// Low-frequency forest colour field sampled once per vertex from the instance
+// pivot. Two continuous triangle waves create broad warm/cool neighbourhoods
+// without sin/noise textures, per-tree material overrides or extra varyings.
+float AarisForestMacroTone(float2 pivotXZ)
+{
+    float a = frac(dot(pivotXZ, float2(0.001953125, 0.001220703)));
+    float b = frac(dot(pivotXZ, float2(-0.001464844, 0.001708984)));
+    a = 1.0 - abs(a * 2.0 - 1.0);
+    b = 1.0 - abs(b * 2.0 - 1.0);
+    return saturate(a * 0.57 + b * 0.43);
+}
+
 // Shader Graph vertex-only: profile = (volume strength, crown centre Y,
 // vertical ellipsoid-gradient weight, original albedo multiplier).
 // Ordinary grass retains its prior normal/tangent path. Far shrubs converge

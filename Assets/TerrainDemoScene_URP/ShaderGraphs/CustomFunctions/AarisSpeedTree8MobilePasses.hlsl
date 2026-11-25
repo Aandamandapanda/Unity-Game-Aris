@@ -420,7 +420,11 @@ SpeedTreeVertexOutput SpeedTree8Vert(SpeedTreeVertexInput input)
             leafSeed += dot(leafAnchorOS, float3(0.173, 0.117, 0.137));
         #endif
         leafSeed = frac(leafSeed);
-        output.color.b = (half)frac(leafSeed * (leafSeed + 17.17));
+        float leafTone = frac(leafSeed * (leafSeed + 17.17));
+        // Blend fine leaf breakup with a broad world-space field. Both are
+        // packed into the existing blue interpolator: no new sampler/varying.
+        float macroTone = AarisForestMacroTone(treePivotXZ);
+        output.color.b = (half)saturate(leafTone * 0.70 + macroTone * 0.30);
     #endif
     #if !defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
         // Reuse unused blue channel of existing vertex color interpolator.
@@ -716,13 +720,19 @@ half4 SpeedTree8Frag(SpeedTreeFragmentInput input) : SV_Target
                         1.0h - leafDetail * 0.050h);
     #endif
 
+    #if !defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
+        half rootContact = saturate(input.interpolated.color.b);
+    #endif
+
     // normal
     #ifdef EFFECT_BUMP
         half3 normalTs = SampleNormal(uv, TEXTURE2D_ARGS(_BumpMap, sampler_BumpMap));
         #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
             normalTs.xy *= 0.74h; // Preserve leaf texture detail without plastic card highlights.
         #elif !defined(EFFECT_BILLBOARD)
-            normalTs.xy *= 1.15h; // Bark relief from its existing normal map.
+            // Sharpen bark away from soil while softening micro-relief exactly
+            // where fake root AO/earth tint visually anchors the trunk.
+            normalTs.xy *= 1.20h - 0.12h * rootContact;
         #endif
     #else
         half3 normalTs = half3(0, 0, 1);
@@ -752,7 +762,6 @@ half4 SpeedTree8Frag(SpeedTreeFragmentInput input) : SV_Target
     #endif
 
     #if !defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
-        half rootContact = saturate(input.interpolated.color.b);
         // Warm, earthy bark at the ground interface; preserves original bark texture.
         albedo *= lerp(half3(1.0h, 1.0h, 1.0h), half3(0.84h, 0.80h, 0.73h), rootContact);
         occlusion *= 1.0h - 0.20h * rootContact;
@@ -896,7 +905,8 @@ half4 SpeedTree8FragDepthNormal(SpeedTreeDepthNormalFragmentInput input) : SV_Ta
         #if defined(EFFECT_SUBSURFACE) && !defined(EFFECT_BILLBOARD)
             normalTs.xy *= 0.74h;
         #elif !defined(EFFECT_BILLBOARD)
-            normalTs.xy *= 1.15h;
+            half rootContact = saturate(input.interpolated.color.b);
+            normalTs.xy *= 1.20h - 0.12h * rootContact;
         #endif
     #else
         half3 normalTs = half3(0, 0, 1);
