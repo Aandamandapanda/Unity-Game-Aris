@@ -229,6 +229,25 @@ def check_ground_transmission_edge_gate_math():
     assert lobe(-0.5) > lobe(0.5)
 
 
+def check_ground_site_macro_tone_math():
+    """Ground-foliage site tint stays subtle, finite and neutral for grass."""
+    from math import isfinite
+    for profile in (0.0, 0.35, 0.52, 0.86, 0.92, 1.0):
+        for r in (0.0, 0.5, 1.0):
+            for g in (0.0, 0.5, 1.0):
+                for b in (0.0, 0.5, 1.0):
+                    macro = max(-.35, min(.35,
+                        (r*.25 + g*.55 + b*.20 - .45)*.65 + (r-b)*.35)) * profile
+                    for seed in (0.0, .5, 1.0):
+                        v = (seed-.5) * profile
+                        factors = (1+v*.10+macro*.055,
+                                   1+v*.07+macro*.045,
+                                   1-v*.05-macro*.030)
+                        assert all(isfinite(x) and .92 < x < 1.08 for x in factors)
+                        if profile == 0.0:
+                            assert factors == (1.0, 1.0, 1.0)
+
+
 def check_neutral_ground_chroma_fastpath():
     """Neutral grass skips shrub chroma math without changing the color model."""
     shader = (FOLIAGE / "CustomFunctions/PseudoSubsurface.hlsl").read_text()
@@ -239,7 +258,10 @@ def check_neutral_ground_chroma_fastpath():
     assert branch in detail
     assert detail.index(branch) < detail.index("saturate(InstanceSeed)")
     assert "half3 localColor = LeafColor * Profile.w;" in detail
-    assert "localColor *= 1.0h + variation * half3(0.10h, 0.07h, -0.05h);" in detail
+    assert "half profileStrength = saturate(Profile.x);" in detail
+    assert "half siteLuma = dot(terrainColor, half3(0.25h, 0.55h, 0.20h));" in detail
+    assert "half siteWarmth = terrainColor.r - terrainColor.b;" in detail
+    assert "macroTone * half3(0.055h, 0.045h, -0.030h)" in detail
 
     def saturate(value):
         return max(0.0, min(1.0, value))
@@ -865,6 +887,7 @@ if __name__ == "__main__":
     check_red_bush_broadphase()
     check_mobile_transmission()
     check_ground_transmission_edge_gate_math()
+    check_ground_site_macro_tone_math()
     check_neutral_ground_chroma_fastpath()
     check_ground_detail_mips()
     check_speedtree_materials()
@@ -878,4 +901,4 @@ if __name__ == "__main__":
     check_canopy_asset_bindings()
     check_canopy_math()
     print("AARIS_MOBILE_FOLIAGE_CONTRACT_PASS")
-    print("17 foliage source/math groups checked")
+    print("18 foliage source/math groups checked")

@@ -23,8 +23,17 @@ void AarisDetailGround_half(half3 LeafColor, half4 TerrainColorAndHeight, half D
     half3 localColor = LeafColor * Profile.w;
     UNITY_BRANCH if (Profile.x > 0.0h)
     {
-        half variation = (saturate(InstanceSeed) - 0.5h) * saturate(Profile.x);
-        localColor *= 1.0h + variation * half3(0.10h, 0.07h, -0.05h);
+        half profileStrength = saturate(Profile.x);
+        half variation = (saturate(InstanceSeed) - 0.5h) * profileStrength;
+        // TerrainColor is already sampled for this instance at its world
+        // location. Reuse it as a broad site signal with no new sampler.
+        half siteLuma = dot(terrainColor, half3(0.25h, 0.55h, 0.20h));
+        half siteWarmth = terrainColor.r - terrainColor.b;
+        half macroTone = clamp((siteLuma - 0.45h) * 0.65h + siteWarmth * 0.35h,
+                               -0.35h, 0.35h) * profileStrength;
+        localColor *= 1.0h
+            + variation * half3(0.10h, 0.07h, -0.05h)
+            + macroTone * half3(0.055h, 0.045h, -0.030h);
     }
     half3 rootedColor = lerp(localColor, terrainColor * half3(0.88h, 0.83h, 0.75h), rootBlend);
     Out = lerp(rootedColor, terrainColor, fade);

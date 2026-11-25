@@ -197,3 +197,10 @@ Validation for this continuation on the live Codespace: `git diff --check` passe
 - Root AO/soil blend, world-position forest colour, bark normal relief, sky-bounce fill, player/vehicle shader bending, instancing, LOD distance exits and original geometry remain unchanged.
 
 The contract adds a numerical ground-edge energy test and updates the continuous Fast-wind model for the single-wave shoulder. It reports 17 source/math groups when all checks pass. The isolated Unity 6000.3.26f1 GLES3x gate compiled 10 TerrainGrass plus 28 SpeedTree requests (38 total) with zero failed variants and zero shader errors. Source/compiler evidence is not a measured Snapdragon 680 FPS, thermal or battery benchmark.
+
+
+## 2026-11-26 terrain-correlated ground-foliage macro tone
+
+- Shrub/detail materials now reuse the terrain colour already sampled at each instance location as a broad site signal. Warm/dry clearings lean subtly golden-green; cooler/darker ground stays slightly deeper green, while the existing per-instance seed retains fine breakup.
+- This runs only inside the existing shrub-profile branch. Dense neutral grass keeps its prior chroma fastpath. No new texture sample, interpolator, material split, keyword, pass, draw call, C# update or physics work is added.
+- Numerical validation bounds the RGB multipliers to a subtle finite range and proves the neutral-grass profile remains exactly 1.0; the foliage contract now has 18 source/math groups.
