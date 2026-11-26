@@ -148,6 +148,7 @@ namespace Aaris.MapReview
 
         private readonly List<ParkedVehicle> parkedCache =
             new List<ParkedVehicle>(MaximumParkedCache);
+        internal static AarisVehicleWorld ActiveWorld { get; private set; }
         private int parkedCacheLimit = MaximumParkedCache;
         private float parkedCacheAllowedAt;
         private bool lowMemoryPending;
@@ -423,8 +424,21 @@ namespace Aaris.MapReview
 #endif
         }
 
-        private void OnEnable() { Application.lowMemory += OnLowMemory; }
-        private void OnDisable() { Application.lowMemory -= OnLowMemory; }
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetActiveWorld() => ActiveWorld = null;
+
+        private void OnEnable()
+        {
+            ActiveWorld = this;
+            Application.lowMemory += OnLowMemory;
+        }
+
+        private void OnDisable()
+        {
+            if (ActiveWorld == this) ActiveWorld = null;
+            Application.lowMemory -= OnLowMemory;
+        }
+
         private void OnLowMemory() { lowMemoryPending = true; }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]

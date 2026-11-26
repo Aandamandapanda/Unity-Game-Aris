@@ -96,7 +96,7 @@ namespace Aaris.MapReview
                     // that straddled the beginning of the measurement.
                     captureStarted = true;
                     captureThermalStart = AarisAndroidThermalGovernor.ThermalStatus;
-                    vehicleWorld = FindFirstObjectByType<AarisVehicleWorld>();
+                    vehicleWorld = AarisVehicleWorld.ActiveWorld;
                     captureFreshAtStart = vehicleWorld != null ? vehicleWorld.FreshVehicleBuilds : 0;
                     captureReusedAtStart = vehicleWorld != null ? vehicleWorld.ReusedVehicleBuilds : 0;
                 }

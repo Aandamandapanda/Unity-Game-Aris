@@ -5,6 +5,8 @@ import unittest
 
 SOURCE = (Path(__file__).resolve().parents[2] / "Assets" / "AarisWorld"
           / "Scripts" / "AarisMobilePerfOverlay.cs").read_text(encoding="utf-8")
+VEHICLES = (Path(__file__).resolve().parents[2] / "Assets" / "AarisWorld"
+            / "Scripts" / "AarisVehicleWorld.cs").read_text(encoding="utf-8")
 
 
 class MobilePerfOverlayContract(unittest.TestCase):
@@ -21,6 +23,16 @@ class MobilePerfOverlayContract(unittest.TestCase):
         self.assertIn("Percentile(0.95f)", SOURCE)
         self.assertIn("Percentile(0.99f)", SOURCE)
         self.assertIn("Time.unscaledDeltaTime * 1000f", SOURCE)
+
+    def test_vehicle_counters_use_the_active_world_at_capture_start(self):
+        self.assertNotIn("FindFirstObjectByType", SOURCE)
+        self.assertIn("vehicleWorld = AarisVehicleWorld.ActiveWorld;", SOURCE)
+        self.assertIn("vehicleWorld.FreshVehicleBuilds - captureFreshAtStart", SOURCE)
+        self.assertIn("vehicleWorld.ReusedVehicleBuilds - captureReusedAtStart", SOURCE)
+        self.assertIn("private static void ResetActiveWorld() => ActiveWorld = null;", VEHICLES)
+        self.assertIn("ActiveWorld = this;", VEHICLES.split("private void OnEnable()", 1)[1].split(
+            "private void OnDisable()", 1)[0])
+        self.assertIn("if (ActiveWorld == this) ActiveWorld = null;", VEHICLES)
 
     def test_async_bounded_csv_and_honest_counter_fallbacks(self):
         self.assertIn("Task.Run(() =>", SOURCE)

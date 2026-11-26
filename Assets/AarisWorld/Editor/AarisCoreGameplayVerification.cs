@@ -413,6 +413,18 @@ namespace Aaris.MapReview.Editor
                 Check(Cue("gloo_deploy"), "Successful Gloo deployment emits its cue");
                 var cover = Object.FindFirstObjectByType<AarisGlooWallHealth>();
                 Check(cover != null && cover.GetComponent<BoxCollider>() != null, "Gloo has a solid collider and health");
+
+                var overlay = Object.FindFirstObjectByType<AarisMobilePerfOverlay>();
+                var vehicles = Object.FindFirstObjectByType<AarisVehicleWorld>();
+                Check(overlay != null && vehicles != null, "Native overlay and vehicle manager started");
+                var overlayType = typeof(AarisMobilePerfOverlay);
+                overlayType.GetMethod("StartCapture", Private).Invoke(overlay, new object[] { 120 });
+                overlayType.GetField("captureStartsAt", Private).SetValue(overlay, Time.unscaledTime);
+                overlayType.GetMethod("Update", Private).Invoke(overlay, null);
+                Check((AarisVehicleWorld)overlayType.GetField("vehicleWorld", Private).GetValue(overlay) == vehicles,
+                    "Capture reads counters from the active vehicle manager");
+                overlayType.GetMethod("FinishCapture", Private).Invoke(overlay, null);
+
                 Note("PLAY_SMOKE_COMPLETE");
                 Finish(false);
             }
