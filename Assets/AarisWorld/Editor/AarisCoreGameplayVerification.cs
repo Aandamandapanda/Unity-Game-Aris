@@ -425,6 +425,22 @@ namespace Aaris.MapReview.Editor
                     "Capture reads counters from the active vehicle manager");
                 overlayType.GetMethod("FinishCapture", Private).Invoke(overlay, null);
 
+                var feedback = player.GetComponent<AarisCombatFeedbackHUD>();
+                var feedbackType = typeof(AarisCombatFeedbackHUD);
+                var feedbackRoot = (RectTransform)feedbackType.GetField("canvasRect", Private).GetValue(feedback);
+                Check(feedbackRoot.parent == null, "Combat HUD is a screen-space root");
+                var popupIndex = feedbackType.GetField("numberIndex", Private);
+                var popupOrigins = (Vector2[])feedbackType.GetField("numberOrigin", Private).GetValue(feedback);
+                int beforePopup = (int)popupIndex.GetValue(feedback);
+                Quaternion savedPlayerRotation = player.transform.rotation;
+                player.transform.rotation = Quaternion.Euler(0f, 95f, 0f) * savedPlayerRotation;
+                Vector3 visibleHit = player.AimCamera.ViewportToWorldPoint(new Vector3(.5f, .5f, 16f));
+                AarisCombatFeedbackHUD.NotifyOutgoingDamage(player.gameObject, 11f, false, visibleHit);
+                player.transform.rotation = savedPlayerRotation;
+                Check((int)popupIndex.GetValue(feedback) == beforePopup + 1 &&
+                    feedbackRoot.rect.Contains(popupOrigins[beforePopup % popupOrigins.Length]),
+                    "Visible damage popup stays on the HUD when the player turns");
+
                 Note("PLAY_SMOKE_COMPLETE");
                 Finish(false);
             }

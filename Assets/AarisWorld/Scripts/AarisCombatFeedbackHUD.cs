@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 namespace Aaris.MapReview
@@ -168,7 +169,10 @@ namespace Aaris.MapReview
         {
             var root = new GameObject("Combat feedback", typeof(RectTransform),
                 typeof(Canvas), typeof(CanvasScaler));
-            root.transform.SetParent(transform, false);
+            // Screen-space projection needs a root canvas. A child of the
+            // moving player gives screen points the player's world transform.
+            if (root.scene != gameObject.scene && gameObject.scene.isLoaded)
+                SceneManager.MoveGameObjectToScene(root, gameObject.scene);
             canvasRect = root.GetComponent<RectTransform>();
             canvas = root.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -481,6 +485,16 @@ namespace Aaris.MapReview
                     crosshair[i].gameObject.SetActive(armed);
         }
 
+        private void OnEnable()
+        {
+            if (canvas != null) canvas.enabled = true;
+        }
+
+        private void OnDisable()
+        {
+            if (canvas != null) canvas.enabled = false;
+        }
+
         private void OnDestroy()
         {
             if (health != null)
@@ -489,6 +503,7 @@ namespace Aaris.MapReview
                 health.Damaged -= Damaged;
             }
             if (instance == this) instance = null;
+            if (canvas != null) Destroy(canvas.gameObject);
         }
     }
 }

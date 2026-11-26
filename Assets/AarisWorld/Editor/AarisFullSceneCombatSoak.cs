@@ -833,17 +833,26 @@ namespace Aaris.MapReview.Editor
                 directorCover.SetValue(director, streamer);
                 fixture.SetActive(true);
                 Physics.SyncTransforms();
-                // Use the normal HUD update without forcing the next roster
-                // scan. The cached lock must turn white on the very next frame.
+                if (box.enabled)
+                    throw new InvalidOperationException("STREAMED_WALL_COLLIDER_STILL_ACTIVE");
+                // The fixture changes cover within the same Editor tick.
+                // Make the scheduled sight check due while keeping the full
+                // roster scan in the future. The real HUD must clear the lock.
+                float now = Time.unscaledTime;
+                float nextSight = (float)Read(hud, "nextLockedSightCheck");
+                float nextScan = (float)Read(hud, "nextAimCheck");
+                if (nextSight < now || nextSight - now > .046f || nextSight >= nextScan)
+                    throw new InvalidOperationException("LOCKED_SIGHT_CHECK_BUDGET_INVALID");
+                hud.GetType().GetField("nextLockedSightCheck", Private).SetValue(hud, now);
                 hud.GetType().GetMethod("LateUpdate", Private).Invoke(hud, null);
-                if (box.enabled || (bool)Read(hud, "lastLock"))
+                if ((bool)Read(hud, "lastLock"))
                     throw new InvalidOperationException("STREAMED_OUT_WALL_DID_NOT_BREAK_RED_LOCK");
                 victimHp.RestoreHealth(200f);
                 int ammo = inventory.Current.Magazine;
                 if (!inventory.Current.TryFire(camera, player.gameObject) ||
                     inventory.Current.Magazine != ammo - 1 || victimHp.CurrentHealth != 200f)
                     throw new InvalidOperationException("STREAMED_OUT_WALL_ALLOWED_DAMAGE");
-                Note("PASS streamed-out wall clears Red-Lock immediately and stops damage");
+                Note("PASS streamed-out wall clears Red-Lock at the scheduled sight check and stops damage");
             }
             finally
             {
