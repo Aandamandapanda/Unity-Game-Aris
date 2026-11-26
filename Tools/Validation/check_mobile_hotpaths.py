@@ -121,21 +121,13 @@ def audit():
     for surface in ("water", "river", "stream", "road", "asphalt", "concrete", "floor", "bridge"):
         assert 'label.IndexOf("' + surface + '", StringComparison.OrdinalIgnoreCase)' in audio
 
-    # The collision-clamped camera target is always tested once, including
-    # while stationary; the second cast is only necessary while smoothing.
-    # The epsilon is 0.1 mm, far smaller than the camera collision radius.
+    # Sweep the actual interpolated position once. A clear desired orbit
+    # target alone cannot establish clearance through a sharp turn.
     camera = motor[motor.index("private void PlaceCamera(bool instant)"):]
-    first_cast = camera.index("wanted = ObstructionSafe(pivot, wanted);")
     interpolation = camera.index("Vector3 next = instant ? wanted")
-    second_guard = camera.index("if ((next - wanted).sqrMagnitude > 0.00000001f)")
-    second_cast = camera.index("next = ObstructionSafe(pivot, next);")
-    assert first_cast < interpolation < second_guard < second_cast
-    assert camera.count("ObstructionSafe(pivot, next)") == 1
-    assert math.sqrt(0.00000001) <= 0.0001
-    # Stable camera and instant reset skip the duplicate cast; a moving
-    # camera still checks the interpolated position for obstructions.
-    assert not (0.0 > 0.00000001)
-    assert (0.02 * 0.02) > 0.00000001
+    cast = camera.index("next = ObstructionSafe(pivot, next);")
+    assert interpolation < cast < camera.index("UpdatePlayerNearClipVisibility(pivot, next);")
+    assert camera.count("ObstructionSafe(") == 1
     # A suspended Android game can return with a multi-second frame hitch.
     # Bound camera spring integration while keeping explicit instant resets.
     assert ("0.07f, Mathf.Infinity, Mathf.Clamp(Time.deltaTime, 0f, 0.15f));"

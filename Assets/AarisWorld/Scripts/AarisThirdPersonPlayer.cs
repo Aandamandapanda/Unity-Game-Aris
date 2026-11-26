@@ -859,10 +859,12 @@ namespace Aaris.MapReview
             // A 12-cm minimum can place the camera BEHIND a wall whose
             // nearest contact is only a few centimetres from the pivot.
             // Zero is safe: the near-clip player layer already hides itself.
-            float allowed = Physics.SphereCast(pivot, 0.18f, delta / length, out RaycastHit hit,
-                length, WorldMask, QueryTriggerInteraction.Ignore)
-                ? Mathf.Clamp(hit.distance - 0.08f, 0f, length) : length;
-            return pivot + delta / length * allowed;
+            Vector3 direction = delta / length;
+            if (!Physics.SphereCast(pivot, 0.18f, direction, out RaycastHit hit,
+                length, WorldMask, QueryTriggerInteraction.Ignore))
+                return target;
+            float allowed = Mathf.Clamp(hit.distance - 0.08f, 0f, length);
+            return pivot + direction * allowed;
         }
         // Prone/crouched cameras can be forced inside the player's own mesh by
         // nearby terrain or walls. Hide only the local player layer while the
@@ -954,7 +956,6 @@ namespace Aaris.MapReview
             float cameraYaw = yaw + recoilYawOffset;
             Quaternion orbit = Quaternion.Euler(cameraPitch, cameraYaw, 0f);
             Vector3 wanted = pivot - orbit * Vector3.forward * followDistance + orbit * Vector3.right * 0.30f;
-            wanted = ObstructionSafe(pivot, wanted);
             // The follow spring must not integrate a whole multi-second Android
             // app hitch in one rendered frame. Use the same bounded delta as
             // stance/character presentation; instant camera handoffs still
@@ -962,20 +963,13 @@ namespace Aaris.MapReview
             Vector3 next = instant ? wanted : Vector3.SmoothDamp(
                 followCamera.transform.position, wanted, ref cameraVelocity,
                 0.07f, Mathf.Infinity, Mathf.Clamp(Time.deltaTime, 0f, 0.15f));
-            // The target has already passed the first collision sweep. On a
-            // settled camera (or instant reset), casting the same segment again
-            // is redundant. Keep the second sweep during camera interpolation
-            // so a smoothing frame never clips through a nearby obstruction.
-            if ((next - wanted).sqrMagnitude > 0.00000001f)
-            {
-                Vector3 preCollision = next;
-                next = ObstructionSafe(pivot, next);
-                // A spring still carrying velocity through the wall causes
-                // repeated contact pops. Stop it only when a real sweep
-                // corrected the interpolated camera, without an extra cast.
-                if ((next - preCollision).sqrMagnitude > 0.00000001f)
-                    cameraVelocity = Vector3.zero;
-            }
+            // Sweep the position this frame will actually render. A clear
+            // orbit target can still leave the smoothed camera behind a wall
+            // during a turn. A collision also stops the spring pushing into it.
+            Vector3 preCollision = next;
+            next = ObstructionSafe(pivot, next);
+            if ((next - preCollision).sqrMagnitude > 0.00000001f)
+                cameraVelocity = Vector3.zero;
             UpdatePlayerNearClipVisibility(pivot, next);
             followCamera.transform.SetPositionAndRotation(next, Quaternion.LookRotation(pivot + orbit * Vector3.forward * 0.5f - next));
         }

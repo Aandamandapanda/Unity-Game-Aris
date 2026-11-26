@@ -43,7 +43,7 @@ assert "float landingAge = Time.unscaledTime - lastLanding;" in camera
 assert "1.5f, 10f, lastLandingImpactSpeed" in camera
 assert "Mathf.Lerp(0.008f, 0.05f, landingWeight)" in camera
 assert "pivot += Vector3.down * cameraDip;" in camera
-assert camera.count("ObstructionSafe(") == 2
+assert camera.count("ObstructionSafe(") == 1
 
 # Contact from the real CharacterController.Move must win over a predictive
 # probe that says ground is close but has not yet been collided with.

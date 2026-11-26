@@ -79,6 +79,70 @@ namespace Aaris.MapReview.Editor
 
         static float HeadHeight() => rig.GetBoneTransform(HumanBodyBones.Head).position.y - player.transform.position.y;
 
+        static void VerifyCameraClearsTheRenderedPath()
+        {
+            var cameraTransform = player.AimCamera.transform;
+            var capsule = player.GetComponent<CharacterController>();
+            var motor = typeof(AarisThirdPersonPlayer);
+            var place = motor.GetMethod("PlaceCamera", Private);
+            var spring = motor.GetField("cameraVelocity", Private);
+            Vector3 savedPlayerPosition = player.transform.position;
+            Vector3 savedCameraPosition = cameraTransform.position;
+            Quaternion savedCameraRotation = cameraTransform.rotation;
+            var savedSpring = (Vector3)spring.GetValue(player);
+            var wall = new GameObject("Temporary camera clearance wall");
+            wall.SetActive(false);
+            wall.AddComponent<BoxCollider>().size = new Vector3(.5f, 4f, .08f);
+            try
+            {
+                capsule.enabled = false;
+                player.transform.position = new Vector3(1250f, 150f, 1250f);
+                place.Invoke(player, new object[] { true });
+                Vector3 pivot = player.transform.position + Vector3.up * battle.CameraEyeHeight;
+                Vector3 wanted = cameraTransform.position;
+                Vector3 previous = wanted + cameraTransform.right * 7f;
+                Vector3 velocity = Vector3.zero;
+                Vector3 unconstrained = Vector3.SmoothDamp(previous, wanted, ref velocity,
+                    .07f, Mathf.Infinity, Mathf.Clamp(Time.deltaTime, 0f, .15f));
+                Vector3 arc = unconstrained - pivot;
+                wall.transform.SetPositionAndRotation(pivot + arc * .5f,
+                    Quaternion.LookRotation(arc));
+                wall.SetActive(true);
+                Physics.SyncTransforms();
+                Vector3 target = wanted - pivot;
+                Check(!Physics.SphereCast(pivot, .18f, target.normalized, out _,
+                    target.magnitude, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore),
+                    "Desired camera orbit is clear");
+                Check(Physics.SphereCast(pivot, .18f, arc.normalized, out RaycastHit contact,
+                    arc.magnitude, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore) &&
+                    contact.collider.gameObject == wall,
+                    "A wall blocks the intermediate camera position during a turn");
+                cameraTransform.position = previous;
+                spring.SetValue(player, Vector3.zero);
+                place.Invoke(player, new object[] { false });
+                Vector3 safe = pivot + arc.normalized * Mathf.Max(0f, contact.distance - .08f);
+                Check(Vector3.Distance(cameraTransform.position, safe) < .02f &&
+                    (Vector3)spring.GetValue(player) == Vector3.zero,
+                    "Camera sweep clamps the rendered turn and stops the spring");
+
+                wall.transform.SetPositionAndRotation(pivot + target * .5f,
+                    Quaternion.LookRotation(target));
+                Physics.SyncTransforms();
+                place.Invoke(player, new object[] { true });
+                Check(Vector3.Distance(cameraTransform.position, pivot) < target.magnitude * .5f,
+                    "Instant camera handoff stops before the wall");
+            }
+            finally
+            {
+                wall.SetActive(false);
+                Object.Destroy(wall);
+                player.transform.position = savedPlayerPosition;
+                capsule.enabled = true;
+                cameraTransform.SetPositionAndRotation(savedCameraPosition, savedCameraRotation);
+                spring.SetValue(player, savedSpring);
+            }
+        }
+
         static void VerifyStarterLootSelection()
         {
             var inventory = player.GetComponent<AarisWeaponInventory>();
@@ -441,6 +505,7 @@ namespace Aaris.MapReview.Editor
                     feedbackRoot.rect.Contains(popupOrigins[beforePopup % popupOrigins.Length]),
                     "Visible damage popup stays on the HUD when the player turns");
 
+                VerifyCameraClearsTheRenderedPath();
                 Note("PLAY_SMOKE_COMPLETE");
                 Finish(false);
             }

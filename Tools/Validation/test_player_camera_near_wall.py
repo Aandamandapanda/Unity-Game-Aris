@@ -14,7 +14,9 @@ class CameraCollision(unittest.TestCase):
   self.assertNotIn("Mathf.Max(0.12f",method)
   camera=SRC.split("private void PlaceCamera(bool instant)",1)[1].split("private void LateUpdate()",1)[0]
   self.assertIn("next = ObstructionSafe(pivot, next);",camera)
+  self.assertLess(camera.index("Vector3.SmoothDamp("),
+                  camera.index("next = ObstructionSafe(pivot, next);"))
   self.assertIn("if ((next - preCollision).sqrMagnitude > 0.00000001f)",camera)
   self.assertIn("cameraVelocity = Vector3.zero;",camera)
-  self.assertEqual(camera.count("ObstructionSafe(pivot, next)"),1)
+  self.assertEqual(camera.count("ObstructionSafe("),1)
 if __name__=="__main__":unittest.main()
