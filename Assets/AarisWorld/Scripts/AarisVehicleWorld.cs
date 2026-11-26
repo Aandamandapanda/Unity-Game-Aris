@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading;
 using UnityEngine;
 using Unity.Profiling;
 
@@ -243,6 +244,21 @@ namespace Aaris.MapReview
         // low-RAM phones never stack six vehicle bodies in one memory spike.
         private int maxConcurrentAuthoredLoads = 2;
 
+        // Unity 6 can prepare one immutable vehicle body away from the actual
+        // 105 m visibility transition. The clone stays under an inactive root,
+        // so this changes neither visible car count nor physics. Full parked-car
+        // reuse still wins; this only removes the cold hierarchy clone from the
+        // common pool-miss spawn frame on constrained Android devices.
+        private const float PreparedBodyLifetimeSeconds = 12f;
+        private const float AsyncVehicleIntegrationBudgetMs = 1f;
+        private AsyncInstantiateOperation<GameObject> preparedBodyOperation;
+        private GameObject preparedBodyClone, preparedBodySource;
+        private GameObject preparedBodyStagingRoot;
+        private float preparedBodyExpiresAt;
+        private float previousAsyncInstantiateIntegrationMs;
+        private bool asyncInstantiateBudgetOverridden;
+        internal int AsyncPreparedBodyStarts { get; private set; }
+        internal int AsyncPreparedBodyConsumes { get; private set; }
 
         // Bounds in VEHICLE-LOCAL coordinates, not Unity Renderer.bounds (which
         // rotates with road heading). A 90-degree parked sedan must not be
@@ -437,6 +453,10 @@ namespace Aaris.MapReview
         {
             if (ActiveWorld == this) ActiveWorld = null;
             Application.lowMemory -= OnLowMemory;
+            // A disabled world cannot pump an operation deliberately waiting
+            // for main-thread integration. Cancel it rather than retaining
+            // hidden native work or a global integration-budget override.
+            ReleasePreparedBodyPreparation(false);
         }
 
         private void OnLowMemory() { lowMemoryPending = true; }
@@ -1831,6 +1851,262 @@ namespace Aaris.MapReview
                 "; using verified local car and wheels for future spawns.");
         }
 
+        private bool HasReusableParkedVehicle(AarisVehicleType type,
+            GameObject source, GameObject wheels, float now)
+        {
+            for (int i = parkedCache.Count - 1; i >= 0; i--)
+            {
+                ParkedVehicle parked = parkedCache[i];
+                if (parked.motor != null && parked.expiresAt > now &&
+                    ReferenceEquals(parked.type, type) &&
+                    parked.body == source && parked.wheels == wheels)
+                    return true;
+            }
+            return false;
+        }
+
+        private void EnsurePreparedBodyStagingRoot()
+        {
+            if (preparedBodyStagingRoot != null) return;
+            preparedBodyStagingRoot = new GameObject("Aaris Async Vehicle Body Staging");
+            preparedBodyStagingRoot.transform.SetParent(transform, false);
+            // Parent inactivity prevents rendering, collisions, animation and
+            // OnEnable while Unity prepares this exact authored body.
+            preparedBodyStagingRoot.SetActive(false);
+        }
+
+        private void ApplyAsyncInstantiateIntegrationBudget()
+        {
+            if (asyncInstantiateBudgetOverridden) return;
+            float current = AsyncInstantiateOperation.GetIntegrationTimeMS();
+            if (!(current > AsyncVehicleIntegrationBudgetMs)) return;
+            previousAsyncInstantiateIntegrationMs = current;
+            AsyncInstantiateOperation.SetIntegrationTimeMS(
+                AsyncVehicleIntegrationBudgetMs);
+            asyncInstantiateBudgetOverridden = true;
+        }
+
+        private void RestoreAsyncInstantiateIntegrationBudget()
+        {
+            if (!asyncInstantiateBudgetOverridden) return;
+            // Respect a different runtime controller if it changed the global
+            // value after this request was admitted.
+            float current = AsyncInstantiateOperation.GetIntegrationTimeMS();
+            if (Mathf.Approximately(current, AsyncVehicleIntegrationBudgetMs))
+                AsyncInstantiateOperation.SetIntegrationTimeMS(
+                    previousAsyncInstantiateIntegrationMs);
+            asyncInstantiateBudgetOverridden = false;
+        }
+
+        private bool StartPreparedBodyClone(int typeIndex, float now)
+        {
+            // Reuse the existing low-memory cooldown: after Android reports
+            // pressure, do not recreate hidden speculative geometry for 60 s.
+            // Visible/required vehicles still use the ordinary spawn path.
+            if (now < parkedCacheAllowedAt ||
+                preparedBodyOperation != null || preparedBodyClone != null ||
+                typeIndex < 0 || typeIndex >= vehicleTypes.Length ||
+                !authoredBodyResolved[typeIndex])
+                return false;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // This hidden clone is always optional. Under severe thermal
+            // pressure save CPU/native-memory headroom for the required visible
+            // spawn path instead of doing speculative hierarchy preparation.
+            if (AarisAndroidThermalGovernor.SuspendSpeculativePrefetch)
+                return false;
+#endif
+
+            GameObject source = prefabs[typeIndex];
+            GameObject wheels = wheelPrefabs[typeIndex];
+            AarisVehicleType type = vehicleTypes[typeIndex];
+            if (source == null || wheels == null || type == null ||
+                HasReusableParkedVehicle(type, source, wheels, now))
+                return false;
+
+            // Snapshot creation is optional native work too. Use the existing
+            // global admission slot so prewarm cannot create a new hitch.
+            if (!AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild())
+                return false;
+
+            EnsurePreparedBodyStagingRoot();
+            var parameters = new InstantiateParameters
+            {
+                parent = preparedBodyStagingRoot.transform,
+                worldSpace = false,
+                // These Resources prefabs are immutable source assets here;
+                // Unity 6 can therefore serialize the snapshot asynchronously.
+                originalImmutable = true
+            };
+            try
+            {
+                ApplyAsyncInstantiateIntegrationBudget();
+                preparedBodyOperation = UnityEngine.Object.InstantiateAsync(
+                    source, parameters, CancellationToken.None);
+                preparedBodyOperation.priority = -1;
+                preparedBodyOperation.allowSceneActivation = false;
+                preparedBodySource = source;
+                preparedBodyExpiresAt = now + PreparedBodyLifetimeSeconds;
+                AsyncPreparedBodyStarts++;
+                return true;
+            }
+            catch (Exception e)
+            {
+                preparedBodyOperation = null;
+                preparedBodySource = null;
+                RestoreAsyncInstantiateIntegrationBudget();
+                if (Debug.isDebugBuild)
+                    Debug.LogWarning("Aaris vehicles: async body prepare skipped (" +
+                        e.GetType().Name + ").");
+                return false;
+            }
+        }
+
+        private void PumpPreparedBodyClone(float now)
+        {
+            if (preparedBodyClone != null)
+            {
+                if (now >= preparedBodyExpiresAt)
+                    ReleasePreparedBodyPreparation(true);
+                return;
+            }
+
+            AsyncInstantiateOperation<GameObject> operation = preparedBodyOperation;
+            if (operation == null) return;
+            if (now >= preparedBodyExpiresAt)
+            {
+                ReleasePreparedBodyPreparation(true);
+                return;
+            }
+
+            if (!operation.isDone)
+            {
+                if (operation.IsWaitingForSceneActivation() &&
+                    AarisMobileStreamingFrameGate.TryClaimOptionalModelBuild())
+                {
+                    // Final object integration/Awake runs only after a later
+                    // clean rendered-frame admission.
+                    operation.allowSceneActivation = true;
+                }
+                return;
+            }
+
+            RestoreAsyncInstantiateIntegrationBudget();
+            preparedBodyOperation = null;
+            GameObject[] result = operation.Result;
+            GameObject ready = result != null && result.Length > 0 ? result[0] : null;
+            if (result != null)
+            {
+                for (int i = 1; i < result.Length; i++)
+                    if (result[i] != null) Destroy(result[i]);
+            }
+            if (ready == null)
+            {
+                preparedBodySource = null;
+                return;
+            }
+            preparedBodyClone = ready;
+            preparedBodyExpiresAt = now + PreparedBodyLifetimeSeconds;
+        }
+
+        private void ReleasePreparedBodyPreparation(bool reserveTeardownFrame)
+        {
+            AsyncInstantiateOperation<GameObject> operation = preparedBodyOperation;
+            preparedBodyOperation = null;
+            if (operation != null)
+            {
+                if (!operation.isDone)
+                    operation.Cancel();
+                else
+                {
+                    GameObject[] result = operation.Result;
+                    if (result != null)
+                        for (int i = 0; i < result.Length; i++)
+                            if (result[i] != null) Destroy(result[i]);
+                }
+            }
+            if (preparedBodyClone != null)
+                Destroy(preparedBodyClone);
+            preparedBodyClone = null;
+            preparedBodySource = null;
+            preparedBodyExpiresAt = 0f;
+            RestoreAsyncInstantiateIntegrationBudget();
+            if (reserveTeardownFrame)
+                AarisMobileStreamingFrameGate.ReserveNativeTeardownFrame();
+        }
+
+        private bool TryConsumePreparedBody(GameObject source, Transform parent,
+            out GameObject clone)
+        {
+            clone = null;
+            if (preparedBodyClone == null || source == null ||
+                preparedBodySource != source)
+                return false;
+            clone = preparedBodyClone;
+            preparedBodyClone = null;
+            preparedBodySource = null;
+            preparedBodyExpiresAt = 0f;
+            // Reparent(false) keeps the same local transform contract as the
+            // synchronous Instantiate(source, root.transform, false) fallback.
+            clone.transform.SetParent(parent, false);
+            AsyncPreparedBodyConsumes++;
+            return true;
+        }
+
+        private int FindPreparedBodyType(Vector3 position,
+            Vector3 predictedPosition, float now)
+        {
+            if (preparedBodyOperation != null || preparedBodyClone != null)
+                return -1;
+
+            int bestType = -1;
+            float bestDistanceSq = AuthoredPrewarmRadius * AuthoredPrewarmRadius;
+            for (int i = 0; i < plans.Count; i++)
+            {
+                AarisVehicleRecord record = plans[i];
+                if (record.visible != null) continue;
+                int typeIndex = TypeIndex(record.type);
+                if (typeIndex < 0 || !authoredBodyResolved[typeIndex] ||
+                    prefabs[typeIndex] == null || wheelPrefabs[typeIndex] == null)
+                    continue;
+                float distanceSq = (record.position - position).sqrMagnitude;
+                if (distanceSq > bestDistanceSq ||
+                    HasReusableParkedVehicle(record.type, prefabs[typeIndex],
+                        wheelPrefabs[typeIndex], now))
+                    continue;
+                bestDistanceSq = distanceSq;
+                bestType = typeIndex;
+            }
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // Prediction prepares only an invisible clone. Real position still
+            // exclusively controls spawning/physics; thermal pressure disables
+            // this speculative branch.
+            if (bestType < 0 && predictedPosition != position &&
+                !AarisAndroidThermalGovernor.SuspendSpeculativePrefetch)
+            {
+                float predictedBestSq =
+                    AuthoredPrewarmRadius * AuthoredPrewarmRadius;
+                for (int i = 0; i < plans.Count; i++)
+                {
+                    AarisVehicleRecord record = plans[i];
+                    if (record.visible != null) continue;
+                    int typeIndex = TypeIndex(record.type);
+                    if (typeIndex < 0 || !authoredBodyResolved[typeIndex] ||
+                        prefabs[typeIndex] == null || wheelPrefabs[typeIndex] == null)
+                        continue;
+                    float distanceSq =
+                        (record.position - predictedPosition).sqrMagnitude;
+                    if (distanceSq > predictedBestSq ||
+                        HasReusableParkedVehicle(record.type, prefabs[typeIndex],
+                            wheelPrefabs[typeIndex], now))
+                        continue;
+                    predictedBestSq = distanceSq;
+                    bestType = typeIndex;
+                }
+            }
+#endif
+            return bestType;
+        }
+
         private bool Build(AarisVehicleRecord record, Vector3 pos)
         {
             int typeIndex = TypeIndex(record.type);
@@ -1845,7 +2121,9 @@ namespace Aaris.MapReview
             var root = new GameObject("Aaris Vehicle " + record.type.id + " " + record.point.id);
             root.transform.SetParent(transform, false);
             root.transform.SetPositionAndRotation(pos, record.rotation);
-            var mesh = Instantiate(source, root.transform, false);
+            GameObject mesh;
+            if (!TryConsumePreparedBody(source, root.transform, out mesh))
+                mesh = Instantiate(source, root.transform, false);
             mesh.name = record.type.preserveAuthoredUrpMaterials ||
                 record.type.useEmbeddedAuthoredWheels ||
                 record.type.convertAuthoredBodyMaterials
@@ -2156,7 +2434,15 @@ namespace Aaris.MapReview
             {
                 parkedCacheAllowedAt = now + 60f;
                 lowMemoryPending = false;
+                // Critical memory beats speculative smoothness. Remove/cancel
+                // only the one hidden prepared body; visible cars and original
+                // source assets are untouched.
+                ReleasePreparedBodyPreparation(true);
+                return;
             }
+            // Constant-time operation-state check: final clone integration can
+            // use the first clean rendered frame instead of waiting 300 ms.
+            PumpPreparedBodyClone(now);
             if (parkedCache.Count > 0 && (now < parkedCacheAllowedAt ||
                 parkedCache[0].expiresAt <= now))
             {
@@ -2281,6 +2567,15 @@ namespace Aaris.MapReview
             }
 #endif
             if (closestType >= 0) StartAuthoredBodyPrewarm(closestType);
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (AarisMobileStreamingFrameGate.IsConstrainedDevice())
+            {
+                int preparedType = FindPreparedBodyType(
+                    playerPosition, predictedPrewarmPosition, now);
+                if (preparedType >= 0)
+                    StartPreparedBodyClone(preparedType, now);
+            }
+#endif
 
             // The catalog is in match plan order, NOT player distance order.
             // On a low-end phone with a two-build budget, always give the
@@ -2419,6 +2714,7 @@ namespace Aaris.MapReview
 
         private void OnDestroy()
         {
+            ReleasePreparedBodyPreparation(false);
             if (paletteMaterial != null) Destroy(paletteMaterial);
             if (wheelPaletteMaterial != null) Destroy(wheelPaletteMaterial);
             if (headlampGlassMaterial != null) Destroy(headlampGlassMaterial);
