@@ -28,7 +28,7 @@ class PlayerStreamerLifecycle(unittest.TestCase):
             self.assertIn("footMotor.enabled = false;", code)
             self.assertIn("footMotor.enabled = true;", code)
         self.assertIn("footMotor.ResetCameraAfterVehicle();", vehicle)
-        self.assertIn("footMotor.ResumeFromAerialDrop();", drop)
+        self.assertIn("footMotor.ResumeFromAerialDrop(impactSpeed);", drop)
 
     def test_target_destruction_restores_original_colliders(self):
         update = STREAMER[STREAMER.index("private void Update()"):

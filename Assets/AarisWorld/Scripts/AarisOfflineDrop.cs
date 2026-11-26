@@ -648,6 +648,9 @@ namespace Aaris.MapReview
             else
                 transform.SetPositionAndRotation(preFlightGroundPosition, cachedPlayerRotation);
             capsule.enabled = true;
+            // Recovery teleports to a safe position, so there is no impact
+            // to pass through to the on-foot landing animation.
+            downwardSpeed = 0f;
             Land();
             if (hasNearbyShore)
                 Debug.Log("AARIS_DROP_OCEAN_RECOVERY_NEAR_SHORE: safe coastal landing.");
@@ -971,7 +974,9 @@ namespace Aaris.MapReview
                 // Aerial orbit uses -pitch; the grounded orbit uses +pitch.
                 // Convert the sign once to keep the same look direction.
                 footMotor.PrepareAerialCameraHandoff(yaw, -pitch);
-                footMotor.ResumeFromAerialDrop();
+                float impactSpeed = phase == DropPhase.Landing
+                    ? Mathf.Max(0f, -downwardSpeed) : 0f;
+                footMotor.ResumeFromAerialDrop(impactSpeed);
                 footMotor.enabled = true;
             }
         }

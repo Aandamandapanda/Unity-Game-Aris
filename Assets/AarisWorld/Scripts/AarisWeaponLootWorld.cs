@@ -1151,6 +1151,9 @@ namespace Aaris.MapReview
             return record == null || Time.unscaledTime < record.blockedUntil;
         }
 
+        private bool IsInitialAutoPickupCandidate(AarisWeaponPickup pickup) =>
+            pickup.CandidateIndex >= 0 || pickup.CandidateIndex == starterLootId;
+
         private bool TryTake(AarisWeaponPickup pickup)
         {
             if (!HasLandingAuthority || Time.timeScale <= 0f ||
@@ -1292,23 +1295,19 @@ namespace Aaris.MapReview
                 nextRefresh = now + .33f;
                 streamFramesRemaining = RefreshPickups(playerPosition, now) ? 0 : StreamFramesPerRefresh;
             }
-            if (streamFramesRemaining == 0)
+            if (streamFramesRemaining > 0)
             {
-                // A busy nearby streamer may repeatedly exhaust its bounded
-                // build budget. Keep the fallback reachable after landing
-                // without running extra physics queries on every mobile frame.
-                if (!starterLootSettled && now >= nextStarterRetryAt)
-                {
-                    nextStarterRetryAt = now + 0.5f;
-                    EnsureStarterLoot(playerPosition);
-                }
-                return;
+                streamFramesRemaining--;
+                if (StreamNearby(playerPosition, now)) return;
+                streamFramesRemaining = 0;
             }
 
-            streamFramesRemaining--;
-            if (!StreamNearby(playerPosition, now))
+            // Both an empty stream window and the end of a streaming batch
+            // share one retry clock. Blocked landing spots can require many
+            // floor probes, so never retry immediately on the following frame.
+            if (!starterLootSettled && HasLandingAuthority && now >= nextStarterRetryAt)
             {
-                streamFramesRemaining = 0;
+                nextStarterRetryAt = now + 0.5f;
                 EnsureStarterLoot(playerPosition);
             }
         }
@@ -1319,9 +1318,14 @@ namespace Aaris.MapReview
             float pickupSquared = PickupDistance * PickupDistance;
             bool mayPickup = HasLandingAuthority && Time.timeScale > 0f &&
                 inventory != null && inventory.isActiveAndEnabled;
-            bool explicitPickup = mayPickup && now <= requestPickupUntil;
+            bool explicitPickup = mayPickup && requestPickupUntil > 0f &&
+                now <= requestPickupUntil;
+            bool automaticPickup = mayPickup && !explicitPickup &&
+                !inventory.HasAnyGun && allowInitialAutoPickup;
             AarisWeaponPickup bestPickup = null;
+            AarisWeaponPickup bestAutomaticPickup = null;
             float bestDistance = pickupSquared;
+            float bestAutomaticDistance = pickupSquared;
             int unloaded = 0;
 
             // Unload far visuals, never their planned match state.
@@ -1359,18 +1363,27 @@ namespace Aaris.MapReview
                     unloaded++;
                     continue;
                 }
-                if (mayPickup && d2 <= bestDistance &&
-                    !IsBlockedDrop(pickup) && CanReachPickup(pickup))
+                // Dropped weapons can be manually picked up, but a nearer
+                // drop should never hide eligible authored loot from auto-pickup.
+                bool nearest = mayPickup && d2 <= bestDistance;
+                bool nearestAutomatic = automaticPickup &&
+                    d2 <= bestAutomaticDistance && IsInitialAutoPickupCandidate(pickup);
+                if ((!nearest && !nearestAutomatic) || IsBlockedDrop(pickup) ||
+                    !CanReachPickup(pickup)) continue;
+                if (nearest)
                 {
                     bestPickup = pickup;
                     bestDistance = d2;
                 }
+                if (nearestAutomatic)
+                {
+                    bestAutomaticPickup = pickup;
+                    bestAutomaticDistance = d2;
+                }
             }
             HasPickupInRange = mayPickup && bestPickup != null;
-            return HasPickupInRange &&
-                (explicitPickup || (!inventory.HasAnyGun && allowInitialAutoPickup &&
-                    (bestPickup.CandidateIndex >= 0 ||
-                     bestPickup.CandidateIndex == starterLootId))) && TryTake(bestPickup);
+            AarisWeaponPickup selected = explicitPickup ? bestPickup : bestAutomaticPickup;
+            return selected != null && TryTake(selected);
         }
 
         private bool StreamNearby(Vector3 playerPosition, float now)
@@ -1533,7 +1546,8 @@ namespace Aaris.MapReview
             for (int i = 0; i < active.Count; i++)
             {
                 var pickup = active[i];
-                if (pickup == null || IsBlockedDrop(pickup) ||
+                if (pickup == null || !IsInitialAutoPickupCandidate(pickup) ||
+                    IsBlockedDrop(pickup) ||
                     (pickup.transform.position - playerPosition).sqrMagnitude > PickupDistance * PickupDistance ||
                     !CanReachPickup(pickup))
                     continue;

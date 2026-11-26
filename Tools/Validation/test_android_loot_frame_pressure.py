@@ -75,8 +75,12 @@ class AndroidLootFramePressureTests(unittest.TestCase):
             "private bool RefreshPickups(", 1
         )[0]
         self.assertIn("RefreshPickups(playerPosition, now)", update)
-        self.assertIn("EnsureStarterLoot(playerPosition);", update)
-        self.assertIn("if (!starterLootSettled && now >= nextStarterRetryAt)", update)
+        self.assertEqual(update.count("EnsureStarterLoot(playerPosition);"), 1)
+        self.assertIn("if (!starterLootSettled && HasLandingAuthority && now >= nextStarterRetryAt)", update)
+        self.assertLess(update.index("if (StreamNearby(playerPosition, now)) return;"),
+                        update.index("nextStarterRetryAt = now + 0.5f;"))
+        self.assertLess(update.index("nextStarterRetryAt = now + 0.5f;"),
+                        update.index("EnsureStarterLoot(playerPosition);"))
 
     def test_simulated_streaming_does_not_starve_under_sustained_pressure(self):
         rng = random.Random(20261119)

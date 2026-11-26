@@ -2740,9 +2740,15 @@ namespace Aaris.MapReview
                 float startWeight = airborneBlend > 0.02f && takeoffAge >= 0f &&
                     takeoffAge < 0.23f
                     ? Mathf.Clamp01((0.23f - takeoffAge) / 0.14f) : 0f;
+                float touchdownSpeed = playerMotor != null
+                    ? playerMotor.LastLandingImpactSpeed : 0f;
+                float touchdownStrength = Mathf.InverseLerp(1.5f, 6.5f, touchdownSpeed);
+                // Blend knee compression into contact and scale it by actual
+                // descent speed. Brief terrain recontacts should stay subtle.
                 float landWeight = controller.isGrounded && touchdownAge >= 0f &&
                     touchdownAge < 0.28f
-                    ? Mathf.Clamp01((0.28f - touchdownAge) / 0.18f) : 0f;
+                    ? touchdownStrength * Mathf.Min(Mathf.Clamp01(touchdownAge / 0.055f),
+                        Mathf.Clamp01((0.28f - touchdownAge) / 0.18f)) : 0f;
                 float lastPunchAge = actions != null ? Time.time - actions.LastPunchTime : 10f;
                 float lastShootAge = actions != null ? Time.time - actions.LastShootTime : 10f;
                 float punchDuration = AarisBattleActions.PunchVisualDuration;

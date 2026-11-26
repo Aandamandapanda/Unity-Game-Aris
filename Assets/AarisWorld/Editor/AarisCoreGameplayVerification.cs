@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Linq;
@@ -77,6 +78,68 @@ namespace Aaris.MapReview.Editor
         }
 
         static float HeadHeight() => rig.GetBoneTransform(HumanBodyBones.Head).position.y - player.transform.position.y;
+
+        static void VerifyStarterLootSelection()
+        {
+            var inventory = player.GetComponent<AarisWeaponInventory>();
+            Check(inventory != null && !inventory.HasAnyGun, "Pickup test starts unarmed");
+            var fixture = new GameObject("Temporary pickup selection check");
+            try
+            {
+                var world = fixture.AddComponent<AarisWeaponLootWorld>();
+                var worldType = typeof(AarisWeaponLootWorld);
+                worldType.GetField("inventory", Private).SetValue(world, inventory);
+                worldType.GetField("player", Private).SetValue(world, player.transform);
+                worldType.GetField("consumed", Private).SetValue(world, new bool[2]);
+                var active = (List<AarisWeaponPickup>)worldType.GetField("active", Private).GetValue(world);
+                var drop = new AarisWeaponState(AarisWeaponCatalog.Get("SMG"), 1u);
+                var authored = new AarisWeaponState(AarisWeaponCatalog.Get("AssaultRifle"), 2u);
+                Vector3 origin = player.transform.position;
+                Vector3 direction = Vector3.zero;
+                var canReach = worldType.GetMethod("CanReachPoint", Private);
+                bool Reach(Vector3 point) => (bool)canReach.Invoke(world, new object[] { point });
+                for (int i = 0; i < 8; i++)
+                {
+                    Vector3 candidate = Quaternion.Euler(0f, i * 45f, 0f) * Vector3.forward;
+                    if (!Reach(origin + candidate) || !Reach(origin + candidate * 1.8f)) continue;
+                    direction = candidate;
+                    break;
+                }
+                Check(direction != Vector3.zero, "Two ground weapons can be reached from the test position");
+                var nearerDrop = worldType.GetMethod("CreateDropped", Private).Invoke(world,
+                    new object[] { drop, origin + direction, 0f, false });
+                Check(nearerDrop != null && active.Count == 1, "Real dropped weapon is within reach");
+                var droppedPickup = active[0];
+                AarisWeaponPickup AddAuthoredPickup(int index)
+                {
+                    var item = new GameObject("Authored loot check");
+                    item.transform.SetParent(fixture.transform, false);
+                    item.transform.position = origin + direction * 1.8f;
+                    var pickup = item.AddComponent<AarisWeaponPickup>();
+                    Check(pickup.Initialize(authored, index), "Authored floor weapon model loads");
+                    active.Add(pickup);
+                    return pickup;
+                }
+                bool Refresh() => (bool)worldType.GetMethod("RefreshPickups", Private)
+                    .Invoke(world, new object[] { origin, Time.unscaledTime });
+
+                var automatic = AddAuthoredPickup(0);
+                Physics.SyncTransforms();
+                Check(Refresh() && automatic.IsConsumed && !droppedPickup.IsConsumed,
+                    "Initial auto-pickup selects reachable authored loot past a nearer manual drop");
+                var otherAuthored = AddAuthoredPickup(1);
+                world.RequestPickup();
+                Check(Refresh() && droppedPickup.IsConsumed && !otherAuthored.IsConsumed && inventory.HasStowedGun,
+                    "Explicit PICK takes the nearer dropped weapon and stows the first gun");
+            }
+            finally
+            {
+                inventory.TryRemove(out _);
+                inventory.TryRemove(out _);
+                fixture.SetActive(false);
+                Object.Destroy(fixture);
+            }
+        }
 
         static void Tick()
         {
@@ -188,8 +251,17 @@ namespace Aaris.MapReview.Editor
                 TickAudio();
                 Check(drop.IsUnderCanopy && Cue("parachute_open") && Cue("canopy_glide_loop"),
                     "Parachute opening starts the local deployment cue and canopy loop");
-                player.transform.position = new Vector3(SessionState.GetFloat(Session + "X", 0), SessionState.GetFloat(Session + "Y", 0), SessionState.GetFloat(Session + "Z", 0));
-                typeof(AarisOfflineDrop).GetMethod("Land", Private).Invoke(drop, null);
+                Vector3 dropFloor = new Vector3(SessionState.GetFloat(Session + "X", 0),
+                    SessionState.GetFloat(Session + "Y", 0), SessionState.GetFloat(Session + "Z", 0));
+                player.transform.position = dropFloor + Vector3.up * 0.2f;
+                const float descentSpeed = 9.5f;
+                typeof(AarisOfflineDrop).GetField("downwardSpeed", Private).SetValue(drop, -descentSpeed);
+                typeof(AarisOfflineDrop).GetField("horizontalVelocity", Private).SetValue(drop, Vector3.zero);
+                Physics.SyncTransforms();
+                typeof(AarisOfflineDrop).GetMethod("MoveAirborne", Private).Invoke(drop, new object[] { 0.10f });
+                Check(drop.HasLanded && player.isActiveAndEnabled &&
+                    Mathf.Approximately(player.LastLandingImpactSpeed, descentSpeed),
+                    "Real parachute contact transfers descent speed to the on-foot landing");
                 TickAudio();
                 Check(Cue("parachute_land"), "Parachute touchdown emits its cue");
                 foreach (var source in sources)
@@ -236,6 +308,7 @@ namespace Aaris.MapReview.Editor
                 Physics.SyncTransforms();
                 Check(capsule != null && capsule.enabled && capsule.isGrounded,
                     "Player is physically grounded before stance pose checks");
+                VerifyStarterLootSelection();
                 // Stance geometry is a settled-pose assertion, not a landing
                 // transition assertion. Expire the one-shot motor edges so the
                 // 280 ms touchdown playable cannot mask crouch/prone weights.

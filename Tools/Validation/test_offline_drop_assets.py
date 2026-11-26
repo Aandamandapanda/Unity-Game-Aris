@@ -852,7 +852,7 @@ class OfflineCombatAssetChecks(unittest.TestCase):
             ]
         }
         self.assertIn("ResumeFromAerialDrop()", contents["AarisThirdPersonPlayer.cs"])
-        self.assertIn("footMotor.ResumeFromAerialDrop()", contents["AarisOfflineDrop.cs"])
+        self.assertIn("footMotor.ResumeFromAerialDrop(impactSpeed)", contents["AarisOfflineDrop.cs"])
         self.assertIn("CollisionFlags.Below", contents["AarisOfflineDrop.cs"])
         self.assertIn("Terrain.activeTerrains", contents["AarisOfflineDrop.cs"])
         self.assertIn("IAarisDamageable", contents["AarisEquippedGun.cs"])

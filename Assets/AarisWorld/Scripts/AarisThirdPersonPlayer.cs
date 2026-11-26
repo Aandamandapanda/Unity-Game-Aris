@@ -998,7 +998,9 @@ namespace Aaris.MapReview
             hasPendingAerialLook = true;
         }
 
-        public void ResumeFromAerialDrop()
+        public void ResumeFromAerialDrop() => ResumeFromAerialDrop(0f);
+
+        internal void ResumeFromAerialDrop(float landingImpactSpeed)
         {
             if (controller == null) controller = GetComponent<CharacterController>();
             if (controller == null) return;
@@ -1010,9 +1012,11 @@ namespace Aaris.MapReview
             spawnRotation = transform.rotation;
             horizontalVelocity = Vector3.zero;
             verticalVelocity = -groundedDownVelocity;
-            lastGrounded = Time.unscaledTime;
-            lastLanding = Time.unscaledTime;
-            lastLandingImpactSpeed = 0f;
+            lastPhysicalGroundContact = lastGrounded = Time.unscaledTime;
+            // Keep the air motor's impact through the first grounded Move,
+            // which usually reports a much slower support recontact.
+            lastLanding = landingImpactSpeed > 0f ? lastGrounded : -10f;
+            lastLandingImpactSpeed = landingImpactSpeed;
             lastJumpStarted = jumpUntil = -10f;
             travelSpeed = gait = 0f;
             legacyIdlePoseApplied = false;
@@ -1052,8 +1056,8 @@ namespace Aaris.MapReview
             // has verified a real floor and enabled the CharacterController.
             horizontalVelocity = Vector3.zero;
             verticalVelocity = -groundedDownVelocity;
-            lastGrounded = Time.unscaledTime;
-            lastLanding = Time.unscaledTime;
+            lastPhysicalGroundContact = lastGrounded = Time.unscaledTime;
+            lastLanding = -10f;
             lastLandingImpactSpeed = 0f;
             lastJumpStarted = jumpUntil = -10f;
             travelSpeed = gait = 0f;

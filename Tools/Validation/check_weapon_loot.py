@@ -437,7 +437,8 @@ def run():
     assert "MaximumDroppedLoot = 320" in world
     assert "rec.visible = null;" in world and "record.state" in world
     # Deliberate exchange, never auto-pick a recently dropped gun.
-    assert "(!inventory.HasAnyGun && allowInitialAutoPickup &&" in world
+    assert "!inventory.HasAnyGun && allowInitialAutoPickup;" in world
+    assert "explicitPickup ? bestPickup : bestAutomaticPickup" in world
     assert "requestPickupUntil = Time.unscaledTime + 1.5f;" in world
     assert "nextRefresh = 0f;" in world
     assert "allowInitialAutoPickup = false;" in world
@@ -447,6 +448,7 @@ def run():
     # can strand a fast-moving player unarmed between streaming polls.
     starter = world.split("private void EnsureStarterLoot(Vector3 playerPosition)", 1)[1]
     starter = starter.split("private bool IsCurrentlyActive", 1)[0]
+    assert "!IsInitialAutoPickupCandidate(pickup)" in starter
     assert "if (TryTake(pickup))" in starter
     assert "foreach (var pickup in active)" not in starter
     assert "starterLootSettled = true;" in starter

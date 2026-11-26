@@ -21,12 +21,21 @@ assert "float preSupportFallSpeed = Mathf.Max(0f, -verticalVelocity);" in motor
 assert "lastLandingImpactSpeed = Mathf.Max(preSupportFallSpeed," in motor
 # Sample actual falling velocity BEFORE a speculative ground probe suppresses it.
 assert motor.index("float preSupportFallSpeed =") < motor.index("wasGrounded = HasWalkableGroundWithinStep();")
-assert motor.count("lastLandingImpactSpeed = 0f;") == 3
+assert "public void ResumeFromAerialDrop() => ResumeFromAerialDrop(0f);" in motor
+assert "lastLanding = landingImpactSpeed > 0f ? lastGrounded : -10f;" in motor
+assert "lastLandingImpactSpeed = landingImpactSpeed;" in motor
+assert motor.count("lastLandingImpactSpeed = 0f;") == 2
 assert "if (!wasGrounded && !launchJump) lastLanding = now;" not in motor
 assert "if ((flags & CollisionFlags.Below) != 0)" in motor
 assert "if (player.LastLandingTime > previousLand &&" in audio
 assert "Time.unscaledTime - playerMotor.LastLandingTime" in visual
 assert "jumpLandPlayable.SetTime(0d);" in visual
+assert "Mathf.InverseLerp(1.5f, 6.5f, touchdownSpeed)" in visual
+assert "touchdownAge / 0.055f" in visual
+drop = (ROOT / "Assets/AarisWorld/Scripts/AarisOfflineDrop.cs").read_text("utf-8")
+recovery = drop.split("private void RecoverFromOceanFall()", 1)[1].split(
+    "private bool TryFindNearbyShore", 1)[0]
+assert recovery.index("downwardSpeed = 0f;") < recovery.index("Land();")
 # Third-person landing weight is presentation-only: reuse the motor's real
 # touchdown event, keep the compression tiny, and add no camera physics query.
 camera = motor[motor.index("private void PlaceCamera(bool instant)"):]

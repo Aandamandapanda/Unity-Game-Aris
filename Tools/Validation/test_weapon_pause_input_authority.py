@@ -150,9 +150,10 @@ class OfflineWeaponPauseAndLandingAuthority(unittest.TestCase):
         # Near-ground prestream still works; only interaction is gated.
         refresh = section(LOOT, "private bool RefreshPickups(", "private bool StreamNearby(")
         self.assertIn("bool mayPickup = HasLandingAuthority && Time.timeScale > 0f", refresh)
-        self.assertIn("if (mayPickup && d2 <= bestDistance", refresh)
+        self.assertIn("bool nearest = mayPickup && d2 <= bestDistance;", refresh)
+        self.assertIn("bool automaticPickup = mayPickup && !explicitPickup &&", refresh)
         self.assertIn("HasPickupInRange = mayPickup && bestPickup != null;", refresh)
-        self.assertIn("return HasPickupInRange &&", refresh)
+        self.assertIn("return selected != null && TryTake(selected);", refresh)
         take = section(LOOT, "private bool TryTake(", "private void Update()")
         self.assertLess(take.index("!HasLandingAuthority"), take.index("pickup.TryReserve()"))
 
